@@ -4,187 +4,129 @@ import GestioneInsegnanti from './components/GestioneInsegnanti';
 import ModaleInsegnante from './components/ModaleInsegnante';
 import GestioneStudenti from './components/GestioneStudenti';
 import ModaleStudente from './components/ModaleStudente';
+import PlanningCalendario from './components/PlanningCalendario';
+import ModaleLezione from './components/ModaleLezione';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('insegnanti');
+  const [activeTab, setActiveTab] = useState('planning');
   const [searchQuery, setSearchQuery] = useState('');
 
   // ---------- STATO INSEGNANTI ----------
   const [insegnanti, setInsegnanti] = useState([
-    {
-      id: 'ins_1',
-      nome: 'Helena',
-      cognome: 'Capocasa',
-      telefono: '3405762809',
-      email: 'capocasa.helena@gmail.com',
-      materia: 'Tedesco/Italiano/Matematica',
-      colore: '#3b82f6',
-      attivo: true,
-      gdprConfermato: false
-    },
-    {
-      id: 'ins_2',
-      nome: 'Maria',
-      cognome: 'Piemontese',
-      telefono: '',
-      email: '',
-      materia: 'Lingue',
-      colore: '#10b981',
-      attivo: true,
-      gdprConfermato: false
-    }
+    { id: 'ins_1', nome: 'Helena', cognome: 'Capocasa', telefono: '3405762809', email: 'capocasa.helena@gmail.com', materia: 'Tedesco/Italiano', colore: '#3b82f6', attivo: true },
+    { id: 'ins_2', nome: 'Maria', cognome: 'Piemontese', telefono: '', email: '', materia: 'Lingue', colore: '#10b981', attivo: true }
   ]);
-
   const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
   const [editingInsegnante, setEditingInsegnante] = useState(null);
-  const [insegnanteForm, setInsegnanteForm] = useState({
-    nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6'
-  });
+  const [insegnanteForm, setInsegnanteForm] = useState({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' });
 
   const handleOpenInsegnanteModal = (ins = null) => {
-    if (ins) {
-      setEditingInsegnante(ins.id);
-      setInsegnanteForm({
-        nome: ins.nome,
-        cognome: ins.cognome,
-        telefono: ins.telefono,
-        email: ins.email,
-        materia: ins.materia,
-        colore: ins.colore || '#3b82f6'
-      });
-    } else {
-      setEditingInsegnante(null);
-      setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' });
-    }
+    if (ins) { setEditingInsegnante(ins.id); setInsegnanteForm({ ...ins }); }
+    else { setEditingInsegnante(null); setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' }); }
     setShowInsegnanteModal(true);
   };
 
   const handleSaveInsegnante = (e) => {
     e.preventDefault();
     if (!insegnanteForm.nome || !insegnanteForm.cognome) return;
-
     if (editingInsegnante) {
-      setInsegnanti(insegnanti.map(ins => ins.id === editingInsegnante ? {
-        ...ins,
-        ...insegnanteForm
-      } : ins));
+      setInsegnanti(insegnanti.map(ins => ins.id === editingInsegnante ? { ...ins, ...insegnanteForm } : ins));
     } else {
-      const newIns = {
-        id: `ins_${Date.now()}`,
-        ...insegnanteForm,
-        attivo: true,
-        gdprConfermato: false
-      };
-      setInsegnanti([...insegnanti, newIns]);
+      setInsegnanti([...insegnanti, { id: `ins_${Date.now()}`, ...insegnanteForm, attivo: true }]);
     }
-
     setShowInsegnanteModal(false);
   };
 
-  const handleDeleteInsegnante = (id) => {
-    if (window.confirm("Sei sicuro di voler eliminare questo insegnante dall'anagrafica?")) {
-      setInsegnanti(insegnanti.filter(ins => ins.id !== id));
-    }
-  };
-
-  const toggleInsegnanteStato = (id) => {
-    setInsegnanti(insegnanti.map(ins => ins.id === id ? { ...ins, attivo: !ins.attivo } : ins));
-  };
-
-  // ---------- STATO STUDENTI & GENITORI ----------
-  const [studenti, setStudenti] = useState([]);
+  // ---------- STATO STUDENTI ----------
+  const [studenti, setStudenti] = useState([
+    { id: 'std_1', nome: 'Marco', cognome: 'Rossi', scuola: 'Liceo', isMinorenne: true, genitoreNome: 'Giuseppe Rossi', genitoreEmail: 'giuseppe@gmail.com', attivo: true },
+    { id: 'std_2', nome: 'Sofia', cognome: 'Bianchi', scuola: 'Media', isMinorenne: true, genitoreNome: 'Laura Bianchi', genitoreEmail: 'laura@gmail.com', attivo: true }
+  ]);
   const [showStudenteModal, setShowStudenteModal] = useState(false);
   const [editingStudente, setEditingStudente] = useState(null);
-  const [studenteForm, setStudenteForm] = useState({
-    nome: '',
-    cognome: '',
-    dataNascita: '',
-    scuola: '',
-    telefono: '',
-    email: '',
-    isMinorenne: true,
-    genitoreNome: '',
-    genitoreTelefono: '',
-    genitoreEmail: '',
-    genitoreCodiceFiscale: '',
-    note: ''
-  });
+  const [studenteForm, setStudenteForm] = useState({ nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', isMinorenne: true, genitoreNome: '', genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' });
 
   const handleOpenStudenteModal = (std = null) => {
-    if (std) {
-      setEditingStudente(std.id);
-      setStudenteForm({ ...std });
-    } else {
-      setEditingStudente(null);
-      setStudenteForm({
-        nome: '',
-        cognome: '',
-        dataNascita: '',
-        scuola: '',
-        telefono: '',
-        email: '',
-        isMinorenne: true,
-        genitoreNome: '',
-        genitoreTelefono: '',
-        genitoreEmail: '',
-        genitoreCodiceFiscale: '',
-        note: ''
-      });
-    }
+    if (std) { setEditingStudente(std.id); setStudenteForm({ ...std }); }
+    else { setEditingStudente(null); setStudenteForm({ nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', isMinorenne: true, genitoreNome: '', genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' }); }
     setShowStudenteModal(true);
   };
 
   const handleSaveStudente = (e) => {
     e.preventDefault();
     if (!studenteForm.nome || !studenteForm.cognome) return;
-
     if (editingStudente) {
-      setStudenti(studenti.map(s => s.id === editingStudente ? {
-        ...s,
-        ...studenteForm
-      } : s));
+      setStudenti(studenti.map(s => s.id === editingStudente ? { ...s, ...studenteForm } : s));
     } else {
-      const newStudente = {
-        id: `std_${Date.now()}`,
-        ...studenteForm,
-        attivo: true,
-        gdprConfermato: false
-      };
-      setStudenti([...studenti, newStudente]);
+      setStudenti([...studenti, { id: `std_${Date.now()}`, ...studenteForm, attivo: true }]);
     }
-
     setShowStudenteModal(false);
   };
 
-  const handleDeleteStudente = (id) => {
-    if (window.confirm("Sei sicuro di voler eliminare questo studente dall'anagrafica?")) {
-      setStudenti(studenti.filter(s => s.id !== id));
+  // ---------- STATO LEZIONI / PLANNING ----------
+  const [lezioni, setLezioni] = useState([
+    { id: 'lez_1', data: new Date().toISOString().split('T')[0], insegnanteId: 'ins_1', isGruppo: false, studentiIds: ['std_1'], materia: 'Tedesco', oraInizio: '15:00', oraFine: '16:00' }
+  ]);
+  const [showLezioneModal, setShowLezioneModal] = useState(false);
+
+  const handleSaveLezione = (formData, isPinAuthorized = false) => {
+    const dataOggi = new Date().toISOString().split('T')[0];
+
+    // Verifica Sovrapposizione
+    if (!formData.isGruppo && !isPinAuthorized) {
+      const sovrapposizione = lezioni.some(l => 
+        l.data === dataOggi &&
+        l.insegnanteId === formData.insegnanteId &&
+        !l.isGruppo &&
+        ((formData.oraInizio >= l.oraInizio && formData.oraInizio < l.oraFine) ||
+         (formData.oraFine > l.oraInizio && formData.oraFine <= l.oraFine))
+      );
+
+      if (sovrapposizione) {
+        return false; // Richiede sblocco tramite PIN
+      }
     }
+
+    const nuovaLezione = {
+      id: `lez_${Date.now()}`,
+      data: dataOggi,
+      ...formData
+    };
+
+    setLezioni([...lezioni, nuovaLezione]);
+    setShowLezioneModal(false);
+    return true;
   };
 
-  const toggleStudenteStato = (id) => {
-    setStudenti(studenti.map(s => s.id === id ? { ...s, attivo: !s.attivo } : s));
+  const handleDeleteLezione = (id) => {
+    if (window.confirm('Vuoi davvero cancellare questa lezione dal planning?')) {
+      setLezioni(lezioni.filter(l => l.id !== id));
+    }
   };
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
-      {/* Sidebar Laterale */}
-      <Sidebar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-      />
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
 
-      {/* Area Principale dei Contenuti */}
       <main className="flex-1 overflow-auto bg-gray-50/50">
+        {activeTab === 'planning' && (
+          <PlanningCalendario
+            insegnanti={insegnanti}
+            studenti={studenti}
+            lezioni={lezioni}
+            onSaveLezione={handleSaveLezione}
+            onDeleteLezione={handleDeleteLezione}
+            onOpenModal={() => setShowLezioneModal(true)}
+          />
+        )}
+
         {activeTab === 'insegnanti' && (
           <GestioneInsegnanti
             insegnanti={insegnanti}
             searchQuery={searchQuery}
             onOpenModal={handleOpenInsegnanteModal}
-            onToggleStato={toggleInsegnanteStato}
-            onDelete={handleDeleteInsegnante}
+            onToggleStato={(id) => setInsegnanti(insegnanti.map(ins => ins.id === id ? { ...ins, attivo: !ins.attivo } : ins))}
+            onDelete={(id) => setInsegnanti(insegnanti.filter(ins => ins.id !== id))}
           />
         )}
 
@@ -193,25 +135,12 @@ export default function App() {
             studenti={studenti}
             searchQuery={searchQuery}
             onOpenModal={handleOpenStudenteModal}
-            onToggleStato={toggleStudenteStato}
-            onDelete={handleDeleteStudente}
+            onToggleStato={(id) => setStudenti(studenti.map(s => s.id === id ? { ...s, attivo: !s.attivo } : s))}
+            onDelete={(id) => setStudenti(studenti.filter(s => s.id !== id))}
           />
-        )}
-
-        {activeTab === 'planning' && (
-          <div className="p-8 text-center text-gray-500 font-bold">
-            Sezione Planning
-          </div>
-        )}
-
-        {activeTab === 'cassa' && (
-          <div className="p-8 text-center text-gray-500 font-bold">
-            Sezione Cassa & Presenze
-          </div>
         )}
       </main>
 
-      {/* Modale Insegnante */}
       <ModaleInsegnante
         isOpen={showInsegnanteModal}
         onClose={() => setShowInsegnanteModal(false)}
@@ -221,7 +150,6 @@ export default function App() {
         isEditing={Boolean(editingInsegnante)}
       />
 
-      {/* Modale Studente */}
       <ModaleStudente
         isOpen={showStudenteModal}
         onClose={() => setShowStudenteModal(false)}
@@ -229,6 +157,14 @@ export default function App() {
         formData={studenteForm}
         setFormData={setStudenteForm}
         isEditing={Boolean(editingStudente)}
+      />
+
+      <ModaleLezione
+        isOpen={showLezioneModal}
+        onClose={() => setShowLezioneModal(false)}
+        onSave={handleSaveLezione}
+        insegnanti={insegnanti}
+        studenti={studenti}
       />
     </div>
   );
