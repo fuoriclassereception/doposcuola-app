@@ -1,53 +1,60 @@
 import React, { useState, useMemo } from 'react';
 import { 
-  Search, Calendar, Users, CreditCard, ChevronLeft, ChevronRight, 
-  Plus, X, UserPlus, UserCheck, Clock, Phone, Mail, GraduationCap, Edit, Trash2
+  Search, Calendar, CreditCard, ChevronLeft, ChevronRight, 
+  Plus, X, UserPlus, Phone, Mail, GraduationCap, Edit, Trash2, CheckCircle2, AlertCircle
 } from 'lucide-react';
 
 export default function App() {
-  // --- STATI PRINCIPALI ---
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [activeTab, setActiveTab] = useState('planning'); // 'planning' | 'insegnanti' | 'cassa'
-  const [viewMode, setViewMode] = useState('giornaliera'); // 'giornaliera' | 'settimanale'
+  const [activeTab, setActiveTab] = useState('planning'); 
+  const [viewMode, setViewMode] = useState('giornaliera'); 
   const [searchQuery, setSearchQuery] = useState('');
 
-  // --- MODULO 1: ANAGRAFICA INSEGNANTI / OPERATORI ---
+  // --- MODULO 1: ANAGRAFICA INSEGNANTI COMPLETA ---
   const [insegnanti, setInsegnanti] = useState([
-    { id: 'ins_1', nome: 'Marco', cognome: 'Bianchi', telefono: '333 1112233', email: 'marco.bianchi@email.it', materia: 'Pianoforte', colore: 'bg-blue-100 border-blue-300 text-blue-900', attivo: true },
-    { id: 'ins_2', nome: 'Laura', cognome: 'Rossi', telefono: '340 5556677', email: 'laura.rossi@email.it', materia: 'Canto', colore: 'bg-emerald-100 border-emerald-300 text-emerald-900', attivo: true }
+    { 
+      id: 'ins_1', 
+      nome: 'Marco', 
+      cognome: 'Bianchi', 
+      telefono: '333 1112233', 
+      email: 'marco.bianchi@email.it', 
+      materia: 'Pianoforte', 
+      colore: 'bg-blue-500', 
+      attivo: true,
+      gdprConfermato: true 
+    },
+    { 
+      id: 'ins_2', 
+      nome: 'Laura', 
+      cognome: 'Rossi', 
+      telefono: '340 5556677', 
+      email: 'laura.rossi@email.it', 
+      materia: 'Canto', 
+      colore: 'bg-emerald-500', 
+      attivo: true,
+      gdprConfermato: false 
+    }
   ]);
 
-  // Stato Form Insegnante
   const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
   const [editingInsegnante, setEditingInsegnante] = useState(null);
   const [insegnanteForm, setInsegnanteForm] = useState({
-    nome: '', cognome: '', telefono: '', email: '', materia: ''
+    nome: '', cognome: '', telefono: '', email: '', materia: '', colore: 'bg-indigo-500'
   });
 
-  // Disponibilità insegnanti per la data corrente: { "2026-09-24": ["ins_1", "ins_2"] }
   const [disponibilitaInsegnanti, setDisponibilitaInsegnanti] = useState({});
 
-  // Database Allievi / Genitori
-  const [genitori, setGenitori] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [showFastAnagrafica, setShowFastAnagrafica] = useState(false);
-
-  // Form Anagrafica Veloce Allievo
-  const [newStudent, setNewStudent] = useState({
-    nome: '', cognome: '', email: '', telefono: '', note: '',
-    genitoreId: '', creaNuovoGenitore: false, genitoreNome: '', genitoreEmail: '', genitoreTelefono: ''
-  });
-
-  // Palette colori automatica per nuovi insegnanti
-  const colorPalette = [
-    'bg-purple-100 border-purple-300 text-purple-900',
-    'bg-amber-100 border-amber-300 text-amber-900',
-    'bg-rose-100 border-rose-300 text-rose-900',
-    'bg-cyan-100 border-cyan-300 text-cyan-900',
-    'bg-indigo-100 border-indigo-300 text-indigo-900'
+  // Palette Colori per Insegnanti
+  const colorOptions = [
+    { label: 'Blu', class: 'bg-blue-500' },
+    { label: 'Verde', class: 'bg-emerald-500' },
+    { label: 'Viola', class: 'bg-purple-500' },
+    { label: 'Ambra', class: 'bg-amber-500' },
+    { label: 'Rosso', class: 'bg-rose-500' },
+    { label: 'Ciano', class: 'bg-cyan-500' }
   ];
 
-  // --- LOGICA GESTIONE INSEGNANTI ---
+  // Gestione Form Insegnante
   const handleOpenInsegnanteModal = (ins = null) => {
     if (ins) {
       setEditingInsegnante(ins.id);
@@ -56,11 +63,12 @@ export default function App() {
         cognome: ins.cognome,
         telefono: ins.telefono,
         email: ins.email,
-        materia: ins.materia
+        materia: ins.materia,
+        colore: ins.colore || 'bg-indigo-500'
       });
     } else {
       setEditingInsegnante(null);
-      setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '' });
+      setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: 'bg-indigo-500' });
     }
     setShowInsegnanteModal(true);
   };
@@ -78,21 +86,26 @@ export default function App() {
       const newIns = {
         id: `ins_${Date.now()}`,
         ...insegnanteForm,
-        colore: colorPalette[insegnanti.length % colorPalette.length],
-        attivo: true
+        attivo: true,
+        gdprConfermato: false // Di default in attesa di conferma dall'App
       };
       setInsegnanti([...insegnanti, newIns]);
     }
 
     setShowInsegnanteModal(false);
-    setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '' });
+  };
+
+  const handleDeleteInsegnante = (id) => {
+    if (window.confirm("Sei sicuro di voler eliminare questo insegnante dall'anagrafica?")) {
+      setInsegnanti(insegnanti.filter(ins => ins.id !== id));
+    }
   };
 
   const toggleInsegnanteStato = (id) => {
     setInsegnanti(insegnanti.map(ins => ins.id === id ? { ...ins, attivo: !ins.attivo } : ins));
   };
 
-  // --- NAVIGAZIONE DATE E DISPONIBILITÀ ---
+  // Navigazione e Date Planning
   const handleDateNavigate = (direction) => {
     const d = new Date(selectedDate);
     const step = viewMode === 'settimanale' ? 7 : 1;
@@ -114,27 +127,19 @@ export default function App() {
     });
   }, [selectedDate]);
 
-  // Insegnanti attivi nel planning per la data selezionata
   const activeInsegnantiIdsForDate = useMemo(() => {
     if (disponibilitaInsegnanti[selectedDate]) {
       return disponibilitaInsegnanti[selectedDate];
     }
-    // Default: tutti gli insegnanti con stato attivo
     return insegnanti.filter(i => i.attivo).map(i => i.id);
   }, [disponibilitaInsegnanti, selectedDate, insegnanti]);
 
   const toggleInsegnanteForDate = (insId) => {
     const currentActive = activeInsegnantiIdsForDate;
-    let updated;
-    if (currentActive.includes(insId)) {
-      updated = currentActive.filter(id => id !== insId);
-    } else {
-      updated = [...currentActive, insId];
-    }
-    setDisponibilitaInsegnanti({
-      ...disponibilitaInsegnanti,
-      [selectedDate]: updated
-    });
+    const updated = currentActive.includes(insId)
+      ? currentActive.filter(id => id !== insId)
+      : [...currentActive, insId];
+    setDisponibilitaInsegnanti({ ...disponibilitaInsegnanti, [selectedDate]: updated });
   };
 
   const hoursRange = Array.from({ length: 14 }).map((_, i) => 8 + i);
@@ -154,44 +159,24 @@ export default function App() {
           </div>
         </div>
 
-        {/* Ricerca generica */}
         <div className="p-3 border-b border-gray-100 bg-gray-50">
           <div className="relative">
             <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
             <input
               type="text"
-              placeholder="Cerca allievo o docente..."
+              placeholder="Cerca docente o allievo..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-indigo-600"
             />
           </div>
         </div>
-
-        {/* Lista Allievi veloce */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">Archivio Allievi</p>
-          {customers
-            .filter(c => c.nome.toLowerCase().includes(searchQuery.toLowerCase()))
-            .map(cli => (
-              <div key={cli.id} className="p-3 rounded-xl border border-gray-100 bg-white hover:border-indigo-400 cursor-pointer">
-                <p className="font-bold text-gray-900 text-xs">{cli.nome}</p>
-                {cli.telefono && <p className="text-[11px] text-gray-400 mt-0.5 flex items-center"><Phone className="w-3 h-3 mr-1"/>{cli.telefono}</p>}
-              </div>
-            ))}
-          {customers.length === 0 && (
-            <div className="text-center py-6 text-gray-400">
-              <Users className="w-6 h-6 mx-auto mb-1 opacity-30"/>
-              <p className="text-xs">Nessun allievo presente.</p>
-            </div>
-          )}
-        </div>
       </aside>
 
       {/* AREA PRINCIPALE */}
       <main className="flex-1 flex flex-col min-w-0 bg-white">
         
-        {/* TOP BAR / MENU PRINCIPALE */}
+        {/* TOP BAR / NAVIGATION */}
         <header className="h-16 border-b border-gray-200 px-6 flex items-center justify-between bg-white shadow-sm">
           <div className="flex items-center space-x-2">
             <button
@@ -247,7 +232,7 @@ export default function App() {
           )}
         </header>
 
-        {/* BARRA DATA E CONTROLLI (VISIBILE SOLO NEL PLANNING) */}
+        {/* CONTROLLI DATA NEL PLANNING */}
         {activeTab === 'planning' && (
           <div className="px-6 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
             <div className="flex items-center space-x-3">
@@ -275,10 +260,10 @@ export default function App() {
               </span>
             </div>
 
-            {/* SELEZIONE RAPIDA INSEGNANTI SUL PLANNING GIORNALIERO */}
+            {/* ABILITAZIONE GIORNALIERA INSEGNANTI */}
             {viewMode === 'giornaliera' && (
               <div className="flex items-center space-x-2">
-                <span className="text-[11px] font-bold text-gray-500 uppercase">Insegnanti nel giorno:</span>
+                <span className="text-[11px] font-bold text-gray-500 uppercase">Docenti nel giorno:</span>
                 <div className="flex items-center space-x-1">
                   {insegnanti.filter(i => i.attivo).map(ins => {
                     const isActive = activeInsegnantiIdsForDate.includes(ins.id);
@@ -286,13 +271,14 @@ export default function App() {
                       <button
                         key={ins.id}
                         onClick={() => toggleInsegnanteForDate(ins.id)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border flex items-center space-x-1.5 ${
                           isActive 
-                            ? `${ins.colore} shadow-sm` 
+                            ? 'bg-white border-gray-300 text-gray-900 shadow-sm' 
                             : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'
                         }`}
                       >
-                        {ins.nome} {ins.cognome[0]}.
+                        <span className={`w-2 h-2 rounded-full ${ins.colore}`}></span>
+                        <span>{ins.nome} {ins.cognome[0]}.</span>
                       </button>
                     );
                   })}
@@ -302,15 +288,15 @@ export default function App() {
           </div>
         )}
 
-        {/* CONTENUTO IN BASE AL TAB SELEZIONATO */}
+        {/* VISTE PRINCIPALI */}
         <div className="flex-1 overflow-auto bg-gray-50/50">
           
-          {/* TAB 1: PLANNING */}
+          {/* TAB PLANNING */}
           {activeTab === 'planning' && (
             <div className="h-full flex flex-col min-w-[800px]">
               {viewMode === 'giornaliera' && (
                 <div className="flex-1 flex flex-col">
-                  {/* HEADER INSEGNANTI */}
+                  {/* HEADER COLONNE */}
                   <div className="flex border-b border-gray-200 bg-white sticky top-0 z-10 shadow-sm">
                     <div className="w-20 min-w-[80px] p-3 text-center border-r border-gray-200 font-extrabold text-xs text-gray-400 uppercase bg-gray-50">
                       Ora
@@ -319,15 +305,18 @@ export default function App() {
                       .filter(ins => ins.attivo && activeInsegnantiIdsForDate.includes(ins.id))
                       .map(ins => (
                         <div key={ins.id} className="flex-1 p-3 border-r border-gray-200 text-center bg-white">
-                          <p className="font-extrabold text-sm text-gray-900">{ins.nome} {ins.cognome}</p>
-                          <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100 mt-1 inline-block">
+                          <div className="flex items-center justify-center space-x-1.5">
+                            <span className={`w-2.5 h-2.5 rounded-full ${ins.colore}`}></span>
+                            <p className="font-extrabold text-sm text-gray-900">{ins.nome} {ins.cognome}</p>
+                          </div>
+                          <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200 mt-1 inline-block">
                             {ins.materia}
                           </span>
                         </div>
                       ))}
                     {activeInsegnantiIdsForDate.length === 0 && (
                       <div className="flex-1 p-4 text-center text-xs text-gray-400 italic">
-                        Nessun insegnante abilitato per questa data. Attivali in alto a destra.
+                        Nessun insegnante abilitato per questa data.
                       </div>
                     )}
                   </div>
@@ -347,7 +336,7 @@ export default function App() {
                               className="flex-1 border-r border-gray-200 p-2 hover:bg-indigo-50/30 transition-colors cursor-pointer group flex flex-col justify-center"
                             >
                               <span className="hidden group-hover:block text-[10px] text-indigo-400 font-bold text-center">
-                                + Assegna lezioni
+                                + Prenota
                               </span>
                             </div>
                           ))}
@@ -376,13 +365,13 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB 2: MODULO ANAGRAFICA INSEGNANTI (COMPLETA) */}
+          {/* TAB MODULO INSEGNANTI */}
           {activeTab === 'insegnanti' && (
             <div className="max-w-5xl mx-auto p-6 space-y-6">
               <div className="flex justify-between items-center bg-white p-6 rounded-3xl border border-gray-200 shadow-sm">
                 <div>
-                  <h2 className="text-xl font-black text-gray-900 tracking-tight">Gestione Insegnanti & Operatori</h2>
-                  <p className="text-xs text-gray-500 mt-1">Anagrafica dei docenti abilitati alle lezioni e alla presenza nel planning</p>
+                  <h2 className="text-xl font-black text-gray-900 tracking-tight">Anagrafica Insegnanti</h2>
+                  <p className="text-xs text-gray-500 mt-1">Gestione completa dei docenti, materie e stato attivazione</p>
                 </div>
                 <button
                   onClick={() => handleOpenInsegnanteModal()}
@@ -393,62 +382,84 @@ export default function App() {
                 </button>
               </div>
 
-              {/* GRIGLIA CARDS INSEGNANTI */}
+              {/* LISTA INSEGNANTI */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {insegnanti.map((ins) => (
-                  <div key={ins.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
-                    <div>
-                      <div className="flex justify-between items-start mb-3">
-                        <div className="flex items-center space-x-3">
-                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm border ${ins.colore}`}>
-                            {ins.nome[0]}{ins.cognome[0]}
+                {insegnanti
+                  .filter(i => `${i.nome} ${i.cognome} ${i.materia}`.toLowerCase().includes(searchQuery.toLowerCase()))
+                  .map((ins) => (
+                    <div key={ins.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-white text-sm shadow-sm ${ins.colore}`}>
+                              {ins.nome[0]}{ins.cognome[0]}
+                            </div>
+                            <div>
+                              <h3 className="font-extrabold text-base text-gray-900">{ins.nome} {ins.cognome}</h3>
+                              <span className="text-xs font-bold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">
+                                {ins.materia || 'Materia non specificata'}
+                              </span>
+                            </div>
                           </div>
-                          <div>
-                            <h3 className="font-extrabold text-base text-gray-900">{ins.nome} {ins.cognome}</h3>
-                            <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
-                              {ins.materia || 'Materia non specificata'}
-                            </span>
+                          
+                          <button
+                            onClick={() => toggleInsegnanteStato(ins.id)}
+                            className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
+                              ins.attivo 
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
+                                : 'bg-gray-100 text-gray-400 border-gray-200'
+                            }`}
+                          >
+                            {ins.attivo ? 'Attivo' : 'Inattivo'}
+                          </button>
+                        </div>
+
+                        {/* INFO E STATO GDPR */}
+                        <div className="space-y-1.5 pt-3 border-t border-gray-100 text-xs text-gray-600">
+                          <div className="flex items-center space-x-2">
+                            <Phone className="w-3.5 h-3.5 text-gray-400"/>
+                            <span>{ins.telefono || 'Telefono non inserito'}</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Mail className="w-3.5 h-3.5 text-gray-400"/>
+                            <span>{ins.email || 'Email non inserita'}</span>
+                          </div>
+
+                          <div className="pt-2 flex items-center space-x-1.5 text-[11px]">
+                            {ins.gdprConfermato ? (
+                              <span className="text-emerald-700 font-bold flex items-center">
+                                <CheckCircle2 className="w-3.5 h-3.5 mr-1 text-emerald-600"/> GDPR Confermato da App
+                              </span>
+                            ) : (
+                              <span className="text-amber-600 font-medium flex items-center">
+                                <AlertCircle className="w-3.5 h-3.5 mr-1 text-amber-500"/> GDPR In attesa di conferma dall'App
+                              </span>
+                            )}
                           </div>
                         </div>
+                      </div>
+
+                      {/* PULSANTI AZIONE */}
+                      <div className="pt-4 mt-4 border-t border-gray-100 flex justify-end space-x-2">
                         <button
-                          onClick={() => toggleInsegnanteStato(ins.id)}
-                          className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
-                            ins.attivo 
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200' 
-                              : 'bg-gray-100 text-gray-400 border-gray-200'
-                          }`}
+                          onClick={() => handleDeleteInsegnante(ins.id)}
+                          className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold px-2.5 border border-rose-200 flex items-center"
                         >
-                          {ins.attivo ? 'Attivo' : 'Inattivo'}
+                          <Trash2 className="w-3.5 h-3.5 mr-1"/> Elimina
+                        </button>
+                        <button
+                          onClick={() => handleOpenInsegnanteModal(ins)}
+                          className="p-1.5 text-gray-700 hover:bg-gray-100 rounded-lg text-xs font-bold px-3 border border-gray-200 flex items-center"
+                        >
+                          <Edit className="w-3.5 h-3.5 mr-1"/> Modifica
                         </button>
                       </div>
-
-                      <div className="space-y-1.5 pt-2 border-t border-gray-100 text-xs text-gray-600">
-                        <div className="flex items-center space-x-2">
-                          <Phone className="w-3.5 h-3.5 text-gray-400"/>
-                          <span>{ins.telefono || 'Telefono non inserito'}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Mail className="w-3.5 h-3.5 text-gray-400"/>
-                          <span>{ins.email || 'Email non inserita'}</span>
-                        </div>
-                      </div>
                     </div>
-
-                    <div className="pt-4 mt-4 border-t border-gray-100 flex justify-end space-x-2">
-                      <button
-                        onClick={() => handleOpenInsegnanteModal(ins)}
-                        className="p-1.5 text-gray-500 hover:text-indigo-900 hover:bg-gray-100 rounded-lg flex items-center text-xs font-bold px-3 border border-gray-200"
-                      >
-                        <Edit className="w-3.5 h-3.5 mr-1"/> Modifica
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
           )}
 
-          {/* TAB 3: CASSA */}
           {activeTab === 'cassa' && (
             <div className="p-6 max-w-4xl mx-auto">
               <h2 className="text-xl font-bold">Registro Cassa e Presenze</h2>
@@ -458,7 +469,7 @@ export default function App() {
         </div>
       </main>
 
-      {/* MODALE CREAZIONE / MODIFICA INSEGNANTE */}
+      {/* MODALE NUOVO/MODIFICA INSEGNANTE */}
       {showInsegnanteModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100">
@@ -502,7 +513,7 @@ export default function App() {
                 <input
                   type="text"
                   required
-                  placeholder="Es. Pianoforte, Canto, Chitarra..."
+                  placeholder="Es. Pianoforte, Canto..."
                   value={insegnanteForm.materia}
                   onChange={(e) => setInsegnanteForm({ ...insegnanteForm, materia: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-600"
@@ -529,6 +540,21 @@ export default function App() {
                     onChange={(e) => setInsegnanteForm({ ...insegnanteForm, email: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-600"
                   />
+                </div>
+              </div>
+
+              {/* SCELTA COLORE */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Colore Calendario</label>
+                <div className="flex space-x-2">
+                  {colorOptions.map((c) => (
+                    <button
+                      key={c.class}
+                      type="button"
+                      onClick={() => setInsegnanteForm({ ...insegnanteForm, colore: c.class })}
+                      className={`w-6 h-6 rounded-full ${c.class} ${insegnanteForm.colore === c.class ? 'ring-2 ring-offset-2 ring-indigo-950' : 'opacity-70'}`}
+                    />
+                  ))}
                 </div>
               </div>
 
