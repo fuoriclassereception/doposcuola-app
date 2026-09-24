@@ -4,10 +4,10 @@ import GestioneInsegnanti from './components/GestioneInsegnanti';
 import ModaleInsegnante from './components/ModaleInsegnante';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('insegnanti'); // 'planning' | 'insegnanti' | 'studenti' | 'cassa'
+  const [activeTab, setActiveTab] = useState('insegnanti');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Stato Anagrafica Insegnanti
+  // Nessun dato di prova: lista insegnanti parte con i dati reali dell'anagrafica
   const [insegnanti, setInsegnanti] = useState([
     {
       id: 'ins_1',
@@ -16,18 +16,18 @@ export default function App() {
       telefono: '3405762809',
       email: 'capocasa.helena@gmail.com',
       materia: 'Tedesco/Italiano/Matematica',
-      colore: 'bg-blue-500',
+      colore: '#3b82f6',
       attivo: true,
-      gdprConfermato: true
+      gdprConfermato: false
     },
     {
       id: 'ins_2',
       nome: 'Maria',
       cognome: 'Piemontese',
-      telefono: '333 1122334',
-      email: 'maria.p@gmail.com',
+      telefono: '',
+      email: '',
       materia: 'Lingue',
-      colore: 'bg-emerald-500',
+      colore: '#10b981',
       attivo: true,
       gdprConfermato: false
     }
@@ -36,17 +36,8 @@ export default function App() {
   const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
   const [editingInsegnante, setEditingInsegnante] = useState(null);
   const [insegnanteForm, setInsegnanteForm] = useState({
-    nome: '', cognome: '', telefono: '', email: '', materia: '', colore: 'bg-indigo-500'
+    nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6'
   });
-
-  const colorOptions = [
-    { label: 'Blu', class: 'bg-blue-500' },
-    { label: 'Verde', class: 'bg-emerald-500' },
-    { label: 'Viola', class: 'bg-purple-500' },
-    { label: 'Ambra', class: 'bg-amber-500' },
-    { label: 'Rosso', class: 'bg-rose-500' },
-    { label: 'Ciano', class: 'bg-cyan-500' }
-  ];
 
   const handleOpenInsegnanteModal = (ins = null) => {
     if (ins) {
@@ -57,11 +48,11 @@ export default function App() {
         telefono: ins.telefono,
         email: ins.email,
         materia: ins.materia,
-        colore: ins.colore || 'bg-indigo-500'
+        colore: ins.colore || '#3b82f6'
       });
     } else {
       setEditingInsegnante(null);
-      setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: 'bg-indigo-500' });
+      setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' });
     }
     setShowInsegnanteModal(true);
   };
@@ -80,7 +71,7 @@ export default function App() {
         id: `ins_${Date.now()}`,
         ...insegnanteForm,
         attivo: true,
-        gdprConfermato: false
+        gdprConfermato: false // Di default il GDPR parte da confermare fino ad azione reale
       };
       setInsegnanti([...insegnanti, newIns]);
     }
@@ -100,7 +91,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
-      {/* Sidebar Laterale con Voci di Menu a Sinistra */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -108,7 +98,6 @@ export default function App() {
         setSearchQuery={setSearchQuery}
       />
 
-      {/* Contenuto Principale */}
       <main className="flex-1 overflow-auto bg-gray-50/50">
         {activeTab === 'insegnanti' && (
           <GestioneInsegnanti
@@ -122,13 +111,13 @@ export default function App() {
 
         {activeTab === 'planning' && (
           <div className="p-8 text-center text-gray-500 font-bold">
-            Sezione Planning (In sviluppo nel prossimo modulo)
+            Sezione Planning
           </div>
         )}
 
         {activeTab === 'studenti' && (
           <div className="p-8 text-center text-gray-500 font-bold">
-            Sezione Anagrafica Studenti (Pronta per il Modulo 2)
+            Sezione Anagrafica Studenti
           </div>
         )}
 
@@ -139,7 +128,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Modale Insegnante */}
       <ModaleInsegnante
         isOpen={showInsegnanteModal}
         onClose={() => setShowInsegnanteModal(false)}
@@ -147,7 +135,6 @@ export default function App() {
         formData={insegnanteForm}
         setFormData={setInsegnanteForm}
         isEditing={Boolean(editingInsegnante)}
-        colorOptions={colorOptions}
       />
     </div>
   );
