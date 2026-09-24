@@ -287,6 +287,14 @@ export default function App() {
           lezioni={lezioni}
           onClose={() => setStudenteSelezionatoDettaglio(null)}
           onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
+          onUpdateLezioneStatus={(id, nuovoStato, motivo, tipo) => {
+            setLezioni(prev => prev.map(l => l.id === id ? {
+              ...l,
+              stato: nuovoStato,
+              motivoAnnullamento: motivo,
+              tipoAnnullamento: tipo
+            } : l));
+          }}
         />
       )}
     </div>
