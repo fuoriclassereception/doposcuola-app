@@ -40,9 +40,115 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
     setEditingLezioneId(null);
   };
 
-  // Funzione per stampare il report dello studente
+  // STAMPA PROFESSIONALE DEDICATA (A4)
   const handlePrintReport = () => {
-    window.print();
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) {
+      alert("Abilita i pop-up per stampare il report.");
+      return;
+    }
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="it">
+      <head>
+        <meta charset="UTF-8">
+        <title>Report Studente - ${studente.nome} ${studente.cognome}</title>
+        <style>
+          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #111; margin: 0; padding: 20px; font-size: 13px; line-height: 1.4; }
+          .header { border-bottom: 2px solid #111; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+          .school-title { font-size: 20px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; }
+          .report-subtitle { font-size: 11px; color: #666; text-transform: uppercase; font-weight: bold; }
+          .info-box { background: #f9f9f9; border: 1px solid #ddd; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+          .info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+          .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; text-align: center; }
+          .stat-card { border: 1px solid #ccc; padding: 10px; border-radius: 6px; background: #fff; }
+          .stat-val { font-size: 18px; font-weight: 900; }
+          .stat-lbl { font-size: 10px; text-transform: uppercase; color: #555; font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-size: 12px; }
+          th { background: #f1f1f1; font-weight: bold; text-transform: uppercase; font-size: 10px; }
+          .footer { margin-top: 40px; display: flex; justify-content: space-between; font-size: 11px; color: #555; border-top: 1px solid #ddd; padding-top: 15px; }
+          @media print {
+            body { padding: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div class="school-title">Fuori Classe</div>
+            <div class="report-subtitle">Centro Studi e Doposcuola • Report Situazione Studente</div>
+          </div>
+          <div style="text-align: right; font-size: 11px; color: #555;">
+            Data emissione: ${new Date().toLocaleDateString('it-IT')}
+          </div>
+        </div>
+
+        <div class="info-box">
+          <div class="info-grid">
+            <div><strong>Studente:</strong> ${studente.nome} ${studente.cognome}</div>
+            <div><strong>Data di Nascita:</strong> ${studente.dataNascita || 'N.D.'}</div>
+            <div><strong>Scuola / Classe:</strong> ${studente.scuola || 'N.D.'}</div>
+            <div><strong>Contatto Genitore:</strong> ${studente.genitoreNome || 'N.D.'} (${studente.genitoreEmail || 'N.D.'})</div>
+          </div>
+          ${studente.note ? `<div style="margin-top: 10px; border-top: 1px dashed #ccc; pt-10px;"><strong>Note / Materiali:</strong> ${studente.note}</div>` : ''}
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-val" style="color: #047857;">${svolte.length}</div>
+            <div class="stat-lbl">Lezioni Svolte</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val" style="color: #0369a1;">${inProgramma.length}</div>
+            <div class="stat-lbl">In Programma</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-val" style="color: #b91c1c;">${annullate.length}</div>
+            <div class="stat-lbl">Annullate</div>
+          </div>
+        </div>
+
+        <h3 style="font-size: 14px; border-bottom: 1px solid #111; padding-bottom: 5px; margin-bottom: 10px;">Storico Lezioni</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Orario</th>
+              <th>Materia / Attività</th>
+              <th>Stato</th>
+              <th>Note / Annullamento</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lezioniStudente.length === 0 ? '<tr><td colspan="5" style="text-align: center; color: #777;">Nessuna lezione registrata.</td></tr>' : 
+              lezioniStudente.map(l => `
+                <tr>
+                  <td>${l.data}</td>
+                  <td>${l.oraInizio} -${l.oraFine}</td>
+                  <td><strong>${l.materia || 'Lezione'}</strong></td>
+                  <td>${l.stato === 'svolta' ? 'Svolta' : (!l.stato || l.stato === 'attiva' ? 'In Programma' : 'Annullata')}</td>
+                  <td>${l.motivoAnnullamento || '-'}</td>
+                </tr>
+              `).join('')}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div>Fuori Classe - Gestione Reception</div>
+          <div>Firma Responsabile: ________________________</div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
   };
 
   return (
@@ -52,30 +158,22 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
         {/* Header Studente & Tasto Stampa */}
         <div className="flex justify-between items-start border-b border-gray-100 pb-4">
           <div className="flex items-center space-x-3">
-            <div className="p-3 bg-slate-900 text-amber-400 rounded-2xl print:hidden">
+            <div className="p-3 bg-slate-900 text-amber-400 rounded-2xl">
               <User className="w-6 h-6"/>
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-extrabold text-xl text-slate-900">{studente.nome} {studente.cognome}</h3>
-                <span className="text-[10px] bg-amber-100 text-amber-900 font-black px-2 py-0.5 rounded-md hidden print:inline-block">FUORI CLASSE - REPORT STUDENTE</span>
-              </div>
+              <h3 className="font-extrabold text-xl text-slate-900">{studente.nome} {studente.cognome}</h3>
               <p className="text-xs text-gray-500">
                 Data nascita: <strong className="text-slate-800">{studente.dataNascita || 'N.D.'}</strong> • Scuole: {studente.scuola || 'N.D.'}
               </p>
-              {studente.genitoreNome && (
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Genitore / Contatto: <strong>{studente.genitoreNome}</strong> ({studente.genitoreEmail || 'N.D.'})
-                </p>
-              )}
             </div>
           </div>
 
-          <div className="flex items-center space-x-2 print:hidden">
+          <div className="flex items-center space-x-2">
             <button
               onClick={handlePrintReport}
-              className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-900 font-bold rounded-xl text-xs shadow-sm transition-all"
-              title="Stampa / Esporta PDF"
+              className="flex items-center space-x-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-xl text-xs shadow-sm transition-all"
+              title="Stampa Report A4"
             >
               <Printer className="w-4 h-4"/>
               <span>Stampa Report</span>
@@ -91,7 +189,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </label>
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl flex items-center space-x-3">
-              <CheckCircle className="w-6 h-6 text-emerald-600 shrink-0 print:hidden"/>
+              <CheckCircle className="w-6 h-6 text-emerald-600 shrink-0"/>
               <div>
                 <div className="text-xl font-black text-emerald-950">{svolte.length}</div>
                 <div className="text-[11px] font-bold text-emerald-800">Svolte</div>
@@ -99,7 +197,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
             </div>
 
             <div className="bg-sky-50 border border-sky-200 p-3 rounded-2xl flex items-center space-x-3">
-              <Clock className="w-6 h-6 text-sky-600 shrink-0 print:hidden"/>
+              <Clock className="w-6 h-6 text-sky-600 shrink-0"/>
               <div>
                 <div className="text-xl font-black text-sky-950">{inProgramma.length}</div>
                 <div className="text-[11px] font-bold text-sky-800">In Programma</div>
@@ -107,7 +205,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
             </div>
 
             <div className="bg-slate-100 border border-slate-300 p-3 rounded-2xl flex items-center space-x-3">
-              <AlertOctagon className="w-6 h-6 text-slate-600 shrink-0 print:hidden"/>
+              <AlertOctagon className="w-6 h-6 text-slate-600 shrink-0"/>
               <div>
                 <div className="text-xl font-black text-slate-900">{annullate.length}</div>
                 <div className="text-[11px] font-bold text-slate-700">Annullate</div>
@@ -119,7 +217,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
         {/* Sezione Note / Compiti */}
         <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 space-y-2">
           <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center">
-            <Paperclip className="w-4 h-4 mr-1.5 text-amber-700 print:hidden"/> Note e Materiali Didattici
+            <Paperclip className="w-4 h-4 mr-1.5 text-amber-700"/> Note e Materiali Didattici
           </h4>
           <p className="text-xs text-amber-900 font-medium">
             {studente.note || "Nessun materiale didattico o nota registrata per questo studente."}
@@ -128,7 +226,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
 
         {/* Storico e Gestione Diretta Lezioni */}
         <div className="space-y-3">
-          <div className="flex justify-between items-center print:hidden">
+          <div className="flex justify-between items-center">
             <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Storico e Programmazione</h4>
             
             <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl text-[11px] font-extrabold">
@@ -147,7 +245,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
             </div>
           </div>
 
-          <div className="divide-y divide-gray-100 bg-gray-50/50 rounded-2xl border border-gray-200 max-h-60 overflow-y-auto print:max-h-none print:overflow-visible">
+          <div className="divide-y divide-gray-100 bg-gray-50/50 rounded-2xl border border-gray-200 max-h-60 overflow-y-auto">
             {lezioniFiltrate.length === 0 ? (
               <p className="p-4 text-center text-xs font-bold text-gray-400">Nessuna lezione trovata per questo filtro.</p>
             ) : (
@@ -166,7 +264,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                       {(!l.stato || l.stato === 'attiva') && (
                         <button
                           onClick={() => handleStartEditLezione(l)}
-                          className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1 print:hidden"
+                          className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1"
                         >
                           <ArrowRightLeft className="w-3 h-3"/>
                           <span>Sposta Lezione</span>
@@ -183,9 +281,8 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                     </div>
                   </div>
 
-                  {/* Form inline per lo spostamento diretto dalla scheda studente */}
                   {editingLezioneId === l.id && (
-                    <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl space-y-2 text-xs print:hidden">
+                    <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl space-y-2 text-xs">
                       <div className="grid grid-cols-3 gap-2">
                         <div>
                           <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Nuovo Giorno</label>
@@ -232,7 +329,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </div>
         </div>
 
-        <div className="pt-3 border-t border-gray-100 flex justify-end print:hidden">
+        <div className="pt-3 border-t border-gray-100 flex justify-end">
           <button onClick={onClose} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">
             Chiudi
           </button>
