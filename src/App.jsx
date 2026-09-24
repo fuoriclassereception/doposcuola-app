@@ -46,8 +46,6 @@ export default function App() {
   const [showStudenteModal, setShowStudenteModal] = useState(false);
   const [editingStudente, setEditingStudente] = useState(null);
   const [studenteForm, setStudenteForm] = useState({ nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', isMinorenne: true, genitoreNome: '', genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' });
-  
-  // Stato per visualizzare la scheda di dettaglio/statistiche di uno studente
   const [studenteSelezionatoDettaglio, setStudenteSelezionatoDettaglio] = useState(null);
 
   const handleOpenStudenteModal = (std = null) => {
@@ -66,41 +64,7 @@ export default function App() {
     }
     setShowStudenteModal(false);
   };
-const handleUpdateLezioneCompleta = (moveData) => {
-  setLezioni(lezioni.map(l => l.id === moveData.lezioneId ? {
-    ...l,
-    data: moveData.data || l.data,
-    oraInizio: moveData.oraInizio,
-    oraFine: moveData.oraFine,
-    insegnanteId: moveData.insegnanteId,
-    isGruppo: moveData.isGruppo
-  } : l));
-};
 
-// Nella chiamata del componente PlanningCalendario:
-<PlanningCalendario
-  insegnanti={insegnanti}
-  studenti={studenti}
-  lezioni={lezioni}
-  onDeleteLezione={handleDeleteLezione}
-  onOpenModal={() => setShowLezioneModal(true)}
-  onSelectStudent={(stdId) => {
-    const std = studenti.find(s => s.id === stdId);
-    setStudenteSelezionatoDettaglio(std);
-  }}
-  onUpdateLezioneStatus={(id, nuovoStato, motivo = '', tipo = 'gratuito') => {
-    setLezioni(lezioni.map(l => l.id === id ? {
-      ...l,
-      stato: nuovoStato,
-      motivoAnnullamento: motivo,
-      tipoAnnullamento: tipo
-    } : l));
-  }}
-  onRestoreLezione={(id) => {
-    setLezioni(lezioni.map(l => l.id === id ? { ...l, stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '' } : l));
-  }}
-  onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
-/>
   // ---------- STATO LEZIONI / PLANNING ----------
   const [lezioni, setLezioni] = useState([
     { id: 'lez_1', data: new Date().toISOString().split('T')[0], insegnanteId: 'ins_1', isGruppo: false, studentiIds: ['std_1'], materia: 'Tedesco', oraInizio: '15:00', oraFine: '16:00', stato: 'attiva' }
@@ -110,7 +74,6 @@ const handleUpdateLezioneCompleta = (moveData) => {
   const handleSaveLezione = (formData, isPinAuthorized = false) => {
     const dataOggi = new Date().toISOString().split('T')[0];
 
-    // Verifica Sovrapposizione Docente
     if (!formData.isGruppo && !isPinAuthorized) {
       const sovrapposizione = lezioni.some(l => 
         l.data === dataOggi &&
@@ -144,9 +107,21 @@ const handleUpdateLezioneCompleta = (moveData) => {
     }
   };
 
-  // Aggiornamento orario d'inizio e di fine via Drag & Drop o Popup (+/- 15 min)
-  const handleUpdateLezioneOrari = (lezioneId, oraInizio, oraFine) => {
-    setLezioni(lezioni.map(l => l.id === lezioneId ? { ...l, oraInizio, oraFine } : l));
+  // FUNZIONE DI SPOSTAMENTO COMPLETO (Sia Drag che da Scheda Dettaglio)
+  const handleUpdateLezioneCompleta = (moveData) => {
+    setLezioni(prevLezioni => prevLezioni.map(l => {
+      if (l.id === moveData.lezioneId) {
+        return {
+          ...l,
+          data: moveData.data || l.data,
+          oraInizio: moveData.oraInizio,
+          oraFine: moveData.oraFine,
+          insegnanteId: moveData.isGruppo ? '' : (moveData.insegnanteId || l.insegnanteId),
+          isGruppo: Boolean(moveData.isGruppo)
+        };
+      }
+      return l;
+    }));
   };
 
   return (
@@ -165,13 +140,18 @@ const handleUpdateLezioneCompleta = (moveData) => {
               const std = studenti.find(s => s.id === stdId);
               setStudenteSelezionatoDettaglio(std);
             }}
-            onUpdateLezioneStatus={(id, nuovoStato) => {
-              setLezioni(lezioni.map(l => l.id === id ? { ...l, stato: nuovoStato } : l));
+            onUpdateLezioneStatus={(id, nuovoStato, motivo = '', tipo = 'gratuito') => {
+              setLezioni(lezioni.map(l => l.id === id ? {
+                ...l,
+                stato: nuovoStato,
+                motivoAnnullamento: motivo,
+                tipoAnnullamento: tipo
+              } : l));
             }}
             onRestoreLezione={(id) => {
-              setLezioni(lezioni.map(l => l.id === id ? { ...l, stato: 'attiva' } : l));
+              setLezioni(lezioni.map(l => l.id === id ? { ...l, stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '' } : l));
             }}
-            onUpdateLezioneOrari={handleUpdateLezioneOrari}
+            onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
           />
         )}
 
@@ -196,7 +176,6 @@ const handleUpdateLezioneCompleta = (moveData) => {
         )}
       </main>
 
-      {/* Modale Insegnante */}
       <ModaleInsegnante
         isOpen={showInsegnanteModal}
         onClose={() => setShowInsegnanteModal(false)}
@@ -206,7 +185,6 @@ const handleUpdateLezioneCompleta = (moveData) => {
         isEditing={Boolean(editingInsegnante)}
       />
 
-      {/* Modale Studente */}
       <ModaleStudente
         isOpen={showStudenteModal}
         onClose={() => setShowStudenteModal(false)}
@@ -216,7 +194,6 @@ const handleUpdateLezioneCompleta = (moveData) => {
         isEditing={Boolean(editingStudente)}
       />
 
-      {/* Modale Inserimento Lezione */}
       <ModaleLezione
         isOpen={showLezioneModal}
         onClose={() => setShowLezioneModal(false)}
@@ -226,7 +203,6 @@ const handleUpdateLezioneCompleta = (moveData) => {
         lezioni={lezioni}
       />
 
-      {/* Pop-up Scheda e Dettaglio Lezioni Studente */}
       {studenteSelezionatoDettaglio && (
         <DettaglioStudente
           studente={studenteSelezionatoDettaglio}
