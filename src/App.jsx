@@ -69,6 +69,7 @@ export default function App() {
 const handleUpdateLezioneCompleta = (moveData) => {
   setLezioni(lezioni.map(l => l.id === moveData.lezioneId ? {
     ...l,
+    data: moveData.data || l.data,
     oraInizio: moveData.oraInizio,
     oraFine: moveData.oraFine,
     insegnanteId: moveData.insegnanteId,
