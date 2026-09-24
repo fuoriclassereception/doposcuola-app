@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Edit, Info } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
   studenti,
   lezioni,
   onDeleteLezione,
-  onOpenModal
+  onOpenModal,
+  onSelectStudent, // Funzione per aprire la scheda dello studente selezionato
+  onUpdateLezioneStatus // Funzione per aggiornare lo stato (es. Confermata / Svolta)
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
 
-  // Stato per Pop-up Dettaglio Gruppo
+  // Stato per Pop-up Gruppo e Dettaglio Lezione Selezionata
   const [showGroupModal, setShowGroupModal] = useState(false);
+  const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
 
   const orari = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
@@ -40,9 +43,17 @@ export default function PlanningCalendario({
   // Filtra lezioni di gruppo del giorno
   const lezioniGruppoOggi = lezioni.filter(l => l.data === dataSelezionata && l.isGruppo);
 
+  const handleStudentClick = (studentId) => {
+    setShowGroupModal(false);
+    setSelectedLezioneDetail(null);
+    if (onSelectStudent) {
+      onSelectStudent(studentId);
+    }
+  };
+
   return (
     <div className="w-full h-full p-0 flex flex-col space-y-3">
-      {/* Intestazione e Controlli Data - Full Width */}
+      {/* Intestazione e Controlli Data */}
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl">
@@ -79,7 +90,7 @@ export default function PlanningCalendario({
         </button>
       </div>
 
-      {/* Griglia Calendario a Schermo Intero (Full Width) */}
+      {/* Griglia Calendario (Full Width) */}
       <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
         {/* Intestazione Colonne */}
         <div className="grid grid-cols-[60px_repeat(auto-fit,minmax(150px,1fr))] border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 w-full min-w-[800px]">
@@ -96,7 +107,7 @@ export default function PlanningCalendario({
             </div>
           ))}
 
-          {/* Colonna GRUPPO - Cliccabile per aprire Pop-up */}
+          {/* Colonna GRUPPO */}
           <div
             onClick={() => setShowGroupModal(true)}
             className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 border-l-2 border-amber-300 flex flex-col items-center justify-center cursor-pointer transition-all"
@@ -110,7 +121,6 @@ export default function PlanningCalendario({
 
         {/* Corpo della Griglia */}
         <div className="relative flex-1 grid grid-cols-[60px_repeat(auto-fit,minmax(150px,1fr))] w-full min-w-[800px]">
-          {/* Indicatori Orari */}
           <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
             {orari.map(ora => (
               <div key={ora} className="h-16 text-[11px] font-extrabold text-gray-400 pt-2">
@@ -119,7 +129,7 @@ export default function PlanningCalendario({
             ))}
           </div>
 
-          {/* Colonne Insegnanti */}
+          {/* Colonne Insegnanti Singoli */}
           {insegnanti.map(ins => {
             const lezioniDocente = lezioni.filter(
               l => l.data === dataSelezionata && l.insegnanteId === ins.id && !l.isGruppo
@@ -139,25 +149,25 @@ export default function PlanningCalendario({
                   return (
                     <div
                       key={lez.id}
+                      onClick={() => setSelectedLezioneDetail(lez)}
                       style={{
                         top: `${topPercent}%`,
                         height: `${heightPercent}%`,
                         backgroundColor: (ins.colore || '#3b82f6') + '20',
                         borderColor: ins.colore || '#3b82f6'
                       }}
-                      className="absolute left-1 right-1 border-l-4 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between group transition-all"
+                      className="absolute left-1 right-1 border-l-4 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between hover:scale-[1.01] cursor-pointer transition-all group"
                     >
                       <div>
                         <div className="font-extrabold text-slate-900 truncate">{nomiStudenti}</div>
                         <div className="text-[10px] font-bold text-gray-600 truncate">{lez.materia || 'Materia non spec.'}</div>
                         <div className="text-[9px] font-extrabold text-gray-500 mt-0.5">{lez.oraInizio} - {lez.oraFine}</div>
                       </div>
-                      <button
-                        onClick={() => onDeleteLezione(lez.id)}
-                        className="opacity-0 group-hover:opacity-100 self-end p-1 text-rose-600 hover:bg-rose-100 rounded-md"
-                      >
-                        <Trash2 className="w-3 h-3"/>
-                      </button>
+                      <div className="flex justify-between items-center pt-1">
+                        {lez.confermata && (
+                          <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1 rounded">Svolta</span>
+                        )}
+                      </div>
                     </div>
                   );
                 })}
@@ -196,15 +206,12 @@ export default function PlanningCalendario({
                       Orario: {lez.oraInizio} - {lez.oraFine}
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold text-amber-800 underline italic">
-                    Clicca per dettaglio partecipanti
-                  </span>
                 </div>
               );
             })}
           </div>
 
-          {/* Linea orario rossa */}
+          {/* Linea Rossa dell'Ora Attuale */}
           {isToday && redLineTop >= 0 && redLineTop <= 100 && (
             <div
               style={{ top: `${redLineTop}%` }}
@@ -218,7 +225,7 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* MODALE OPZIONE B: Dettaglio Partecipanti Colonna GRUPPO */}
+      {/* MODALE 1: Dettaglio Partecipanti Gruppo (Opzione B) */}
       {showGroupModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
@@ -229,7 +236,7 @@ export default function PlanningCalendario({
                 </div>
                 <div>
                   <h3 className="font-extrabold text-lg text-slate-900">Partecipanti Gruppi del Giorno</h3>
-                  <p className="text-xs text-gray-500">Suddivisione oraria degli studenti nel gruppo</p>
+                  <p className="text-xs text-gray-500">Clicca sullo studente per accedere ai compiti e materiali[cite: 8]</p>
                 </div>
               </div>
               <button onClick={() => setShowGroupModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
@@ -256,10 +263,17 @@ export default function PlanningCalendario({
                       {(lg.studentiIds || []).map(sId => {
                         const std = studenti.find(s => s.id === sId);
                         return (
-                          <div key={sId} className="bg-white border border-amber-200/50 p-2 rounded-xl flex items-center space-x-2 text-xs font-bold text-slate-900 shadow-sm">
-                            <User className="w-3.5 h-3.5 text-amber-600 shrink-0"/>
-                            <span className="truncate">{std ? `${std.nome} ${std.cognome}` : 'Studente Sconosciuto'}</span>
-                          </div>
+                          <button
+                            key={sId}
+                            onClick={() => handleStudentClick(sId)}
+                            className="bg-white hover:bg-amber-100 border border-amber-200 p-2.5 rounded-xl flex items-center justify-between text-xs font-bold text-slate-900 shadow-sm transition-all text-left"
+                          >
+                            <div className="flex items-center space-x-2 truncate">
+                              <User className="w-4 h-4 text-amber-600 shrink-0"/>
+                              <span className="truncate">{std ? `${std.nome} ${std.cognome}` : 'Studente'}</span>
+                            </div>
+                            <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0 hover:text-amber-700" title="Vedi compiti / materiali"/>
+                          </button>
                         );
                       })}
                     </div>
@@ -275,6 +289,92 @@ export default function PlanningCalendario({
               >
                 Chiudi
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODALE 2: Dettaglio / Gestione Singola Lezione */}
+      {selectedLezioneDetail && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Info className="w-5 h-5 text-slate-900"/>
+                <h3 className="font-extrabold text-lg text-slate-900">Dettaglio Lezione</h3>
+              </div>
+              <button onClick={() => setSelectedLezioneDetail(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
+                <X className="w-5 h-5"/>
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1">
+                <div className="font-black text-slate-900 text-sm">{selectedLezioneDetail.materia || 'Lezione'}</div>
+                <div className="text-gray-600 font-bold">🕒 Orario: {selectedLezioneDetail.oraInizio} - {selectedLezioneDetail.oraFine}</div>
+                <div className="text-gray-600 font-bold">📅 Data: {selectedLezioneDetail.data}</div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1.5">
+                  Studenti Iscritti (Clicca per compiti/scheda)
+                </label>
+                <div className="space-y-1.5">
+                  {(selectedLezioneDetail.studentiIds || []).map(sId => {
+                    const std = studenti.find(s => s.id === sId);
+                    return (
+                      <button
+                        key={sId}
+                        onClick={() => handleStudentClick(sId)}
+                        className="w-full bg-slate-100 hover:bg-slate-200 p-2.5 rounded-xl flex items-center justify-between font-extrabold text-slate-900 transition-all text-left"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <User className="w-4 h-4 text-slate-700"/>
+                          <span>{std ? `${std.nome} ${std.cognome}` : 'Studente'}</span>
+                        </div>
+                        <span className="text-[10px] bg-slate-900 text-white px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                          <FileText className="w-3 h-3"/> Scheda / Materiali
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Azioni sulla Lezione */}
+            <div className="pt-3 border-t border-gray-100 flex justify-between items-center">
+              <button
+                onClick={() => {
+                  onDeleteLezione(selectedLezioneDetail.id);
+                  setSelectedLezioneDetail(null);
+                }}
+                className="px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold rounded-xl text-xs flex items-center space-x-1"
+              >
+                <Trash2 className="w-4 h-4"/>
+                <span>Elimina</span>
+              </button>
+
+              <div className="flex space-x-2">
+                {onUpdateLezioneStatus && (
+                  <button
+                    onClick={() => {
+                      onUpdateLezioneStatus(selectedLezioneDetail.id, !selectedLezioneDetail.confermata);
+                      setSelectedLezioneDetail(null);
+                    }}
+                    className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center space-x-1"
+                  >
+                    <CheckCircle className="w-4 h-4"/>
+                    <span>{selectedLezioneDetail.confermata ? 'Annulla Presenza' : 'Conferma Presenza'}</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedLezioneDetail(null)}
+                  className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs"
+                >
+                  Chiudi
+                </button>
+              </div>
             </div>
           </div>
         </div>
