@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip, Calendar, ArrowRightLeft } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip, ArrowRightLeft } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
@@ -18,20 +18,23 @@ export default function PlanningCalendario({
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
 
-  // Stato per Modale Annullamento (separata per non sovrapporsi)
+  // Modale Annullamento
   const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
   const [motivoAnnullamento, setMotivoAnnullamento] = useState('');
   const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
 
-  // Stato per Spostamento Rapido da Dettaglio Lezione
+  // Spostamento da Dettaglio
   const [isEditingMove, setIsEditingMove] = useState(false);
   const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '', insegnanteId: '', isGruppo: false });
 
-  // Stato Drag & Drop e PIN
+  // Drag & Drop e PIN con Focus Automatico
   const [draggedLezione, setDraggedLezione] = useState(null);
   const [pendingMove, setPendingMove] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
+
+  // Ref per Focus Automatico sul campo PIN
+  const pinInputRef = useRef(null);
 
   const orari = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
   const startHour = 9;
@@ -47,6 +50,15 @@ export default function PlanningCalendario({
     return () => clearInterval(interval);
   }, []);
 
+  // FOCUS AUTOMATICO SUL PIN ALL'APERTURA
+  useEffect(() => {
+    if (pendingMove && pinInputRef.current) {
+      setTimeout(() => {
+        pinInputRef.current?.focus();
+      }, 50);
+    }
+  }, [pendingMove]);
+
   const changeDate = (days) => {
     const current = new Date(dataSelezionata);
     current.setDate(current.getDate() + days);
@@ -60,7 +72,7 @@ export default function PlanningCalendario({
   const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
 
-  // DRAG & DROP LOGIC
+  // LOGICA DRAG & DROP
   const handleDragStart = (e, lezione) => {
     setDraggedLezione(lezione);
     e.dataTransfer.setData('text/plain', lezione.id);
@@ -98,8 +110,11 @@ export default function PlanningCalendario({
     setPinError(false);
   };
 
-  const confirmPendingMoveWithPin = () => {
-    if (pinInput !== '1234') {
+  // CONFERMA PIN ED ESECUZIONE SPOSTAMENTO
+  const confirmPendingMoveWithPin = (e) => {
+    if (e) e.preventDefault();
+
+    if (pinInput !== '1234') { // PIN Predefinito
       setPinError(true);
       return;
     }
@@ -107,12 +122,12 @@ export default function PlanningCalendario({
     if (pendingMove && onUpdateLezioneCompleta) {
       onUpdateLezioneCompleta(pendingMove);
     }
+
     setPendingMove(null);
     setPinInput('');
     setPinError(false);
   };
 
-  // APRE DETTAGLIO LEZIONE ED INIZIALIZZA SPOSTAMENTO
   const handleOpenDetail = (lez) => {
     setSelectedLezioneDetail(lez);
     setIsEditingMove(false);
@@ -125,7 +140,6 @@ export default function PlanningCalendario({
     });
   };
 
-  // CONFERMA SPOSTAMENTO MANUALE DA DETTAGLIO
   const handleSaveMoveFromDetail = () => {
     if (onUpdateLezioneCompleta) {
       onUpdateLezioneCompleta({
@@ -137,7 +151,6 @@ export default function PlanningCalendario({
     setIsEditingMove(false);
   };
 
-  // AVVIA PROCESSO DI ANNULLAMENTO (Chiude prima il dettaglio)
   const handleStartAnnullamento = (lez) => {
     setSelectedLezioneDetail(null);
     setLezioneDaAnnullare(lez);
@@ -167,7 +180,7 @@ export default function PlanningCalendario({
           </div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Trascina o apri la lezione per riprogrammare orari e docenti</p>
+            <p className="text-xs text-gray-500">Trascina la lezione per spostarla e inserisci il PIN</p>
           </div>
         </div>
 
@@ -195,7 +208,7 @@ export default function PlanningCalendario({
         </button>
       </div>
 
-      {/* Griglia Calendario Full Width */}
+      {/* Griglia Calendario */}
       <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
         <div className="grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))_160px] border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 w-full min-w-[900px]">
           <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">
@@ -229,7 +242,7 @@ export default function PlanningCalendario({
           </div>
         </div>
 
-        {/* Corpo della Griglia con Drop Target */}
+        {/* Corpo della Griglia */}
         <div className="relative flex-1 grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))_160px] w-full min-w-[900px]">
           <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
             {orari.map(ora => (
@@ -350,7 +363,7 @@ export default function PlanningCalendario({
             })}
           </div>
 
-          {/* Linea orario rossa */}
+          {/* Linea Rossa dell'Ora Attuale */}
           {isToday && redLineTop >= 0 && redLineTop <= 100 && (
             <div style={{ top: `${redLineTop}%` }} className="absolute left-0 right-0 border-b-2 border-rose-500 z-30 pointer-events-none flex items-center">
               <span className="bg-rose-500 text-white text-[9px] font-black px-1 rounded-r">ORA</span>
@@ -359,38 +372,39 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* MODALE 1: PIN PER DRAG & DROP */}
+      {/* POPUP RICHIESTA PIN CON FOCUS AUTOMATICO */}
       {pendingMove && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+          <form onSubmit={confirmPendingMoveWithPin} className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
             <div className="flex items-center space-x-2 text-amber-700">
               <ShieldAlert className="w-6 h-6 text-amber-600"/>
               <h3 className="font-extrabold text-base text-slate-900">Autorizza Spostamento</h3>
             </div>
             <p className="text-xs text-gray-600">
-              Per confermare lo spostamento della lezione alle <strong>{pendingMove.oraInizio}</strong> inserisci il <strong>PIN Amministratore</strong>.
+              Spostamento alle ore <strong>{pendingMove.oraInizio}</strong>. Digita il PIN Amministratore e premi Invio:
             </p>
             <div className="relative">
               <Lock className="w-4 h-4 absolute left-3 top-2.5 text-gray-400"/>
               <input
+                ref={pinInputRef}
                 type="password"
                 maxLength={4}
-                placeholder="Inserisci PIN (es. 1234)"
+                placeholder="PIN (es. 1234)"
                 value={pinInput}
                 onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
-                className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none"
+                className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
               />
             </div>
-            {pinError && <p className="text-[11px] font-bold text-rose-600">PIN errato. Riprova.</p>}
+            {pinError && <p className="text-[11px] font-bold text-rose-600">PIN errato (prova con 1234).</p>}
             <div className="flex justify-end space-x-2 pt-2">
-              <button onClick={() => setPendingMove(null)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold">Annulla</button>
-              <button onClick={confirmPendingMoveWithPin} className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md">Autorizza</button>
+              <button type="button" onClick={() => setPendingMove(null)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold">Annulla</button>
+              <button type="submit" className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md">Autorizza</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
 
-      {/* MODALE 2: ANNULLAMENTO CON GIUSTIFICAZIONE (NESSUNA SOVRAPPOSIZIONE) */}
+      {/* MODALE ANNULLAMENTO CON GIUSTIFICAZIONE */}
       {lezioneDaAnnullare && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -453,7 +467,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* MODALE 3: DETTAGLIO E SPOSTAMENTO RAPIDO (DATA / ORA / INSEGNANTE) */}
+      {/* DETTAGLIO E RIPROGRAMMAZIONE RAPIDA */}
       {selectedLezioneDetail && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -473,7 +487,6 @@ export default function PlanningCalendario({
                   <span>🕒 {selectedLezioneDetail.oraInizio} - {selectedLezioneDetail.oraFine}</span>
                 </div>
 
-                {/* Tasto per Aprire lo Spostamento Rapido */}
                 <button
                   onClick={() => setIsEditingMove(!isEditingMove)}
                   className="w-full mt-2 py-2 px-3 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all shadow-sm"
@@ -483,7 +496,7 @@ export default function PlanningCalendario({
                 </button>
               </div>
 
-              {/* BOX RIPROGRAMMAZIONE DATA / ORA / INSEGNANTE */}
+              {/* BOX SPOSTAMENTO RAPIDO */}
               {isEditingMove && (
                 <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 space-y-3">
                   <h4 className="font-extrabold text-amber-950 text-xs">Seleziona Nuovo Giorno e Orario</h4>
@@ -549,7 +562,7 @@ export default function PlanningCalendario({
                 </div>
               )}
 
-              {/* Materiali Didattici */}
+              {/* Materiali */}
               <div className="bg-amber-50/60 p-3 rounded-2xl border border-amber-200/80 space-y-1">
                 <label className="block text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center">
                   <Paperclip className="w-3.5 h-3.5 mr-1 text-amber-700"/> Materiali & Compiti
