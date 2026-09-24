@@ -1,11 +1,16 @@
 import React, { useState } from 'react';
-import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders } from 'lucide-react';
+import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders, Ban } from 'lucide-react';
 import { stampaReportStudente } from '../utils/printReport';
 
-export default function DettaglioStudente({ studente, lezioni = [], onClose, onUpdateLezioneCompleta }) {
+export default function DettaglioStudente({ studente, lezioni = [], onClose, onUpdateLezioneCompleta, onUpdateLezioneStatus }) {
   const [filtroStato, setFiltroStato] = useState('tutte');
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '' });
+
+  // Stato per gestire il modale di annullamento lezione con motivazione
+  const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
+  const [motivoAnnullamento, setMotivoAnnullamento] = useState('');
+  const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
 
   // Opzioni di stampa configurabili dalla reception
   const [opzioniStampa, setOpzioniStampa] = useState({
@@ -50,6 +55,15 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
       });
     }
     setEditingLezioneId(null);
+  };
+
+  const confermaAnnullamento = () => {
+    if (!lezioneDaAnnullare) return;
+    if (onUpdateLezioneStatus) {
+      onUpdateLezioneStatus(lezioneDaAnnullare.id, 'annullata', motivoAnnullamento || 'Motivo non specificato', tipoAnnullamento);
+    }
+    setLezioneDaAnnullare(null);
+    setMotivoAnnullamento('');
   };
 
   return (
@@ -231,13 +245,23 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                     
                     <div className="flex items-center space-x-2">
                       {(!l.stato || l.stato === 'attiva') && (
-                        <button
-                          onClick={() => handleStartEditLezione(l)}
-                          className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1"
-                        >
-                          <ArrowRightLeft className="w-3 h-3"/>
-                          <span>Sposta Lezione</span>
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleStartEditLezione(l)}
+                            className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1"
+                          >
+                            <ArrowRightLeft className="w-3 h-3"/>
+                            <span>Sposta</span>
+                          </button>
+
+                          <button
+                            onClick={() => setLezioneDaAnnullare(l)}
+                            className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-lg text-[10px] flex items-center space-x-1"
+                          >
+                            <Ban className="w-3 h-3"/>
+                            <span>Annulla</span>
+                          </button>
+                        </>
                       )}
 
                       {l.stato === 'svolta' && <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">Svolta</span>}
@@ -297,6 +321,56 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
             )}
           </div>
         </div>
+
+        {/* MODALE INTERNO PER MOTIVO ANNULLAMENTO */}
+        {lezioneDaAnnullare && (
+          <div className="absolute inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 rounded-3xl">
+            <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 space-y-4">
+              <h4 className="font-extrabold text-slate-900 text-sm">Disdici / Annulla Lezione</h4>
+              <p className="text-xs text-gray-500">Specifica il motivo della cancellazione e la gestione della penale:</p>
+              
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Motivo Annullamento</label>
+                  <input
+                    type="text"
+                    placeholder="Es. Malattia, Impegno familiare..."
+                    value={motivoAnnullamento}
+                    onChange={(e) => setMotivoAnnullamento(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-700 mb-1">Tipo Gestione</label>
+                  <select
+                    value={tipoAnnullamento}
+                    onChange={(e) => setTipoAnnullamento(e.target.value)}
+                    className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900"
+                  >
+                    <option value="gratuito">Gratuito (Annullamento senza addebito)</option>
+                    <option value="addebito">Con Addebito / Penalità</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  onClick={() => setLezioneDaAnnullare(null)}
+                  className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs"
+                >
+                  Indietro
+                </button>
+                <button
+                  onClick={confermaAnnullamento}
+                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs"
+                >
+                  Conferma Annullamento
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="pt-3 border-t border-gray-100 flex justify-end">
           <button onClick={onClose} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">
