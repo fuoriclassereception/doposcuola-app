@@ -15,7 +15,8 @@ export default function PlanningCalendario({
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
 
-  const [showGroupModal, setShowGroupModal] = useState(false);
+  // Modale Gruppo e Dettaglio
+  const [groupModalData, setGroupModalData] = useState(null); // { fascia: '11:00 - 12:00', lezioniGroup: [] }
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
 
   // Modale Annullamento
@@ -27,7 +28,7 @@ export default function PlanningCalendario({
   const [isEditingMove, setIsEditingMove] = useState(false);
   const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '', insegnanteId: '', isGruppo: false });
 
-  // Stato per autorizzazione PIN per TUTTI gli spostamenti
+  // PIN e Drag
   const [pendingMove, setPendingMove] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
@@ -48,7 +49,6 @@ export default function PlanningCalendario({
     return () => clearInterval(interval);
   }, []);
 
-  // FOCUS AUTOMATICO PIN
   useEffect(() => {
     if (pendingMove) {
       const timer = setTimeout(() => {
@@ -71,9 +71,25 @@ export default function PlanningCalendario({
   const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
 
-  // DRAG & DROP
-  const handleDragStart = (e, lezione) => {
-    e.dataTransfer.setData('application/json', JSON.stringify(lezione));
+  // --- RAGGRUPPAMENTO DELLE LEZIONI DI GRUPPO PER FASCIA ORARIA ---
+  const gruppiFusiMap = {};
+  lezioniGruppoOggi.forEach(l => {
+    const key = `${l.oraInizio}-${l.oraFine}`;
+    if (!gruppiFusiMap[key]) {
+      gruppiFusiMap[key] = {
+        oraInizio: l.oraInizio,
+        oraFine: l.oraFine,
+        lezioni: []
+      };
+    }
+    gruppiFusiMap[key].lezioni.push(l);
+  });
+
+  const gruppiFusiList = Object.values(gruppiFusiMap);
+
+  // DRAG & DROP LOGIC
+  const handleDragStart = (e, payloadData) => {
+    e.dataTransfer.setData('application/json', JSON.stringify(payloadData));
   };
 
   const handleDragOver = (e) => {
@@ -85,44 +101,57 @@ export default function PlanningCalendario({
     const dataJson = e.dataTransfer.getData('application/json');
     if (!dataJson) return;
 
-    const lezione = JSON.parse(dataJson);
-    const [hStart, mStart] = lezione.oraInizio.split(':').map(Number);
-    const [hEnd, mEnd] = lezione.oraFine.split(':').map(Number);
-    const durataMins = (hEnd - hStart) * 60 + (mEnd - mStart);
+    const payload = JSON.parse(dataJson);
 
-    const newStart = `${targetOra.toString().padStart(2, '0')}:00`;
-    const endTotalMins = targetOra * 60 + durataMins;
-    const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
-    const endM = (endTotalMins % 60).toString().padStart(2, '0');
-    const newEnd = `${endH}:${endM}`;
+    // Se è un blocco fuso di gruppo
+    if (payload.isGruppoFuso) {
+      const firstLez = payload.lezioni[0];
+      const [hStart, mStart] = firstLez.oraInizio.split(':').map(Number);
+      const [hEnd, mEnd] = firstLez.oraFine.split(':').map(Number);
+      const durataMins = (hEnd - hStart) * 60 + (mEnd - mStart);
 
-    // Richiede PIN per il Drag & Drop
-    setPendingMove({
-      lezioneId: lezione.id,
-      data: dataSelezionata,
-      oraInizio: newStart,
-      oraFine: newEnd,
-      insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
-      isGruppo: targetIsGruppo
-    });
+      const newStart = `${targetOra.toString().padStart(2, '0')}:00`;
+      const endTotalMins = targetOra * 60 + durataMins;
+      const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
+      const endM = (endTotalMins % 60).toString().padStart(2, '0');
+      const newEnd = `${endH}:${endM}`;
+
+      // Applica lo spostamento a tutte le lezioni del gruppo
+      setPendingMove({
+        isGruppoFuso: true,
+        lezioniIds: payload.lezioni.map(l => l.id),
+        data: dataSelezionata,
+        oraInizio: newStart,
+        oraFine: newEnd,
+        insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
+        isGruppo: targetIsGruppo
+      });
+    } else {
+      // Lezione singola
+      const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
+      const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
+      const durataMins = (hEnd - hStart) * 60 + (mEnd - mStart);
+
+      const newStart = `${targetOra.toString().padStart(2, '0')}:00`;
+      const endTotalMins = targetOra * 60 + durataMins;
+      const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
+      const endM = (endTotalMins % 60).toString().padStart(2, '0');
+      const newEnd = `${endH}:${endM}`;
+
+      setPendingMove({
+        lezioneId: payload.id,
+        data: dataSelezionata,
+        oraInizio: newStart,
+        oraFine: newEnd,
+        insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
+        isGruppo: targetIsGruppo
+      });
+    }
 
     setPinInput('');
     setPinError(false);
   };
 
-  // RICHIEDE PIN PER SPOSTAMENTO DA SCHEDA DETTAGLIO
-  const handleRequestMoveFromDetail = () => {
-    setPendingMove({
-      lezioneId: selectedLezioneDetail.id,
-      ...moveForm
-    });
-    setSelectedLezioneDetail(null);
-    setIsEditingMove(false);
-    setPinInput('');
-    setPinError(false);
-  };
-
-  // EXECUTE MOVE WITH PIN
   const confirmPendingMoveWithPin = (e) => {
     if (e) e.preventDefault();
 
@@ -132,7 +161,16 @@ export default function PlanningCalendario({
     }
 
     if (pendingMove && onUpdateLezioneCompleta) {
-      onUpdateLezioneCompleta(pendingMove);
+      if (pendingMove.isGruppoFuso) {
+        pendingMove.lezioniIds.forEach(id => {
+          onUpdateLezioneCompleta({
+            ...pendingMove,
+            lezioneId: id
+          });
+        });
+      } else {
+        onUpdateLezioneCompleta(pendingMove);
+      }
     }
 
     setPendingMove(null);
@@ -150,6 +188,17 @@ export default function PlanningCalendario({
       insegnanteId: lez.insegnanteId || (insegnanti[0]?.id || ''),
       isGruppo: lez.isGruppo || false
     });
+  };
+
+  const handleRequestMoveFromDetail = () => {
+    setPendingMove({
+      lezioneId: selectedLezioneDetail.id,
+      ...moveForm
+    });
+    setSelectedLezioneDetail(null);
+    setIsEditingMove(false);
+    setPinInput('');
+    setPinError(false);
   };
 
   const handleStartAnnullamento = (lez) => {
@@ -173,7 +222,7 @@ export default function PlanningCalendario({
 
   return (
     <div className="w-full h-full p-0 flex flex-col space-y-3 select-none">
-      {/* Controlli Data */}
+      {/* Header e Data */}
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl">
@@ -181,7 +230,7 @@ export default function PlanningCalendario({
           </div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Trascina la lezione o usa la scheda per spostarla (PIN 1234)</p>
+            <p className="text-xs text-gray-500">Gestione oraria gruppi e lezioni individuali</p>
           </div>
         </div>
 
@@ -209,7 +258,7 @@ export default function PlanningCalendario({
         </button>
       </div>
 
-      {/* Griglia Calendario */}
+      {/* Griglia Calendario Full Width */}
       <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
         <div className="grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))_160px] border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 w-full min-w-[900px]">
           <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">
@@ -225,8 +274,9 @@ export default function PlanningCalendario({
             </div>
           ))}
 
+          {/* Cliccando sull'intestazione GRUPPO si vedono tutti i gruppi del giorno */}
           <div
-            onClick={() => setShowGroupModal(true)}
+            onClick={() => setGroupModalData({ fascia: 'Intero Giorno', lezioniGroup: lezioniGruppoOggi })}
             className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 border-r border-amber-300 flex flex-col items-center justify-center cursor-pointer"
           >
             <Users className="w-4 h-4 text-amber-800 mb-0.5"/>
@@ -300,7 +350,7 @@ export default function PlanningCalendario({
             );
           })}
 
-          {/* Colonna GRUPPO */}
+          {/* COLONNA GRUPPO FUSA E UNIFICATA */}
           <div className="border-r border-amber-200 bg-amber-50/30 relative divide-y divide-amber-100/50">
             {orari.map(ora => (
               <div
@@ -311,26 +361,39 @@ export default function PlanningCalendario({
               />
             ))}
 
-            {lezioniGruppoOggi.map(lez => {
-              const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
-              const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
+            {/* Render Card Fuse per il Gruppo */}
+            {gruppiFusiList.map((gf, idx) => {
+              const [hStart, mStart] = gf.oraInizio.split(':').map(Number);
+              const [hEnd, mEnd] = gf.oraFine.split(':').map(Number);
               const topPercent = (((hStart - startHour) * 60 + mStart) / (totalHours * 60)) * 100;
               const heightPercent = (((hEnd - hStart) * 60 + (mEnd - mStart)) / (totalHours * 60)) * 100;
 
+              // Raccogli tutti gli studenti del gruppo per quella fascia oraria
+              const tuttiStudentiIds = gf.lezioni.flatMap(l => l.studentiIds || []);
+              const totaleRagazzi = tuttiStudentiIds.length;
+
               return (
                 <div
-                  key={lez.id}
+                  key={idx}
                   draggable
-                  onDragStart={(e) => handleDragStart(e, lez)}
-                  onClick={() => setShowGroupModal(true)}
+                  onDragStart={(e) => handleDragStart(e, { isGruppoFuso: true, lezioni: gf.lezioni })}
+                  onClick={() => setGroupModalData({ fascia: `${gf.oraInizio} - ${gf.oraFine}`, lezioniGroup: gf.lezioni })}
                   style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
-                  className="absolute left-1 right-1 bg-amber-200/90 border-l-4 border-amber-500 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between cursor-grab active:cursor-grabbing"
+                  className="absolute left-1 right-1 bg-amber-300 border-l-4 border-amber-600 rounded-xl p-2.5 text-xs shadow-md overflow-hidden flex flex-col justify-between cursor-pointer hover:bg-amber-400 transition-all z-10"
                 >
-                  <div className="font-black text-amber-950 flex items-center justify-between">
-                    <span className="truncate">👥 {lez.materia || 'Gruppo Studio'}</span>
-                    <span className="bg-amber-400 text-amber-950 font-black text-[10px] px-1.5 rounded-full">
-                      {lez.studentiIds?.length || 0} ragazzi
-                    </span>
+                  <div>
+                    <div className="font-black text-amber-950 flex items-center justify-between">
+                      <span className="truncate">👥 Gruppo Studio</span>
+                      <span className="bg-amber-950 text-amber-300 font-black text-[10px] px-2 py-0.5 rounded-full shrink-0 shadow-sm">
+                        {totaleRagazzi} ragazzi
+                      </span>
+                    </div>
+                    <div className="text-[10px] font-extrabold text-amber-900 mt-1">
+                      🕒 {gf.oraInizio} - {gf.oraFine}
+                    </div>
+                  </div>
+                  <div className="text-[10px] font-bold text-amber-950 underline italic mt-1">
+                    Clicca per dettaglio e presenze
                   </div>
                 </div>
               );
@@ -373,7 +436,72 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* POPUP UNICO DI VERIFICA PIN CON AUTO-FOCUS */}
+      {/* POPUP GRUPPO FUSO / UNIFICATO CON ELENCO RAGAZZI CLICCABILI */}
+      {groupModalData && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-amber-100 text-amber-800 rounded-2xl">
+                  <Users className="w-5 h-5"/>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-lg text-slate-900">Dettaglio Partecipanti Gruppo</h3>
+                  <p className="text-xs text-gray-500">Fascia Oraria: <strong>{groupModalData.fascia}</strong></p>
+                </div>
+              </div>
+              <button onClick={() => setGroupModalData(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
+                <X className="w-5 h-5"/>
+              </button>
+            </div>
+
+            <div className="max-h-96 overflow-y-auto space-y-3 pr-1">
+              {groupModalData.lezioniGroup.map((lg, idx) => (
+                <div key={idx} className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-4 space-y-2">
+                  <div className="flex justify-between items-center border-b border-amber-200/60 pb-2">
+                    <span className="font-black text-xs text-amber-950 uppercase tracking-wide">
+                      {lg.materia || 'Gruppo Studio'}
+                    </span>
+                    <span className="bg-amber-200 text-amber-900 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg">
+                      🕒 {lg.oraInizio} - {lg.oraFine}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    {(lg.studentiIds || []).map(sId => {
+                      const std = studenti.find(s => s.id === sId);
+                      return (
+                        <button
+                          key={sId}
+                          onClick={() => {
+                            setGroupModalData(null);
+                            if (onSelectStudent) onSelectStudent(sId);
+                          }}
+                          className="bg-white hover:bg-amber-100 border border-amber-200 p-2.5 rounded-xl flex items-center justify-between text-xs font-bold text-slate-900 shadow-sm transition-all text-left"
+                        >
+                          <div className="flex items-center space-x-2 truncate">
+                            <User className="w-4 h-4 text-amber-600 shrink-0"/>
+                            <span className="truncate">{std ? `${std.nome} ${std.cognome}` : 'Studente'}</span>
+                          </div>
+                          <FileText className="w-3.5 h-3.5 text-amber-700 shrink-0" title="Apri Scheda e Materiali"/>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setGroupModalData(null)} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP RICHIESTA PIN SPOSTAMENTO */}
       {pendingMove && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <form onSubmit={confirmPendingMoveWithPin} className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
@@ -382,7 +510,7 @@ export default function PlanningCalendario({
               <h3 className="font-extrabold text-base text-slate-900">Autorizza Spostamento</h3>
             </div>
             <p className="text-xs text-gray-600">
-              Conferma lo spostamento alle ore <strong>{pendingMove.oraInizio}</strong>. Digita il PIN Amministratore (es. <strong>1234</strong>) e premi Invio:
+              Spostamento alle ore <strong>{pendingMove.oraInizio}</strong>. Digita il PIN Amministratore (es. <strong>1234</strong>) e premi Invio:
             </p>
             <div className="relative">
               <Lock className="w-4 h-4 absolute left-3 top-2.5 text-gray-400"/>
@@ -468,7 +596,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* DETTAGLIO E SPOSTAMENTO RAPIDO */}
+      {/* DETTAGLIO LEZIONE */}
       {selectedLezioneDetail && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -497,7 +625,6 @@ export default function PlanningCalendario({
                 </button>
               </div>
 
-              {/* BOX SPOSTAMENTO CON PROMPT PIN */}
               {isEditingMove && (
                 <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 space-y-3">
                   <h4 className="font-extrabold text-amber-950 text-xs">Seleziona Nuovo Giorno e Orario</h4>
@@ -599,7 +726,6 @@ export default function PlanningCalendario({
               </div>
             </div>
 
-            {/* Tasti Azione */}
             <div className="pt-3 border-t border-gray-100 flex justify-between items-center">
               {selectedLezioneDetail.stato === 'annullata' ? (
                 <button
