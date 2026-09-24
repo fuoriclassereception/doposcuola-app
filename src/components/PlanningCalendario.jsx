@@ -1,25 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2 } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
   studenti,
   lezioni,
-  onSaveLezione,
   onDeleteLezione,
   onOpenModal
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
 
-  // Orari visibili nell'agenda (dalle 09:00 alle 20:00)
+  // Stato per Pop-up Dettaglio Gruppo
+  const [showGroupModal, setShowGroupModal] = useState(false);
+
   const orari = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
   useEffect(() => {
     const updateCurrentTime = () => {
       const now = new Date();
-      const mins = now.getHours() * 60 + now.getMinutes();
-      setCurrentTimeMinutes(mins);
+      setCurrentTimeMinutes(now.getHours() * 60 + now.getMinutes());
     };
     updateCurrentTime();
     const interval = setInterval(updateCurrentTime, 60000);
@@ -32,91 +32,85 @@ export default function PlanningCalendario({
     setDataSelezionata(current.toISOString().split('T')[0]);
   };
 
-  // Calcola posizione della linea orario rossa
   const startHour = 9;
   const totalHours = 12;
   const isToday = dataSelezionata === new Date().toISOString().split('T')[0];
   const redLineTop = ((currentTimeMinutes - startHour * 60) / (totalHours * 60)) * 100;
 
+  // Filtra lezioni di gruppo del giorno
+  const lezioniGruppoOggi = lezioni.filter(l => l.data === dataSelezionata && l.isGruppo);
+
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-4">
-      {/* Intestazione e Controlli Data */}
-      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-5 rounded-3xl border border-gray-200 shadow-sm gap-4">
+    <div className="w-full h-full p-0 flex flex-col space-y-3">
+      {/* Intestazione e Controlli Data - Full Width */}
+      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
         <div className="flex items-center space-x-3">
-          <div className="p-3 bg-slate-900 text-amber-400 rounded-2xl">
-            <CalendarIcon className="w-6 h-6"/>
+          <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl">
+            <CalendarIcon className="w-5 h-5"/>
           </div>
           <div>
-            <h2 className="text-xl font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Vista giornaliera per docente e gruppo</p>
+            <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
+            <p className="text-xs text-gray-500">Vista oraria giornaliera</p>
           </div>
         </div>
 
         {/* Selettore Data */}
         <div className="flex items-center space-x-2 bg-gray-100 p-1.5 rounded-2xl border border-gray-200">
-          <button
-            onClick={() => changeDate(-1)}
-            className="p-2 hover:bg-white rounded-xl text-gray-700 transition-all"
-          >
+          <button onClick={() => changeDate(-1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700 transition-all">
             <ChevronLeft className="w-4 h-4"/>
           </button>
-
           <input
             type="date"
             value={dataSelezionata}
             onChange={(e) => setDataSelezionata(e.target.value)}
             className="bg-transparent font-extrabold text-xs text-slate-900 focus:outline-none px-2"
           />
-
-          <button
-            onClick={() => changeDate(1)}
-            className="p-2 hover:bg-white rounded-xl text-gray-700 transition-all"
-          >
+          <button onClick={() => changeDate(1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700 transition-all">
             <ChevronRight className="w-4 h-4"/>
           </button>
         </div>
 
         <button
           onClick={() => onOpenModal()}
-          className="flex items-center space-x-2 px-4 py-2.5 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm transition-all"
+          className="flex items-center space-x-2 px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm transition-all"
         >
           <Plus className="w-4 h-4"/>
           <span>+ Nuova Lezione</span>
         </button>
       </div>
 
-      {/* Griglia Calendario Stile Foglio/Agenda */}
-      <div className="bg-white rounded-3xl border border-gray-200 shadow-sm overflow-hidden flex flex-col min-h-[600px]">
-        {/* Intestazione Colonne (Insegnanti + GRUPPO) */}
-        <div className="grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))] border-b border-gray-200 bg-gray-50/80 sticky top-0 z-20">
+      {/* Griglia Calendario a Schermo Intero (Full Width) */}
+      <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
+        {/* Intestazione Colonne */}
+        <div className="grid grid-cols-[60px_repeat(auto-fit,minmax(150px,1fr))] border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 w-full min-w-[800px]">
           <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">
             ORA
           </div>
 
           {insegnanti.map(ins => (
-            <div key={ins.id} className="p-3 text-center border-r border-gray-200 flex flex-col items-center">
-              <div
-                style={{ backgroundColor: ins.colore || '#3b82f6' }}
-                className="w-3 h-3 rounded-full mb-1 shadow-sm"
-              />
-              <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate max-w-[120px]">
+            <div key={ins.id} className="p-3 text-center border-r border-gray-200 flex flex-col items-center justify-center">
+              <div style={{ backgroundColor: ins.colore || '#3b82f6' }} className="w-2.5 h-2.5 rounded-full mb-1 shadow-sm"/>
+              <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">
                 {ins.nome}
               </span>
             </div>
           ))}
 
-          {/* Colonna GRUPPO Sempre Presente all'estrema destra */}
-          <div className="p-3 text-center bg-amber-50/80 border-l-2 border-amber-300 flex flex-col items-center">
-            <Users className="w-3.5 h-3.5 text-amber-700 mb-1"/>
-            <span className="font-black text-xs text-amber-950 uppercase tracking-wider">
-              GRUPPO
+          {/* Colonna GRUPPO - Cliccabile per aprire Pop-up */}
+          <div
+            onClick={() => setShowGroupModal(true)}
+            className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 border-l-2 border-amber-300 flex flex-col items-center justify-center cursor-pointer transition-all"
+          >
+            <Users className="w-4 h-4 text-amber-800 mb-0.5"/>
+            <span className="font-black text-xs text-amber-950 uppercase tracking-wider flex items-center">
+              GRUPPO <span className="ml-1 text-[10px] bg-amber-300 text-amber-950 px-1.5 py-0.2 rounded-full">{lezioniGruppoOggi.length}</span>
             </span>
           </div>
         </div>
 
-        {/* Corpo della Griglia con Ore e Colonne */}
-        <div className="relative flex-1 grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))]">
-          {/* Indicatori Orari a Sinistra */}
+        {/* Corpo della Griglia */}
+        <div className="relative flex-1 grid grid-cols-[60px_repeat(auto-fit,minmax(150px,1fr))] w-full min-w-[800px]">
+          {/* Indicatori Orari */}
           <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
             {orari.map(ora => (
               <div key={ora} className="h-16 text-[11px] font-extrabold text-gray-400 pt-2">
@@ -133,21 +127,13 @@ export default function PlanningCalendario({
 
             return (
               <div key={ins.id} className="border-r border-gray-100 relative divide-y divide-gray-100 bg-white">
-                {orari.map(ora => (
-                  <div key={ora} className="h-16 hover:bg-slate-50/50 transition-all"/>
-                ))}
+                {orari.map(ora => <div key={ora} className="h-16 hover:bg-slate-50/50 transition-all"/>)}
 
-                {/* Render Lezioni Docente */}
                 {lezioniDocente.map(lez => {
                   const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
                   const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
-                  
-                  const topMinutes = (hStart - startHour) * 60 + mStart;
-                  const durationMinutes = (hEnd - hStart) * 60 + (mEnd - mStart);
-
-                  const topPercent = (topMinutes / (totalHours * 60)) * 100;
-                  const heightPercent = (durationMinutes / (totalHours * 60)) * 100;
-
+                  const topPercent = (((hStart - startHour) * 60 + mStart) / (totalHours * 60)) * 100;
+                  const heightPercent = (((hEnd - hStart) * 60 + (mEnd - mStart)) / (totalHours * 60)) * 100;
                   const nomiStudenti = stdsNames(lez.studentiIds, studenti);
 
                   return (
@@ -162,20 +148,13 @@ export default function PlanningCalendario({
                       className="absolute left-1 right-1 border-l-4 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between group transition-all"
                     >
                       <div>
-                        <div className="font-extrabold text-slate-900 truncate">
-                          {nomiStudenti}
-                        </div>
-                        <div className="text-[10px] font-bold text-gray-600 truncate">
-                          {lez.materia || 'Materia non specificata'}
-                        </div>
-                        <div className="text-[9px] font-extrabold text-gray-500 mt-0.5">
-                          {lez.oraInizio} - {lez.oraFine}
-                        </div>
+                        <div className="font-extrabold text-slate-900 truncate">{nomiStudenti}</div>
+                        <div className="text-[10px] font-bold text-gray-600 truncate">{lez.materia || 'Materia non spec.'}</div>
+                        <div className="text-[9px] font-extrabold text-gray-500 mt-0.5">{lez.oraInizio} - {lez.oraFine}</div>
                       </div>
-
                       <button
                         onClick={() => onDeleteLezione(lez.id)}
-                        className="opacity-0 group-hover:opacity-100 self-end p-1 text-rose-600 hover:bg-rose-100 rounded-md transition-all"
+                        className="opacity-0 group-hover:opacity-100 self-end p-1 text-rose-600 hover:bg-rose-100 rounded-md"
                       >
                         <Trash2 className="w-3 h-3"/>
                       </button>
@@ -187,57 +166,45 @@ export default function PlanningCalendario({
           })}
 
           {/* Colonna GRUPPO */}
-          <div className="border-l-2 border-amber-200 bg-amber-50/20 relative divide-y divide-amber-100/50">
-            {orari.map(ora => (
-              <div key={ora} className="h-16 hover:bg-amber-100/30 transition-all"/>
-            ))}
+          <div
+            onClick={() => setShowGroupModal(true)}
+            className="border-l-2 border-amber-200 bg-amber-50/30 relative divide-y divide-amber-100/50 cursor-pointer"
+          >
+            {orari.map(ora => <div key={ora} className="h-16 hover:bg-amber-100/30 transition-all"/>)}
 
-            {/* Render Lezioni Gruppo */}
-            {lezioni.filter(l => l.data === dataSelezionata && l.isGruppo).map(lez => {
+            {lezioniGruppoOggi.map(lez => {
               const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
               const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
-              
-              const topMinutes = (hStart - startHour) * 60 + mStart;
-              const durationMinutes = (hEnd - hStart) * 60 + (mEnd - mStart);
-
-              const topPercent = (topMinutes / (totalHours * 60)) * 100;
-              const heightPercent = (durationMinutes / (totalHours * 60)) * 100;
-
-              const nomiStudenti = stdsNames(lez.studentiIds, studenti);
+              const topPercent = (((hStart - startHour) * 60 + mStart) / (totalHours * 60)) * 100;
+              const heightPercent = (((hEnd - hStart) * 60 + (mEnd - mStart)) / (totalHours * 60)) * 100;
+              const numStudenti = lez.studentiIds?.length || 0;
 
               return (
                 <div
                   key={lez.id}
-                  style={{
-                    top: `${topPercent}%`,
-                    height: `${heightPercent}%`,
-                  }}
-                  className="absolute left-1 right-1 bg-amber-200/80 border-l-4 border-amber-500 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between group transition-all"
+                  style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
+                  className="absolute left-1 right-1 bg-amber-200/90 border-l-4 border-amber-500 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between hover:scale-[1.01] transition-all"
                 >
                   <div>
-                    <div className="font-black text-amber-950 truncate">
-                      👥 {nomiStudenti}
+                    <div className="font-black text-amber-950 flex items-center justify-between">
+                      <span className="truncate">👥 {lez.materia || 'Gruppo Studio'}</span>
+                      <span className="bg-amber-400 text-amber-950 font-black text-[10px] px-1.5 py-0.5 rounded-full shrink-0">
+                        {numStudenti} ragazzi
+                      </span>
                     </div>
-                    <div className="text-[10px] font-bold text-amber-900 truncate">
-                      {lez.materia || 'Gruppo Studio'}
-                    </div>
-                    <div className="text-[9px] font-extrabold text-amber-800 mt-0.5">
-                      {lez.oraInizio} - {lez.oraFine}
+                    <div className="text-[10px] font-bold text-amber-900 mt-0.5">
+                      Orario: {lez.oraInizio} - {lez.oraFine}
                     </div>
                   </div>
-
-                  <button
-                    onClick={() => onDeleteLezione(lez.id)}
-                    className="opacity-0 group-hover:opacity-100 self-end p-1 text-rose-700 hover:bg-rose-100 rounded-md transition-all"
-                  >
-                    <Trash2 className="w-3 h-3"/>
-                  </button>
+                  <span className="text-[10px] font-bold text-amber-800 underline italic">
+                    Clicca per dettaglio partecipanti
+                  </span>
                 </div>
               );
             })}
           </div>
 
-          {/* Linea orario corrente in tempo reale */}
+          {/* Linea orario rossa */}
           {isToday && redLineTop >= 0 && redLineTop <= 100 && (
             <div
               style={{ top: `${redLineTop}%` }}
@@ -250,11 +217,72 @@ export default function PlanningCalendario({
           )}
         </div>
       </div>
+
+      {/* MODALE OPZIONE B: Dettaglio Partecipanti Colonna GRUPPO */}
+      {showGroupModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-amber-100 text-amber-800 rounded-2xl">
+                  <Users className="w-5 h-5"/>
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-lg text-slate-900">Partecipanti Gruppi del Giorno</h3>
+                  <p className="text-xs text-gray-500">Suddivisione oraria degli studenti nel gruppo</p>
+                </div>
+              </div>
+              <button onClick={() => setShowGroupModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
+                <X className="w-5 h-5"/>
+              </button>
+            </div>
+
+            <div className="max-h-96 overflow-y-auto space-y-3 pr-1">
+              {lezioniGruppoOggi.length === 0 ? (
+                <p className="text-center text-xs font-bold text-gray-400 py-8">Nessun gruppo programmato per la data selezionata.</p>
+              ) : (
+                lezioniGruppoOggi.map((lg, idx) => (
+                  <div key={idx} className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-4 space-y-2">
+                    <div className="flex justify-between items-center border-b border-amber-200/60 pb-2">
+                      <span className="font-black text-xs text-amber-950 uppercase tracking-wide">
+                        {lg.materia || 'Gruppo Studio'}
+                      </span>
+                      <span className="bg-amber-200 text-amber-900 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg">
+                        🕒 {lg.oraInizio} - {lg.oraFine}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      {(lg.studentiIds || []).map(sId => {
+                        const std = studenti.find(s => s.id === sId);
+                        return (
+                          <div key={sId} className="bg-white border border-amber-200/50 p-2 rounded-xl flex items-center space-x-2 text-xs font-bold text-slate-900 shadow-sm">
+                            <User className="w-3.5 h-3.5 text-amber-600 shrink-0"/>
+                            <span className="truncate">{std ? `${std.nome} ${std.cognome}` : 'Studente Sconosciuto'}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={() => setShowGroupModal(false)}
+                className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs"
+              >
+                Chiudi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Funzione helper per risalire ai nomi degli studenti dal loro ID
 function stdsNames(studentiIds = [], studenti = []) {
   if (!studentiIds || studentiIds.length === 0) return 'Nessuno studente';
   return studentiIds
