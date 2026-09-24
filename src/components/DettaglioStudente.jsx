@@ -1,24 +1,13 @@
 import React, { useState } from 'react';
-import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders, Ban, Lock } from 'lucide-react';
+import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders } from 'lucide-react';
 import { stampaReportStudente } from '../utils/printReport';
 
-export default function DettaglioStudente({ studente, lezioni = [], onClose, onUpdateLezioneCompleta, onUpdateLezioneStatus }) {
+export default function DettaglioStudente({ studente, lezioni = [], onClose, onUpdateLezioneCompleta }) {
   const [filtroStato, setFiltroStato] = useState('tutte');
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '' });
 
-  // Stato per PIN di sicurezza
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState(false);
-  const [pendingMoveData, setPendingMoveData] = useState(null);
-
-  // Stato per annullamento lezione
-  const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
-  const [motivoAnnullamento, setMotivoAnnullamento] = useState('');
-  const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
-
-  // Opzioni stampa
+  // Opzioni di stampa configurabili dalla reception
   const [opzioniStampa, setOpzioniStampa] = useState({
     includiSvolte: true,
     includiProgramma: true,
@@ -26,6 +15,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
     includiContabilita: true,
     tariffaOraria: 25
   });
+
   const [mostraImpostazioniStampa, setMostraImpostazioniStampa] = useState(false);
 
   if (!studente) return null;
@@ -48,50 +38,25 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
     setMoveForm({ data: l.data, oraInizio: l.oraInizio, oraFine: l.oraFine });
   };
 
-  const handleAttemptMove = (l) => {
-    const moveData = {
-      lezioneId: l.id,
-      data: moveForm.data,
-      oraInizio: moveForm.oraInizio,
-      oraFine: moveForm.oraFine,
-      insegnanteId: l.insegnanteId,
-      isGruppo: l.isGruppo
-    };
-
-    setPendingMoveData(moveData);
-    setPinInput('');
-    setPinError(false);
-    setShowPinModal(true);
-  };
-
-  const verifyPinAndExecuteMove = (e) => {
-    e.preventDefault();
-    if (pinInput === '1234') {
-      if (onUpdateLezioneCompleta && pendingMoveData) {
-        onUpdateLezioneCompleta(pendingMoveData);
-      }
-      setShowPinModal(false);
-      setEditingLezioneId(null);
-      setPendingMoveData(null);
-    } else {
-      setPinError(true);
+  const handleSaveMoveFromStudentCard = (l) => {
+    if (onUpdateLezioneCompleta) {
+      onUpdateLezioneCompleta({
+        lezioneId: l.id,
+        data: moveForm.data,
+        oraInizio: moveForm.oraInizio,
+        oraFine: moveForm.oraFine,
+        insegnanteId: l.insegnanteId,
+        isGruppo: l.isGruppo
+      });
     }
-  };
-
-  const confermaAnnullamento = () => {
-    if (!lezioneDaAnnullare) return;
-    if (onUpdateLezioneStatus) {
-      onUpdateLezioneStatus(lezioneDaAnnullare.id, 'annullata', motivoAnnullamento || 'Motivo non specificato', tipoAnnullamento);
-    }
-    setLezioneDaAnnullare(null);
-    setMotivoAnnullamento('');
+    setEditingLezioneId(null);
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 space-y-5 max-h-[90vh] overflow-y-auto">
         
-        {/* Header */}
+        {/* Header Studente & Tasti */}
         <div className="flex justify-between items-start border-b border-gray-100 pb-4">
           <div className="flex items-center space-x-3">
             <div className="p-3 bg-slate-900 text-amber-400 rounded-2xl">
@@ -109,6 +74,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
             <button
               onClick={() => setMostraImpostazioniStampa(!mostraImpostazioniStampa)}
               className="flex items-center space-x-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-slate-800 font-bold rounded-xl text-xs shadow-sm transition-all"
+              title="Configura cosa stampare"
             >
               <Sliders className="w-4 h-4"/>
               <span>Opzioni Stampa</span>
@@ -125,7 +91,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </div>
         </div>
 
-        {/* Opzioni Stampa */}
+        {/* PANNELLO CONFIGURAZIONE OPZIONI DI STAMPA */}
         {mostraImpostazioniStampa && (
           <div className="bg-amber-50/80 border border-amber-300 p-4 rounded-2xl space-y-3 text-xs animate-in fade-in duration-150">
             <h4 className="font-extrabold text-amber-950 uppercase tracking-wide">Configura il Report da Stampare</h4>
@@ -185,9 +151,11 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </div>
         )}
 
-        {/* Contatori */}
+        {/* CONTATORI RIEPILOGATIVI */}
         <div>
-          <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Riepilogo Lezioni</label>
+          <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-2">
+            Riepilogo Lezioni
+          </label>
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl flex items-center space-x-3">
               <CheckCircle className="w-6 h-6 text-emerald-600 shrink-0"/>
@@ -215,7 +183,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </div>
         </div>
 
-        {/* Note */}
+        {/* Sezione Note / Compiti */}
         <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 space-y-2">
           <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center">
             <Paperclip className="w-4 h-4 mr-1.5 text-amber-700"/> Note e Materiali Didattici
@@ -225,16 +193,24 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </p>
         </div>
 
-        {/* Storico e Gestione */}
+        {/* Storico e Gestione Lezioni */}
         <div className="space-y-3">
           <div className="flex justify-between items-center">
             <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Storico e Programmazione</h4>
             
             <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl text-[11px] font-extrabold">
-              <button onClick={() => setFiltroStato('tutte')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'tutte' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>Tutte ({lezioniStudente.length})</button>
-              <button onClick={() => setFiltroStato('programma')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'programma' ? 'bg-white text-sky-900 shadow-sm' : 'text-gray-500'}`}>In Programma</button>
-              <button onClick={() => setFiltroStato('svolta')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'svolta' ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500'}`}>Svolte</button>
-              <button onClick={() => setFiltroStato('annullata')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'annullata' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>Annullate</button>
+              <button onClick={() => setFiltroStato('tutte')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'tutte' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>
+                Tutte ({lezioniStudente.length})
+              </button>
+              <button onClick={() => setFiltroStato('programma')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'programma' ? 'bg-white text-sky-900 shadow-sm' : 'text-gray-500'}`}>
+                In Programma
+              </button>
+              <button onClick={() => setFiltroStato('svolta')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'svolta' ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500'}`}>
+                Svolte
+              </button>
+              <button onClick={() => setFiltroStato('annullata')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'annullata' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>
+                Annullate
+              </button>
             </div>
           </div>
 
@@ -255,23 +231,13 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                     
                     <div className="flex items-center space-x-2">
                       {(!l.stato || l.stato === 'attiva') && (
-                        <>
-                          <button
-                            onClick={() => handleStartEditLezione(l)}
-                            className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1"
-                          >
-                            <ArrowRightLeft className="w-3 h-3"/>
-                            <span>Sposta</span>
-                          </button>
-
-                          <button
-                            onClick={() => setLezioneDaAnnullare(l)}
-                            className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-lg text-[10px] flex items-center space-x-1"
-                          >
-                            <Ban className="w-3 h-3"/>
-                            <span>Annulla</span>
-                          </button>
-                        </>
+                        <button
+                          onClick={() => handleStartEditLezione(l)}
+                          className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1"
+                        >
+                          <ArrowRightLeft className="w-3 h-3"/>
+                          <span>Sposta Lezione</span>
+                        </button>
                       )}
 
                       {l.stato === 'svolta' && <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">Svolta</span>}
@@ -317,8 +283,12 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                       </div>
 
                       <div className="flex justify-end space-x-2 pt-1">
-                        <button onClick={() => setEditingLezioneId(null)} className="px-3 py-1 bg-white border border-gray-200 text-gray-600 font-bold rounded-lg text-[11px]">Annulla</button>
-                        <button onClick={() => handleAttemptMove(l)} className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-[11px]">Salva Spostamento (PIN)</button>
+                        <button onClick={() => setEditingLezioneId(null)} className="px-3 py-1 bg-white border border-gray-200 text-gray-600 font-bold rounded-lg text-[11px]">
+                          Annulla
+                        </button>
+                        <button onClick={() => handleSaveMoveFromStudentCard(l)} className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-[11px]">
+                          Salva Spostamento
+                        </button>
                       </div>
                     </div>
                   )}
@@ -328,78 +298,10 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </div>
         </div>
 
-        {/* MODALE PIN DI SICUREZZA PER SPOSTAMENTO */}
-        {showPinModal && (
-          <div className="absolute inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 rounded-3xl">
-            <form onSubmit={verifyPinAndExecuteMove} className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 space-y-4">
-              <div className="flex items-center space-x-2 text-slate-900">
-                <Lock className="w-5 h-5 text-amber-600"/>
-                <h4 className="font-extrabold text-sm">Autorizzazione PIN Richiesta</h4>
-              </div>
-              <p className="text-xs text-gray-500">Inserisci il PIN amministrativo (default: 1234) per confermare lo spostamento della lezione:</p>
-              
-              <input
-                type="password"
-                maxLength={4}
-                autoFocus
-                placeholder="****"
-                value={pinInput}
-                onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
-                className="w-full p-2.5 text-center tracking-widest text-lg font-black border border-gray-300 rounded-xl bg-gray-50"
-              />
-
-              {pinError && <p className="text-xs text-rose-600 font-bold text-center">PIN errato! Riprova (default: 1234)</p>}
-
-              <div className="flex justify-end space-x-2 pt-1">
-                <button type="button" onClick={() => setShowPinModal(false)} className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Annulla</button>
-                <button type="submit" className="px-4 py-1.5 bg-slate-900 text-white font-bold rounded-xl text-xs">Autorizza e Sposta</button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {/* MODALE ANNULLAMENTO */}
-        {lezioneDaAnnullare && (
-          <div className="absolute inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4 rounded-3xl">
-            <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 space-y-4">
-              <h4 className="font-extrabold text-slate-900 text-sm">Disdici / Annulla Lezione</h4>
-              <p className="text-xs text-gray-500">Specifica il motivo della cancellazione e la gestione della penale:</p>
-              
-              <div className="space-y-3 text-xs">
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Motivo Annullamento</label>
-                  <input
-                    type="text"
-                    placeholder="Es. Malattia, Impegno familiare..."
-                    value={motivoAnnullamento}
-                    onChange={(e) => setMotivoAnnullamento(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-bold text-gray-700 mb-1">Tipo Gestione</label>
-                  <select
-                    value={tipoAnnullamento}
-                    onChange={(e) => setTipoAnnullamento(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900"
-                  >
-                    <option value="gratuito">Gratuito (Annullamento senza addebito)</option>
-                    <option value="addebito">Con Addebito / Penalità</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-2">
-                <button onClick={() => setLezioneDaAnnullare(null)} className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Indietro</button>
-                <button onClick={confermaAnnullamento} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs">Conferma Annullamento</button>
-              </div>
-            </div>
-          </div>
-        )}
-
         <div className="pt-3 border-t border-gray-100 flex justify-end">
-          <button onClick={onClose} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
+          <button onClick={onClose} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">
+            Chiudi
+          </button>
         </div>
       </div>
     </div>
