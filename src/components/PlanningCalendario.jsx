@@ -445,20 +445,43 @@ export default function PlanningCalendario({
                 <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna lezione annullata registrata per oggi.</div>
               ) : (
                 lezioniAnnullateOggi.map(lez => (
-                  <div key={lez.id} className="bg-slate-50 border border-slate-200 p-3.5 rounded-2xl space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="font-black text-slate-900 line-through">{stdsNames(lez.studentiIds, studenti)}</span>
-                      <span className="text-[10px] bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded">
-                        {lez.tipoAnnullamento === 'addebito' ? 'Con Addebito' : 'Gratuita'}
-                      </span>
+                  <div key={lez.id} className="bg-slate-50 border border-slate-200 p-3.5 rounded-2xl flex items-center justify-between gap-3">
+                    <div className="space-y-1 flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-black text-slate-900 line-through">{stdsNames(lez.studentiIds, studenti)}</span>
+                        <span className="text-[10px] bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded">
+                          {lez.tipoAnnullamento === 'addebito' ? 'Con Addebito' : 'Gratuita'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-600 font-medium">{lez.materia} • 🕒 {lez.oraInizio} - {lez.oraFine}</p>
+                      {lez.motivoAnnullamento && (
+                        <p className="text-xs text-rose-700 font-bold mt-1">Motivo: {lez.motivoAnnullamento}</p>
+                      )}
                     </div>
-                    <p className="text-xs text-gray-600 font-medium">{lez.materia} • 🕒 {lez.oraInizio} - {lez.oraFine}</p>
-                    {lez.motivoAnnullamento && (
-                      <p className="text-xs text-rose-700 font-bold mt-1">Motivo: {lez.motivoAnnullamento}</p>
-                    )}
+
+                    {/* Pulsante per Ripristinare la Lezione */}
+                    <button
+                      onClick={() => {
+                        if (onRestoreLezione) {
+                          onRestoreLezione(lez.id);
+                        }
+                      }}
+                      className="px-3 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1 shadow-sm shrink-0 transition-all"
+                      title="Ripristina lezione"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5"/> Ripristina
+                    </button>
                   </div>
                 ))
               )}
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowAnnullateModal(false)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
             </div>
 
             <div className="pt-3 border-t border-gray-100 flex justify-end">
