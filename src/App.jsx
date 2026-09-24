@@ -84,9 +84,7 @@ export default function App() {
          (formData.oraFine > l.oraInizio && formData.oraFine <= l.oraFine))
       );
 
-      if (sovrapposizione) {
-        return false;
-      }
+      if (sovrapposizione) return false;
     }
 
     const nuovaLezione = {
@@ -107,9 +105,8 @@ export default function App() {
     }
   };
 
-  // FUNZIONE DI SPOSTAMENTO COMPLETO (Sia Drag che da Scheda Dettaglio)
   const handleUpdateLezioneCompleta = (moveData) => {
-    setLezioni(prevLezioni => prevLezioni.map(l => {
+    setLezioni(prev => prev.map(l => {
       if (l.id === moveData.lezioneId) {
         return {
           ...l,
@@ -122,6 +119,37 @@ export default function App() {
       }
       return l;
     }));
+  };
+
+  // FUNZIONE PER ESTRARE UN SINGOLO STUDENTE DAL GRUPPO E MANDARLO DA UN DOCENTE
+  const handleEstraiStudenteDaGruppo = (lezioneGruppoId, studenteId, nuovoInsegnanteId, oraInizio, oraFine, data) => {
+    setLezioni(prev => {
+      // 1. Rimuovi lo studente dalla lezione di gruppo originale
+      const aggiornate = prev.map(l => {
+        if (l.id === lezioneGruppoId) {
+          return {
+            ...l,
+            studentiIds: (l.studentiIds || []).filter(sId => sId !== studenteId)
+          };
+        }
+        return l;
+      }).filter(l => !(l.isGruppo && (l.studentiIds || []).length === 0)); // elimina il gruppo se rimane vuoto
+
+      // 2. Crea la nuova lezione individuale per lo studente staccato
+      const lezioneSingola = {
+        id: `lez_${Date.now()}`,
+        data: data || new Date().toISOString().split('T')[0],
+        insegnanteId: nuovoInsegnanteId,
+        isGruppo: false,
+        studentiIds: [studenteId],
+        materia: 'Lezione Individuale',
+        oraInizio,
+        oraFine,
+        stato: 'attiva'
+      };
+
+      return [...aggiornate, lezioneSingola];
+    });
   };
 
   return (
@@ -152,6 +180,7 @@ export default function App() {
               setLezioni(lezioni.map(l => l.id === id ? { ...l, stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '' } : l));
             }}
             onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
+            onEstraiStudenteDaGruppo={handleEstraiStudenteDaGruppo}
           />
         )}
 
@@ -208,6 +237,7 @@ export default function App() {
           studente={studenteSelezionatoDettaglio}
           lezioni={lezioni}
           onClose={() => setStudenteSelezionatoDettaglio(null)}
+          onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
         />
       )}
     </div>
