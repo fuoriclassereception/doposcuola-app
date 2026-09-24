@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders, Ban, Lock } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders, Ban, Lock, RotateCcw } from 'lucide-react';
 import { stampaReportStudente } from '../utils/printReport';
 
 export default function DettaglioStudente({ studente, lezioni = [], onClose, onUpdateLezioneCompleta, onUpdateLezioneStatus }) {
@@ -11,9 +11,10 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
-  const [pendingActionType, setPendingActionType] = useState(null); // 'move' o 'cancel'
+  const [pendingActionType, setPendingActionType] = useState(null); // 'move', 'cancel', 'restore'
   const [pendingMoveData, setPendingMoveData] = useState(null);
   const [pendingCancelData, setPendingCancelData] = useState(null);
+  const [pendingRestoreId, setPendingRestoreId] = useState(null);
 
   // Stato per annullamento lezione
   const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
@@ -29,6 +30,18 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
     tariffaOraria: 25
   });
   const [mostraImpostazioniStampa, setMostraImpostazioniStampa] = useState(false);
+
+  const pinInputRef = useRef(null);
+
+  useEffect(() => {
+    if (showPinModal) {
+      setTimeout(() => {
+        if (pinInputRef.current) {
+          pinInputRef.current.focus();
+        }
+      }, 50);
+    }
+  }, [showPinModal]);
 
   if (!studente) return null;
 
@@ -72,7 +85,16 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
       motivo: motivoAnnullamento || 'Motivo non specificato',
       tipo: tipoAnnullamento
     });
+    setLezioneDaAnnullare(null); // Chiudiamo il modale di annullamento prima di aprire il PIN sovrapposto
     setPendingActionType('cancel');
+    setPinInput('');
+    setPinError(false);
+    setShowPinModal(true);
+  };
+
+  const handleRequestRestoreWithPin = (lezioneId) => {
+    setPendingRestoreId(lezioneId);
+    setPendingActionType('restore');
     setPinInput('');
     setPinError(false);
     setShowPinModal(true);
@@ -86,15 +108,19 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
         setEditingLezioneId(null);
       } else if (pendingActionType === 'cancel' && onUpdateLezioneStatus && pendingCancelData) {
         onUpdateLezioneStatus(pendingCancelData.id, 'annullata', pendingCancelData.motivo, pendingCancelData.tipo);
-        setLezioneDaAnnullare(null);
-        setMotivoAnnullamento('');
+      } else if (pendingActionType === 'restore' && onUpdateLezioneStatus && pendingRestoreId) {
+        onUpdateLezioneStatus(pendingRestoreId, 'attiva', '', '');
       }
       setShowPinModal(false);
       setPendingActionType(null);
       setPendingMoveData(null);
       setPendingCancelData(null);
+      setPendingRestoreId(null);
     } else {
       setPinError(true);
+      if (pinInputRef.current) {
+        pinInputRef.current.focus();
+      }
     }
   };
 
@@ -246,10 +272,20 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
 
                       {l.stato === 'svolta' && <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">Svolta</span>}
                       {(!l.stato || l.stato === 'attiva') && <span className="bg-sky-100 text-sky-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">In Programma</span>}
+                      
                       {l.stato === 'annullata' && (
-                        <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md line-through">
-                          {l.tipoAnnullamento === 'addebito' ? 'Annullata (Con Addebito)' : 'Annullata (Gratuita)'}
-                        </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md line-through">
+                            {l.tipoAnnullamento === 'addebito' ? 'Annullata (Con Addebito)' : 'Annullata (Gratuita)'}
+                          </span>
+                          <button 
+                            onClick={() => handleRequestRestoreWithPin(l.id)}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[10px] flex items-center space-x-1 shadow-sm"
+                            title="Ripristina o rischedula questa lezione"
+                          >
+                            <RotateCcw className="w-3 h-3"/><span>Ripristina</span>
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -282,39 +318,9 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </div>
         </div>
 
-        {/* MODALE PIN DI SICUREZZA (1234) */}
-        {showPinModal && (
-          <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 rounded-3xl">
-            <form onSubmit={verifyPinAndExecute} className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 space-y-4">
-              <div className="flex items-center space-x-2 text-slate-900">
-                <Lock className="w-5 h-5 text-amber-600"/>
-                <h4 className="font-extrabold text-sm">Autorizzazione PIN Richiesta</h4>
-              </div>
-              <p className="text-xs text-gray-500">Inserisci il PIN amministrativo (default: 1234) per confermare l'operazione:</p>
-              
-              <input
-                type="password"
-                maxLength={4}
-                autoFocus
-                placeholder="****"
-                value={pinInput}
-                onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
-                className="w-full p-2.5 text-center tracking-widest text-lg font-black border border-gray-300 rounded-xl bg-gray-50"
-              />
-
-              {pinError && <p className="text-xs text-rose-600 font-bold text-center">PIN errato! Riprova (default: 1234)</p>}
-
-              <div className="flex justify-end space-x-2 pt-1">
-                <button type="button" onClick={() => setShowPinModal(false)} className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Annulla</button>
-                <button type="submit" className="px-4 py-1.5 bg-slate-900 text-white font-bold rounded-xl text-xs">Autorizza</button>
-              </div>
-            </form>
-          </div>
-        )}
-
         {/* MODALE PER ANNULLAMENTO LEZIONE CON MOTIVO E PENALE */}
         {lezioneDaAnnullare && (
-          <div className="absolute inset-0 z-50 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 rounded-3xl">
+          <div className="fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 space-y-4">
               <h4 className="font-extrabold text-slate-900 text-sm">Disdici / Annulla Lezione</h4>
               <p className="text-xs text-gray-500">Specifica il motivo della cancellazione e la gestione dell'addebito:</p>
@@ -338,6 +344,36 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                 <button onClick={handleRequestCancelWithPin} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs">Conferma Annullamento (PIN)</button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* MODALE PIN DI SICUREZZA (1234) - SPOSTATO A Z-[70] PER GARANTIRE DI STARE SOPRA TUTTO */}
+        {showPinModal && (
+          <div className="fixed inset-0 z-[70] bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+            <form onSubmit={verifyPinAndExecute} className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 space-y-4">
+              <div className="flex items-center space-x-2 text-slate-900">
+                <Lock className="w-5 h-5 text-amber-600"/>
+                <h4 className="font-extrabold text-sm">Autorizzazione PIN Richiesta</h4>
+              </div>
+              <p className="text-xs text-gray-500">Inserisci il PIN amministrativo (default: 1234) per confermare l'operazione:</p>
+              
+              <input
+                ref={pinInputRef}
+                type="password"
+                maxLength={4}
+                placeholder="****"
+                value={pinInput}
+                onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
+                className="w-full p-2.5 text-center tracking-widest text-lg font-black border border-gray-300 rounded-xl bg-gray-50"
+              />
+
+              {pinError && <p className="text-xs text-rose-600 font-bold text-center">PIN errato! Riprova (default: 1234)</p>}
+
+              <div className="flex justify-end space-x-2 pt-1">
+                <button type="button" onClick={() => setShowPinModal(false)} className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Annulla</button>
+                <button type="submit" className="px-4 py-1.5 bg-slate-900 text-white font-bold rounded-xl text-xs">Autorizza</button>
+              </div>
+            </form>
           </div>
         )}
 
