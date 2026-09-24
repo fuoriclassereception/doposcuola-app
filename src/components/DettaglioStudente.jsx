@@ -59,9 +59,14 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
 
   const confermaAnnullamento = () => {
     if (!lezioneDaAnnullare) return;
+    
+    // Esegue direttamente la funzione passata dalle props per aggiornare lo stato della lezione
     if (onUpdateLezioneStatus) {
       onUpdateLezioneStatus(lezioneDaAnnullare.id, 'annullata', motivoAnnullamento || 'Motivo non specificato', tipoAnnullamento);
+    } else {
+      console.warn("Funzione onUpdateLezioneStatus non trovata nelle props.");
     }
+
     setLezioneDaAnnullare(null);
     setMotivoAnnullamento('');
   };
@@ -255,7 +260,11 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                           </button>
 
                           <button
-                            onClick={() => setLezioneDaAnnullare(l)}
+                            onClick={() => {
+                              setLezioneDaAnnullare(l);
+                              setMotivoAnnullamento('');
+                              setTipoAnnullamento('gratuito');
+                            }}
                             className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-lg text-[10px] flex items-center space-x-1"
                           >
                             <Ban className="w-3 h-3"/>
