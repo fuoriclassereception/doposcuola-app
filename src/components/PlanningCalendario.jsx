@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip, Calendar, ArrowRightLeft } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
@@ -10,7 +10,7 @@ export default function PlanningCalendario({
   onSelectStudent,
   onUpdateLezioneStatus,
   onRestoreLezione,
-  onUpdateLezioneCompleta // Aggiorna orari, insegnante e isGruppo con PIN
+  onUpdateLezioneCompleta
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
@@ -18,14 +18,18 @@ export default function PlanningCalendario({
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
 
-  // Stato per Modale Annullamento avanzato
+  // Stato per Modale Annullamento (separata per non sovrapporsi)
   const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
   const [motivoAnnullamento, setMotivoAnnullamento] = useState('');
-  const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito'); // 'gratuito' | 'addebito'
+  const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
+
+  // Stato per Spostamento Rapido da Dettaglio Lezione
+  const [isEditingMove, setIsEditingMove] = useState(false);
+  const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '', insegnanteId: '', isGruppo: false });
 
   // Stato Drag & Drop e PIN
   const [draggedLezione, setDraggedLezione] = useState(null);
-  const [pendingMove, setPendingMove] = useState(null); // { lezioneId, newStart, newEnd, newInsegnanteId, isGruppo }
+  const [pendingMove, setPendingMove] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
@@ -56,7 +60,7 @@ export default function PlanningCalendario({
   const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
 
-  // --- DRAG & DROP LEZIONI TRA FASCIE O INSEGNANTI ---
+  // DRAG & DROP LOGIC
   const handleDragStart = (e, lezione) => {
     setDraggedLezione(lezione);
     e.dataTransfer.setData('text/plain', lezione.id);
@@ -70,7 +74,6 @@ export default function PlanningCalendario({
     e.preventDefault();
     if (!draggedLezione) return;
 
-    // Calcola nuova durata
     const [hStart, mStart] = draggedLezione.oraInizio.split(':').map(Number);
     const [hEnd, mEnd] = draggedLezione.oraFine.split(':').map(Number);
     const durataMins = (hEnd - hStart) * 60 + (mEnd - mStart);
@@ -81,9 +84,9 @@ export default function PlanningCalendario({
     const endM = (endTotalMins % 60).toString().padStart(2, '0');
     const newEnd = `${endH}:${endM}`;
 
-    // Imposta lo spostamento in attesa di PIN
     setPendingMove({
       lezioneId: draggedLezione.id,
+      data: dataSelezionata,
       oraInizio: newStart,
       oraFine: newEnd,
       insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
@@ -96,7 +99,7 @@ export default function PlanningCalendario({
   };
 
   const confirmPendingMoveWithPin = () => {
-    if (pinInput !== '1234') { // PIN predefinito Amministratore
+    if (pinInput !== '1234') {
       setPinError(true);
       return;
     }
@@ -109,7 +112,39 @@ export default function PlanningCalendario({
     setPinError(false);
   };
 
-  // Conferma Annullamento con Motivazione
+  // APRE DETTAGLIO LEZIONE ED INIZIALIZZA SPOSTAMENTO
+  const handleOpenDetail = (lez) => {
+    setSelectedLezioneDetail(lez);
+    setIsEditingMove(false);
+    setMoveForm({
+      data: lez.data,
+      oraInizio: lez.oraInizio,
+      oraFine: lez.oraFine,
+      insegnanteId: lez.insegnanteId || (insegnanti[0]?.id || ''),
+      isGruppo: lez.isGruppo || false
+    });
+  };
+
+  // CONFERMA SPOSTAMENTO MANUALE DA DETTAGLIO
+  const handleSaveMoveFromDetail = () => {
+    if (onUpdateLezioneCompleta) {
+      onUpdateLezioneCompleta({
+        lezioneId: selectedLezioneDetail.id,
+        ...moveForm
+      });
+    }
+    setSelectedLezioneDetail(null);
+    setIsEditingMove(false);
+  };
+
+  // AVVIA PROCESSO DI ANNULLAMENTO (Chiude prima il dettaglio)
+  const handleStartAnnullamento = (lez) => {
+    setSelectedLezioneDetail(null);
+    setLezioneDaAnnullare(lez);
+    setMotivoAnnullamento('');
+    setTipoAnnullamento('gratuito');
+  };
+
   const handleConfirmAnnullamento = () => {
     if (!motivoAnnullamento.trim()) {
       alert("Inserisci una motivazione per l'annullamento.");
@@ -120,8 +155,6 @@ export default function PlanningCalendario({
       onUpdateLezioneStatus(lezioneDaAnnullare.id, 'annullata', motivoAnnullamento, tipoAnnullamento);
     }
     setLezioneDaAnnullare(null);
-    setSelectedLezioneDetail(null);
-    setMotivoAnnullamento('');
   };
 
   return (
@@ -134,7 +167,7 @@ export default function PlanningCalendario({
           </div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Trascina le lezioni per spostare orario o docente (richiede PIN)</p>
+            <p className="text-xs text-gray-500">Trascina o apri la lezione per riprogrammare orari e docenti</p>
           </div>
         </div>
 
@@ -232,7 +265,7 @@ export default function PlanningCalendario({
                       key={lez.id}
                       draggable
                       onDragStart={(e) => handleDragStart(e, lez)}
-                      onClick={() => setSelectedLezioneDetail(lez)}
+                      onClick={() => handleOpenDetail(lez)}
                       style={{
                         top: `${topPercent}%`,
                         height: `${heightPercent}%`,
@@ -303,7 +336,7 @@ export default function PlanningCalendario({
               return (
                 <div
                   key={lez.id}
-                  onClick={() => setSelectedLezioneDetail(lez)}
+                  onClick={() => handleOpenDetail(lez)}
                   style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
                   className="absolute left-1 right-1 bg-slate-300/80 border-l-4 border-slate-500 rounded-xl p-2 text-xs shadow-sm opacity-80 cursor-pointer"
                 >
@@ -326,7 +359,7 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* MODALE 1: POPUP RICHIESTA PIN PER SPOSTAMENTO/DRAG & DROP */}
+      {/* MODALE 1: PIN PER DRAG & DROP */}
       {pendingMove && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -357,14 +390,14 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* MODALE 2: POPUP ANNULLAMENTO CON MOTIVAZIONE E PENALE */}
+      {/* MODALE 2: ANNULLAMENTO CON GIUSTIFICAZIONE (NESSUNA SOVRAPPOSIZIONE) */}
       {lezioneDaAnnullare && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
               <div className="flex items-center space-x-2 text-rose-600">
                 <AlertOctagon className="w-5 h-5"/>
-                <h3 className="font-extrabold text-base text-slate-900">Annulla Lezione</h3>
+                <h3 className="font-extrabold text-base text-slate-900">Giustificazione e Annullamento</h3>
               </div>
               <button onClick={() => setLezioneDaAnnullare(null)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
             </div>
@@ -375,7 +408,7 @@ export default function PlanningCalendario({
                 <textarea
                   rows={2}
                   required
-                  placeholder="Es. Avviso in ritardo, malattia, impegno improvviso..."
+                  placeholder="Es. Avviso in ritardo, malattia, impegno personale..."
                   value={motivoAnnullamento}
                   onChange={(e) => setMotivoAnnullamento(e.target.value)}
                   className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-slate-900"
@@ -411,7 +444,7 @@ export default function PlanningCalendario({
             </div>
 
             <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
-              <button onClick={() => setLezioneDaAnnullare(null)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold">Annulla</button>
+              <button onClick={() => setLezioneDaAnnullare(null)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold">Chiudi</button>
               <button onClick={handleConfirmAnnullamento} className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md">
                 Conferma Annullamento
               </button>
@@ -420,7 +453,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* MODALE 3: DETTAGLIO LEZIONE CON VISUALIZZAZIONE MATERIALI DIDATTICI */}
+      {/* MODALE 3: DETTAGLIO E SPOSTAMENTO RAPIDO (DATA / ORA / INSEGNANTE) */}
       {selectedLezioneDetail && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -433,29 +466,95 @@ export default function PlanningCalendario({
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-1">
+              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
                 <div className="font-black text-slate-900 text-sm">{selectedLezioneDetail.materia || 'Lezione'}</div>
-                <div className="font-bold text-gray-600">🕒 Orario: {selectedLezioneDetail.oraInizio} - {selectedLezioneDetail.oraFine}</div>
-                {selectedLezioneDetail.stato === 'annullata' && (
-                  <div className="bg-rose-100 text-rose-900 p-2 rounded-xl mt-2 font-bold space-y-0.5">
-                    <p>⚠️ Motivazione: {selectedLezioneDetail.motivoAnnullamento || 'Non specificata'}</p>
-                    <p>Trattamento: {selectedLezioneDetail.tipoAnnullamento === 'addebito' ? '🔴 Con Addebito / Penale' : '🟢 Annullamento Gratuito'}</p>
-                  </div>
-                )}
+                <div className="text-gray-600 font-bold flex items-center gap-2">
+                  <span>📅 {selectedLezioneDetail.data}</span>
+                  <span>🕒 {selectedLezioneDetail.oraInizio} - {selectedLezioneDetail.oraFine}</span>
+                </div>
+
+                {/* Tasto per Aprire lo Spostamento Rapido */}
+                <button
+                  onClick={() => setIsEditingMove(!isEditingMove)}
+                  className="w-full mt-2 py-2 px-3 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl font-bold flex items-center justify-center space-x-2 transition-all shadow-sm"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5"/>
+                  <span>{isEditingMove ? 'Chiudi Riprogrammazione' : 'Sposta / Riprogramma Lezione'}</span>
+                </button>
               </div>
 
-              {/* Sezione Materiali Didattici e Note Uploadati */}
-              <div className="bg-amber-50/60 p-3 rounded-2xl border border-amber-200/80 space-y-2">
+              {/* BOX RIPROGRAMMAZIONE DATA / ORA / INSEGNANTE */}
+              {isEditingMove && (
+                <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 space-y-3">
+                  <h4 className="font-extrabold text-amber-950 text-xs">Seleziona Nuovo Giorno e Orario</h4>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Nuovo Giorno</label>
+                      <input
+                        type="date"
+                        value={moveForm.data}
+                        onChange={(e) => setMoveForm({ ...moveForm, data: e.target.value })}
+                        className="w-full p-2 bg-white rounded-xl border border-amber-300 font-bold text-slate-900 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Insegnante / Destinazione</label>
+                      <select
+                        value={moveForm.isGruppo ? 'gruppo' : moveForm.insegnanteId}
+                        onChange={(e) => {
+                          if (e.target.value === 'gruppo') {
+                            setMoveForm({ ...moveForm, isGruppo: true, insegnanteId: '' });
+                          } else {
+                            setMoveForm({ ...moveForm, isGruppo: false, insegnanteId: e.target.value });
+                          }
+                        }}
+                        className="w-full p-2 bg-white rounded-xl border border-amber-300 font-bold text-slate-900 text-xs"
+                      >
+                        {insegnanti.map(ins => (
+                          <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome}</option>
+                        ))}
+                        <option value="gruppo">Colonna GRUPPO</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Ora Inizio</label>
+                      <input
+                        type="time"
+                        value={moveForm.oraInizio}
+                        onChange={(e) => setMoveForm({ ...moveForm, oraInizio: e.target.value })}
+                        className="w-full p-2 bg-white rounded-xl border border-amber-300 font-bold text-slate-900 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Ora Fine</label>
+                      <input
+                        type="time"
+                        value={moveForm.oraFine}
+                        onChange={(e) => setMoveForm({ ...moveForm, oraFine: e.target.value })}
+                        className="w-full p-2 bg-white rounded-xl border border-amber-300 font-bold text-slate-900 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleSaveMoveFromDetail}
+                    className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-md"
+                  >
+                    Conferma Spostamento Lezione
+                  </button>
+                </div>
+              )}
+
+              {/* Materiali Didattici */}
+              <div className="bg-amber-50/60 p-3 rounded-2xl border border-amber-200/80 space-y-1">
                 <label className="block text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center">
-                  <Paperclip className="w-3.5 h-3.5 mr-1 text-amber-700"/> Materiali Didattici & Note Upload
+                  <Paperclip className="w-3.5 h-3.5 mr-1 text-amber-700"/> Materiali & Compiti
                 </label>
-                {selectedLezioneDetail.note ? (
-                  <p className="bg-white p-2 rounded-xl border border-amber-200 text-amber-900 font-medium text-xs">
-                    {selectedLezioneDetail.note}
-                  </p>
-                ) : (
-                  <p className="text-gray-400 font-medium text-[11px] italic">Nessun file o nota allegata dai genitori/studenti per questa lezione.</p>
-                )}
+                <p className="text-gray-400 font-medium text-[11px] italic">Nessun allegato per questa lezione.</p>
               </div>
 
               <div>
@@ -478,9 +577,7 @@ export default function PlanningCalendario({
                           <User className="w-4 h-4 text-slate-700"/>
                           <span>{std ? `${std.nome} ${std.cognome}` : 'Studente'}</span>
                         </div>
-                        <span className="text-[10px] bg-slate-900 text-white px-2 py-0.5 rounded-md font-bold">
-                          Vedi Scheda
-                        </span>
+                        <span className="text-[10px] bg-slate-900 text-white px-2 py-0.5 rounded-md font-bold">Vedi Scheda</span>
                       </button>
                     );
                   })}
@@ -503,7 +600,7 @@ export default function PlanningCalendario({
                 </button>
               ) : (
                 <button
-                  onClick={() => setLezioneDaAnnullare(selectedLezioneDetail)}
+                  onClick={() => handleStartAnnullamento(selectedLezioneDetail)}
                   className="px-3 py-2 bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold rounded-xl text-xs flex items-center space-x-1"
                 >
                   <AlertOctagon className="w-4 h-4"/>
