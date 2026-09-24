@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip, ArrowRightLeft, UserMinus } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip, ArrowRightLeft, UserMinus, GripHorizontal } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
@@ -11,7 +11,7 @@ export default function PlanningCalendario({
   onUpdateLezioneStatus,
   onRestoreLezione,
   onUpdateLezioneCompleta,
-  onEstraiStudenteDaGruppo // Callback per staccare un solo studente dal gruppo
+  onEstraiStudenteDaGruppo
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
@@ -20,9 +20,9 @@ export default function PlanningCalendario({
   const [groupModalData, setGroupModalData] = useState(null);
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
 
-  // Modale Estrazione Studente Singolo
-  const [estrazioneData, setEstrazioneData] = useState(null); // { lezioneOriginale, studenteId }
-  const [estrazioneForm, setEstrazioneForm] = useState({ insegnanteId: '', oraInizio: '15:00', oraFine: '16:00' });
+  // Modale Estrazione Studente Singolo (con Data inclusa)
+  const [estrazioneData, setEstrazioneData] = useState(null);
+  const [estrazioneForm, setEstrazioneForm] = useState({ data: '', insegnanteId: '', oraInizio: '15:00', oraFine: '16:00' });
 
   // Modale Annullamento
   const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
@@ -33,16 +33,22 @@ export default function PlanningCalendario({
   const [isEditingMove, setIsEditingMove] = useState(false);
   const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '', insegnanteId: '', isGruppo: false });
 
-  // PIN e Drag
+  // PIN e Drag / Resize
   const [pendingMove, setPendingMove] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
+  const [resizingLezione, setResizingLezione] = useState(null);
 
   const pinInputRef = useRef(null);
 
-  const orari = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
-  const startHour = 9;
-  const totalHours = 12;
+  // Slot orari divisi ogni 30 minuti (dalle 9:00 alle 20:00)
+  const slots30 = [];
+  for (let h = 9; h < 20; h++) {
+    slots30.push({ oraStr: `${h.toString().padStart(2, '0')}:00`, totalMins: h * 60 });
+    slots30.push({ oraStr: `${h.toString().padStart(2, '0')}:30`, totalMins: h * 60 + 30 });
+  }
+  const startHourMins = 9 * 60;
+  const totalHoursMins = 11 * 60; // 9:00 - 20:00 = 11 ore
 
   useEffect(() => {
     const updateCurrentTime = () => {
@@ -68,13 +74,13 @@ export default function PlanningCalendario({
   };
 
   const isToday = dataSelezionata === new Date().toISOString().split('T')[0];
-  const redLineTop = ((currentTimeMinutes - startHour * 60) / (totalHours * 60)) * 100;
+  const redLineTop = ((currentTimeMinutes - startHourMins) / totalHoursMins) * 100;
 
   const lezioniAttive = lezioni.filter(l => l.data === dataSelezionata && l.stato !== 'annullata');
   const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
 
-  // FUSIONE GRUPPO
+  // RAGGRUPPAMENTO COLONNA GRUPPO
   const gruppiFusiMap = {};
   lezioniGruppoOggi.forEach(l => {
     const key = `${l.oraInizio}-${l.oraFine}`;
@@ -85,7 +91,7 @@ export default function PlanningCalendario({
   });
   const gruppiFusiList = Object.values(gruppiFusiMap);
 
-  // DRAG & DROP CORRETTO (SUPPORTA SINGOLA -> GRUPPO E VICEVERSA)
+  // DRAG & DROP SULLE MEZZE ORE
   const handleDragStart = (e, payloadData) => {
     e.dataTransfer.setData('application/json', JSON.stringify(payloadData));
   };
@@ -94,51 +100,48 @@ export default function PlanningCalendario({
     e.preventDefault();
   };
 
-  const handleDrop = (e, targetInsegnanteId, targetIsGruppo = false, targetOra) => {
+  const handleDrop = (e, targetInsegnanteId, targetIsGruppo = false, targetOraStr) => {
     e.preventDefault();
     const dataJson = e.dataTransfer.getData('application/json');
     if (!dataJson) return;
 
     const payload = JSON.parse(dataJson);
+    const [tH, tM] = targetOraStr.split(':').map(Number);
+    const startMinsNew = tH * 60 + tM;
 
     if (payload.isGruppoFuso) {
       const firstLez = payload.lezioni[0];
       const [hStart, mStart] = firstLez.oraInizio.split(':').map(Number);
       const [hEnd, mEnd] = firstLez.oraFine.split(':').map(Number);
-      const durataMins = (hEnd - hStart) * 60 + (mEnd - mStart);
+      const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
 
-      const newStart = `${targetOra.toString().padStart(2, '0')}:00`;
-      const endTotalMins = targetOra * 60 + durataMins;
+      const endTotalMins = startMinsNew + durataMins;
       const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
       const endM = (endTotalMins % 60).toString().padStart(2, '0');
-      const newEnd = `${endH}:${endM}`;
 
       setPendingMove({
         isGruppoFuso: true,
         lezioniIds: payload.lezioni.map(l => l.id),
         data: dataSelezionata,
-        oraInizio: newStart,
-        oraFine: newEnd,
+        oraInizio: targetOraStr,
+        oraFine: `${endH}:${endM}`,
         insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
         isGruppo: targetIsGruppo
       });
     } else {
-      // Lezione Singola convertita o spostata
       const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
       const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
-      const durataMins = (hEnd - hStart) * 60 + (mEnd - mStart);
+      const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
 
-      const newStart = `${targetOra.toString().padStart(2, '0')}:00`;
-      const endTotalMins = targetOra * 60 + durataMins;
+      const endTotalMins = startMinsNew + durataMins;
       const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
       const endM = (endTotalMins % 60).toString().padStart(2, '0');
-      const newEnd = `${endH}:${endM}`;
 
       setPendingMove({
         lezioneId: payload.id,
         data: dataSelezionata,
-        oraInizio: newStart,
-        oraFine: newEnd,
+        oraInizio: targetOraStr,
+        oraFine: `${endH}:${endM}`,
         insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
         isGruppo: Boolean(targetIsGruppo)
       });
@@ -146,6 +149,36 @@ export default function PlanningCalendario({
 
     setPinInput('');
     setPinError(false);
+  };
+
+  // RIDIMENSIONAMENTO DURATA (RESIZE)
+  const handleResizeStart = (e, lezione) => {
+    e.stopPropagation();
+    setResizingLezione(lezione);
+  };
+
+  const handleResizeStep = (deltaMins) => {
+    if (!resizingLezione) return;
+    const [hEnd, mEnd] = resizingLezione.oraFine.split(':').map(Number);
+    let totalEnd = hEnd * 60 + mEnd + deltaMins;
+
+    const [hStart, mStart] = resizingLezione.oraInizio.split(':').map(Number);
+    const totalStart = hStart * 60 + mStart;
+
+    if (totalEnd <= totalStart + 30) totalEnd = totalStart + 30; // durata minima 30 min
+
+    const newEndH = Math.floor(totalEnd / 60).toString().padStart(2, '0');
+    const newEndM = (totalEnd % 60).toString().padStart(2, '0');
+
+    setPendingMove({
+      lezioneId: resizingLezione.id,
+      data: resizingLezione.data,
+      oraInizio: resizingLezione.oraInizio,
+      oraFine: `${newEndH}:${newEndM}`,
+      insegnanteId: resizingLezione.insegnanteId,
+      isGruppo: resizingLezione.isGruppo
+    });
+    setResizingLezione(null);
   };
 
   const confirmPendingMoveWithPin = (e) => {
@@ -207,7 +240,7 @@ export default function PlanningCalendario({
         estrazioneForm.insegnanteId,
         estrazioneForm.oraInizio,
         estrazioneForm.oraFine,
-        dataSelezionata
+        estrazioneForm.data || dataSelezionata
       );
     }
     setEstrazioneData(null);
@@ -224,7 +257,7 @@ export default function PlanningCalendario({
           </div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Trascina le lezioni tra docenti o nel gruppo per convertire l'orario</p>
+            <p className="text-xs text-gray-500">Drag & Drop a scatti di 30 min • Ridimensionamento durata sui margini</p>
           </div>
         </div>
 
@@ -278,11 +311,13 @@ export default function PlanningCalendario({
           </div>
         </div>
 
-        {/* Corpo della Griglia */}
+        {/* Corpo della Griglia (Slot di 30 Minuti) */}
         <div className="relative flex-1 grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))_160px] w-full min-w-[900px]">
           <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
-            {orari.map(ora => (
-              <div key={ora} className="h-16 text-[11px] font-extrabold text-gray-400 pt-2">{ora}:00</div>
+            {slots30.map((slot, i) => (
+              <div key={i} className="h-8 text-[10px] font-extrabold text-gray-400 pt-1">
+                {slot.oraStr.endsWith(':00') ? slot.oraStr : ''}
+              </div>
             ))}
           </div>
 
@@ -291,16 +326,24 @@ export default function PlanningCalendario({
             const lezioniDocente = lezioniAttive.filter(l => l.insegnanteId === ins.id && !l.isGruppo);
 
             return (
-              <div key={ins.id} className="border-r border-gray-100 relative divide-y divide-gray-100 bg-white">
-                {orari.map(ora => (
-                  <div key={ora} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, ins.id, false, ora)} className="h-16 hover:bg-slate-50/50"/>
+              <div key={ins.id} className="border-r border-gray-100 relative divide-y divide-gray-100/60 bg-white">
+                {slots30.map((slot, i) => (
+                  <div
+                    key={i}
+                    onDragOver={handleDragOver}
+                    onDrop={(e) => handleDrop(e, ins.id, false, slot.oraStr)}
+                    className="h-8 hover:bg-slate-50/60"
+                  />
                 ))}
 
                 {lezioniDocente.map(lez => {
                   const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
                   const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
-                  const topPercent = (((hStart - startHour) * 60 + mStart) / (totalHours * 60)) * 100;
-                  const heightPercent = (((hEnd - hStart) * 60 + (mEnd - mStart)) / (totalHours * 60)) * 100;
+                  const topMins = hStart * 60 + mStart - startHourMins;
+                  const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
+
+                  const topPercent = (topMins / totalHoursMins) * 100;
+                  const heightPercent = (durationMins / totalHoursMins) * 100;
 
                   return (
                     <div
@@ -314,12 +357,34 @@ export default function PlanningCalendario({
                         backgroundColor: (ins.colore || '#3b82f6') + '20',
                         borderColor: ins.colore || '#3b82f6'
                       }}
-                      className="absolute left-1 right-1 border-l-4 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between cursor-grab active:cursor-grabbing hover:scale-[1.01] transition-all"
+                      className="absolute left-1 right-1 border-l-4 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between cursor-grab active:cursor-grabbing hover:scale-[1.01] transition-all group"
                     >
                       <div>
                         <div className="font-extrabold text-slate-900 truncate">{stdsNames(lez.studentiIds, studenti)}</div>
-                        <div className="text-[10px] font-bold text-gray-600 truncate">{lez.materia || 'Materia non spec.'}</div>
+                        <div className="text-[10px] font-bold text-gray-600 truncate">{lez.materia || 'Materia'}</div>
                         <div className="text-[9px] font-extrabold text-gray-500 mt-0.5">{lez.oraInizio} - {lez.oraFine}</div>
+                      </div>
+
+                      {/* MANIGLIA PER ALLUNGARE/ACCORCIARE DURATA SUL MARGINE INFERIORE */}
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-full flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity pt-1 border-t border-black/10 mt-1 cursor-ns-resize"
+                      >
+                        <button
+                          onClick={() => { setResizingLezione(lez); handleResizeStep(-30); }}
+                          className="px-1 bg-white/80 rounded text-[9px] font-black text-slate-800 hover:bg-white"
+                          title="Accorcia di 30 min"
+                        >
+                          -30m
+                        </button>
+                        <GripHorizontal className="w-3.5 h-3.5 text-gray-500"/>
+                        <button
+                          onClick={() => { setResizingLezione(lez); handleResizeStep(30); }}
+                          className="px-1 bg-white/80 rounded text-[9px] font-black text-slate-800 hover:bg-white"
+                          title="Allunga di 30 min"
+                        >
+                          +30m
+                        </button>
                       </div>
                     </div>
                   );
@@ -328,17 +393,25 @@ export default function PlanningCalendario({
             );
           })}
 
-          {/* COLONNA GRUPPO (ACCETTA DROP DA SINGOLA) */}
+          {/* COLONNA GRUPPO */}
           <div className="border-r border-amber-200 bg-amber-50/30 relative divide-y divide-amber-100/50">
-            {orari.map(ora => (
-              <div key={ora} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, '', true, ora)} className="h-16 hover:bg-amber-100/30"/>
+            {slots30.map((slot, i) => (
+              <div
+                key={i}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, '', true, slot.oraStr)}
+                className="h-8 hover:bg-amber-100/30"
+              />
             ))}
 
             {gruppiFusiList.map((gf, idx) => {
               const [hStart, mStart] = gf.oraInizio.split(':').map(Number);
               const [hEnd, mEnd] = gf.oraFine.split(':').map(Number);
-              const topPercent = (((hStart - startHour) * 60 + mStart) / (totalHours * 60)) * 100;
-              const heightPercent = (((hEnd - hStart) * 60 + (mEnd - mStart)) / (totalHours * 60)) * 100;
+              const topMins = hStart * 60 + mStart - startHourMins;
+              const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
+
+              const topPercent = (topMins / totalHoursMins) * 100;
+              const heightPercent = (durationMins / totalHoursMins) * 100;
               const tuttiStudentiIds = gf.lezioni.flatMap(l => l.studentiIds || []);
 
               return (
@@ -371,13 +444,16 @@ export default function PlanningCalendario({
 
           {/* Colonna ANNULLATE */}
           <div className="bg-slate-100/70 border-l-2 border-slate-300 relative divide-y divide-slate-200">
-            {orari.map(ora => <div key={ora} className="h-16"/>)}
+            {slots30.map((_, i) => <div key={i} className="h-8"/>)}
 
             {lezioniAnnullateOggi.map(lez => {
               const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
               const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
-              const topPercent = (((hStart - startHour) * 60 + mStart) / (totalHours * 60)) * 100;
-              const heightPercent = (((hEnd - hStart) * 60 + (mEnd - mStart)) / (totalHours * 60)) * 100;
+              const topMins = hStart * 60 + mStart - startHourMins;
+              const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
+
+              const topPercent = (topMins / totalHoursMins) * 100;
+              const heightPercent = (durationMins / totalHoursMins) * 100;
 
               return (
                 <div
@@ -402,7 +478,7 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* POPUP GRUPPO FUSO CON OPZIONE DI ESTRAZIONE STUDENTE */}
+      {/* POPUP GRUPPO FUSO */}
       {groupModalData && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
@@ -443,11 +519,11 @@ export default function PlanningCalendario({
                             <span className="truncate">{std ? `${std.nome} ${std.cognome}` : 'Studente'}</span>
                           </button>
 
-                          {/* Pulsante per estrarre il singolo studente e mandarlo da un docente */}
                           <button
                             onClick={() => {
                               setEstrazioneData({ lezioneOriginale: lg, studenteId: sId });
                               setEstrazioneForm({
+                                data: dataSelezionata,
                                 insegnanteId: insegnanti[0]?.id || '',
                                 oraInizio: lg.oraInizio,
                                 oraFine: lg.oraFine
@@ -473,7 +549,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* POPUP ESTRAZIONE STUDENTE SINGOLO DA GRUPPO */}
+      {/* POPUP ESTRAZIONE STUDENTE SINGOLO CON SELEZIONE GIORNO */}
       {estrazioneData && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
@@ -483,10 +559,21 @@ export default function PlanningCalendario({
             </div>
 
             <p className="text-xs text-gray-600">
-              Seleziona l'insegnante singolo a cui riassegnare lo studente per questa lezione individuale:
+              Scegli il giorno, l'insegnante e la fascia oraria per la nuova lezione individuale:
             </p>
 
-            <div className="space-y-2">
+            <div className="space-y-2.5">
+              {/* NUOVO CAMPO GIORNO / CALENDARIO */}
+              <div>
+                <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Seleziona Giorno</label>
+                <input
+                  type="date"
+                  value={estrazioneForm.data}
+                  onChange={(e) => setEstrazioneForm({ ...estrazioneForm, data: e.target.value })}
+                  className="w-full p-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 text-xs focus:outline-none focus:border-slate-900"
+                />
+              </div>
+
               <div>
                 <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Assegna a Insegnante</label>
                 <select
@@ -538,10 +625,10 @@ export default function PlanningCalendario({
           <form onSubmit={confirmPendingMoveWithPin} className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
             <div className="flex items-center space-x-2 text-amber-700">
               <ShieldAlert className="w-6 h-6 text-amber-600"/>
-              <h3 className="font-extrabold text-base text-slate-900">Autorizza Spostamento</h3>
+              <h3 className="font-extrabold text-base text-slate-900">Autorizza Modifica</h3>
             </div>
             <p className="text-xs text-gray-600">
-              Spostamento alle ore <strong>{pendingMove.oraInizio}</strong>. Digita il PIN Amministratore (es. <strong>1234</strong>) e premi Invio:
+              Conferma spostamento o durata alle ore <strong>{pendingMove.oraInizio} - {pendingMove.oraFine}</strong>. Inserisci il PIN (<strong>1234</strong>) e premi Invio:
             </p>
             <div className="relative">
               <Lock className="w-4 h-4 absolute left-3 top-2.5 text-gray-400"/>
@@ -625,7 +712,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* DETTAGLIO ED EDITA LEZIONE */}
+      {/* DETTAGLIO LEZIONE */}
       {selectedLezioneDetail && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
