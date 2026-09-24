@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip, ArrowRightLeft, UserMinus, GripHorizontal, Bell, Check, MessageSquare } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, Bell, Check, MessageSquare } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
@@ -20,25 +20,20 @@ export default function PlanningCalendario({
 
   const [groupModalData, setGroupModalData] = useState(null);
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
+  
+  // Modali dedicati per Richieste e Annullate spostate in alto
+  const [showRichiesteModal, setShowRichiesteModal] = useState(false);
+  const [showAnnullateModal, setShowAnnullateModal] = useState(false);
   const [richiestaDaGestire, setRichiestaDaGestire] = useState(null);
   const [nuovoDocenteRichiesta, setNuovoDocenteRichiesta] = useState('');
-
-  const [estrazioneData, setEstrazioneData] = useState(null);
-  const [estrazioneForm, setEstrazioneForm] = useState({ data: '', insegnanteId: '', oraInizio: '15:00', oraFine: '16:00' });
-
-  const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
-  const [motivoAnnullamento, setMotivoAnnullamento] = useState('');
-  const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
-
-  const [isEditingMove, setIsEditingMove] = useState(false);
-  const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '', insegnanteId: '', isGruppo: false });
 
   const [pendingMove, setPendingMove] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
-  const [resizingLezione, setResizingLezione] = useState(null);
-
   const pinInputRef = useRef(null);
+
+  // Rilevamento nuove richieste per suono e allerta
+  const prevRichiesteCountRef = useRef(0);
 
   const slots30 = [];
   for (let h = 9; h < 20; h++) {
@@ -58,12 +53,35 @@ export default function PlanningCalendario({
     return () => clearInterval(interval);
   }, []);
 
+  const lezioniAttive = lezioni.filter(l => l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
+  const lezioniRichiesteOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'richiesta');
+  const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
+  const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
+
+  // Effetto sonoro (Audio Beep nativo) e apertura automatica / alert visivo all'arrivo di nuove richieste
   useEffect(() => {
-    if (pendingMove) {
-      const timer = setTimeout(() => pinInputRef.current?.focus(), 100);
-      return () => clearTimeout(timer);
+    if (lezioniRichiesteOggi.length > prevRichiesteCountRef.current) {
+      playNotificationSound();
     }
-  }, [pendingMove]);
+    prevRichiesteCountRef.current = lezioniRichiesteOggi.length;
+  }, [lezioniRichiesteOggi.length]);
+
+  const playNotificationSound = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // Nota D5
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    } catch (e) {
+      console.log("Audio non supportato o bloccato dal browser");
+    }
+  };
 
   const changeDate = (days) => {
     const current = new Date(dataSelezionata);
@@ -73,11 +91,6 @@ export default function PlanningCalendario({
 
   const isToday = dataSelezionata === new Date().toISOString().split('T')[0];
   const redLineTop = ((currentTimeMinutes - startHourMins) / totalHoursMins) * 100;
-
-  const lezioniAttive = lezioni.filter(l => l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
-  const lezioniRichiesteOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'richiesta');
-  const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
-  const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
 
   const gruppiFusiMap = {};
   lezioniGruppoOggi.forEach(l => {
@@ -106,103 +119,26 @@ export default function PlanningCalendario({
     const [tH, tM] = targetOraStr.split(':').map(Number);
     const startMinsNew = tH * 60 + tM;
 
-    if (payload.isGruppoFuso) {
-      const firstLez = payload.lezioni[0];
-      const [hStart, mStart] = firstLez.oraInizio.split(':').map(Number);
-      const [hEnd, mEnd] = firstLez.oraFine.split(':').map(Number);
-      const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
+    const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
+    const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
+    const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
 
-      const endTotalMins = startMinsNew + durataMins;
-      const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
-      const endM = (endTotalMins % 60).toString().padStart(2, '0');
-
-      setPendingMove({
-        isGruppoFuso: true,
-        lezioniIds: payload.lezioni.map(l => l.id),
-        data: dataSelezionata,
-        oraInizio: targetOraStr,
-        oraFine: `${endH}:${endM}`,
-        insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
-        isGruppo: targetIsGruppo
-      });
-    } else {
-      const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
-      const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
-      const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
-
-      const endTotalMins = startMinsNew + durataMins;
-      const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
-      const endM = (endTotalMins % 60).toString().padStart(2, '0');
-
-      setPendingMove({
-        lezioneId: payload.id,
-        data: dataSelezionata,
-        oraInizio: targetOraStr,
-        oraFine: `${endH}:${endM}`,
-        insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
-        isGruppo: Boolean(targetIsGruppo)
-      });
-    }
-
-    setPinInput('');
-    setPinError(false);
-  };
-
-  const handleResizeStep = (deltaMins, lez) => {
-    const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
-    let totalEnd = hEnd * 60 + mEnd + deltaMins;
-
-    const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
-    const totalStart = hStart * 60 + mStart;
-
-    if (totalEnd <= totalStart + 30) totalEnd = totalStart + 30;
-
-    const newEndH = Math.floor(totalEnd / 60).toString().padStart(2, '0');
-    const newEndM = (totalEnd % 60).toString().padStart(2, '0');
+    const endTotalMins = startMinsNew + durataMins;
+    const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
+    const endM = (endTotalMins % 60).toString().padStart(2, '0');
 
     setPendingMove({
-      lezioneId: lez.id,
-      data: lez.data,
-      oraInizio: lez.oraInizio,
-      oraFine: `${newEndH}:${newEndM}`,
-      insegnanteId: lez.insegnanteId,
-      isGruppo: lez.isGruppo
+      lezioneId: payload.id,
+      data: dataSelezionata,
+      oraInizio: targetOraStr,
+      oraFine: `${endH}:${endM}`,
+      insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
+      isGruppo: Boolean(targetIsGruppo)
     });
-  };
-
-  const confirmPendingMoveWithPin = (e) => {
-    if (e) e.preventDefault();
-
-    if (pinInput !== '1234') {
-      setPinError(true);
-      return;
-    }
-
-    if (pendingMove && onUpdateLezioneCompleta) {
-      if (pendingMove.isGruppoFuso) {
-        pendingMove.lezioniIds.forEach(id => {
-          onUpdateLezioneCompleta({ ...pendingMove, lezioneId: id });
-        });
-      } else {
-        onUpdateLezioneCompleta(pendingMove);
-      }
-    }
-
-    setPendingMove(null);
-    setPinInput('');
-    setPinError(false);
   };
 
   const handleOpenDetail = (lez) => {
     setSelectedLezioneDetail(lez);
-    setIsEditingMove(false);
-    setMoveForm({
-      data: lez.data,
-      oraInizio: lez.oraInizio,
-      oraFine: lez.oraFine,
-      insegnanteId: lez.insegnanteId || (insegnanti[0]?.id || ''),
-      isGruppo: lez.isGruppo || false
-    });
   };
 
   const sendWhatsAppConfirmation = (lez) => {
@@ -216,12 +152,12 @@ export default function PlanningCalendario({
     window.open(url, '_blank');
   };
 
-  // Dinamica colonne: Ora + Insegnanti + Gruppo + Richieste App + Annullate
-  const gridTemplateColumns = `60px repeat(${insegnanti.length}, minmax(140px, 1fr)) 150px 140px 90px`;
+  // Dinamica colonne: Ora + Insegnanti + Gruppo (senza colonne fisse laterali per richieste/annullate)
+  const gridTemplateColumns = `60px repeat(${insegnanti.length}, minmax(150px, 1fr)) 160px`;
 
   return (
     <div className="w-full h-full p-0 flex flex-col space-y-3 select-none">
-      {/* Header e Data */}
+      {/* Header, Data e Pulsanti di Notifica in Alto (Richieste & Annullate) */}
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl">
@@ -229,7 +165,7 @@ export default function PlanningCalendario({
           </div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Gestione flussi, richieste app e docenti</p>
+            <p className="text-xs text-gray-500">Gestione flussi e docenti</p>
           </div>
         </div>
 
@@ -244,20 +180,51 @@ export default function PlanningCalendario({
           <button onClick={() => changeDate(1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700"><ChevronRight className="w-4 h-4"/></button>
         </div>
 
-        <button
-          onClick={() => onOpenModal()}
-          className="flex items-center space-x-2 px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm"
-        >
-          <Plus className="w-4 h-4"/>
-          <span>+ Nuova Lezione</span>
-        </button>
+        {/* NOTIFICHE IN ALTO (RICHIESTE & ANNULLATE) + NUOVA LEZIONE */}
+        <div className="flex items-center space-x-2">
+          {/* Pulsante Richieste App */}
+          <button
+            onClick={() => setShowRichiesteModal(true)}
+            className={`relative flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+              lezioniRichiesteOggi.length > 0 
+                ? 'bg-rose-500 text-white border-rose-600 shadow-md animate-pulse' 
+                : 'bg-sky-50 text-sky-900 border-sky-200 hover:bg-sky-100'
+            }`}
+          >
+            <Bell className="w-4 h-4"/>
+            <span>Richieste App</span>
+            {lezioniRichiesteOggi.length > 0 && (
+              <span className="bg-white text-rose-600 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                {lezioniRichiesteOggi.length}
+              </span>
+            )}
+          </button>
+
+          {/* Pulsante Annullate */}
+          <button
+            onClick={() => setShowAnnullateModal(true)}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold border border-slate-200 shadow-sm"
+          >
+            <AlertOctagon className="w-4 h-4 text-slate-600"/>
+            <span>Annullate ({lezioniAnnullateOggi.length})</span>
+          </button>
+
+          {/* Pulsante Nuova Lezione */}
+          <button
+            onClick={() => onOpenModal()}
+            className="flex items-center space-x-2 px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm"
+          >
+            <Plus className="w-4 h-4"/>
+            <span>+ Nuova Lezione</span>
+          </button>
+        </div>
       </div>
 
-      {/* Griglia Calendario Allineata */}
+      {/* Griglia Calendario Pulita (In adattamento automatico per qualsiasi numero di insegnanti) */}
       <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
         {/* Intestazione Colonne */}
         <div 
-          className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[1050px]"
+          className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[850px]"
           style={{ gridTemplateColumns }}
         >
           <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">ORA</div>
@@ -272,34 +239,18 @@ export default function PlanningCalendario({
           {/* Colonna Gruppo */}
           <div
             onClick={() => setGroupModalData({ fascia: 'Intero Giorno', lezioniGroup: lezioniGruppoOggi })}
-            className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 border-r border-amber-300 flex flex-col items-center justify-center cursor-pointer"
+            className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 flex flex-col items-center justify-center cursor-pointer"
           >
             <Users className="w-4 h-4 text-amber-800 mb-0.5"/>
             <span className="font-black text-xs text-amber-950 uppercase tracking-wider flex items-center">
               GRUPPO <span className="ml-1 text-[10px] bg-amber-300 text-amber-950 px-1.5 rounded-full">{lezioniGruppoOggi.length}</span>
             </span>
           </div>
-
-          {/* Colonna Richieste App */}
-          <div className="p-3 text-center bg-sky-100/70 border-r border-sky-300 flex flex-col items-center justify-center">
-            <Bell className="w-4 h-4 text-sky-800 mb-0.5 animate-bounce"/>
-            <span className="font-black text-xs text-sky-950 uppercase tracking-wider flex items-center">
-              RICHIESTE <span className="ml-1 text-[10px] bg-sky-300 text-sky-950 px-1.5 rounded-full">{lezioniRichiesteOggi.length}</span>
-            </span>
-          </div>
-
-          {/* Colonna Annullate Compatta */}
-          <div className="p-3 text-center bg-slate-200/80 border-l border-slate-300 flex flex-col items-center justify-center">
-            <AlertOctagon className="w-3.5 h-3.5 text-slate-600 mb-0.5"/>
-            <span className="font-black text-[10px] text-slate-700 uppercase tracking-wider">
-              ANNULLATE ({lezioniAnnullateOggi.length})
-            </span>
-          </div>
         </div>
 
         {/* Corpo della Griglia */}
         <div 
-          className="relative flex-1 grid w-full min-w-[1050px]"
+          className="relative flex-1 grid w-full min-w-[850px]"
           style={{ gridTemplateColumns }}
         >
           <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
@@ -310,10 +261,9 @@ export default function PlanningCalendario({
             ))}
           </div>
 
-          {/* Colonne Insegnanti Singoli con Pre-assegnazione Richieste */}
+          {/* Colonne Insegnanti Singoli */}
           {insegnanti.map(ins => {
             const lezioniDocente = lezioniAttive.filter(l => l.insegnanteId === ins.id && !l.isGruppo);
-            const richiesteDocente = lezioniRichiesteOggi.filter(l => l.insegnanteId === ins.id);
 
             return (
               <div key={ins.id} className="border-r border-gray-100 relative divide-y divide-gray-100/60 bg-white">
@@ -352,37 +302,12 @@ export default function PlanningCalendario({
                     </div>
                   );
                 })}
-
-                {/* RICHIESTE IN ATTESA SUL DOCENTE (Grigio trasparente con bordo lampeggiante) */}
-                {richiesteDocente.map(req => {
-                  const [hStart, mStart] = req.oraInizio.split(':').map(Number);
-                  const [hEnd, mEnd] = req.oraFine.split(':').map(Number);
-                  const topMins = hStart * 60 + mStart - startHourMins;
-                  const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
-                  const topPercent = (topMins / totalHoursMins) * 100;
-                  const heightPercent = (durationMins / totalHoursMins) * 100;
-
-                  return (
-                    <div
-                      key={req.id}
-                      onClick={() => setRichiestaDaGestire(req)}
-                      style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
-                      className="absolute left-1 right-1 bg-gray-200/90 border-2 border-dashed border-amber-500 rounded-xl p-2 text-xs shadow-md animate-pulse cursor-pointer flex flex-col justify-between z-20"
-                    >
-                      <div>
-                        <div className="font-black text-slate-900 truncate">⏳ {stdsNames(req.studentiIds, studenti)}</div>
-                        <div className="text-[9px] font-bold text-amber-800">Richiesta App (Da Approvare)</div>
-                      </div>
-                      <span className="text-[8px] bg-amber-500 text-white px-1 py-0.5 rounded font-black w-max">Gestisci</span>
-                    </div>
-                  );
-                })}
               </div>
             );
           })}
 
           {/* Colonna Gruppo */}
-          <div className="border-r border-amber-200 bg-amber-50/30 relative divide-y divide-amber-100/50">
+          <div className="bg-amber-50/30 relative divide-y divide-amber-100/50">
             {slots30.map((slot, i) => (
               <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, '', true, slot.oraStr)} className="h-8 hover:bg-amber-100/30"/>
             ))}
@@ -420,60 +345,6 @@ export default function PlanningCalendario({
             })}
           </div>
 
-          {/* Colonna Richieste App Generiche */}
-          <div className="border-r border-sky-200 bg-sky-50/40 relative divide-y divide-sky-100">
-            {slots30.map((_, i) => <div key={i} className="h-8"/>)}
-
-            {lezioniRichiesteOggi.filter(l => !l.insegnanteId || !insegnanti.some(i => i.id === l.insegnanteId)).map(req => {
-              const [hStart, mStart] = req.oraInizio.split(':').map(Number);
-              const [hEnd, mEnd] = req.oraFine.split(':').map(Number);
-              const topMins = hStart * 60 + mStart - startHourMins;
-              const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
-              const topPercent = (topMins / totalHoursMins) * 100;
-              const heightPercent = (durationMins / totalHoursMins) * 100;
-
-              return (
-                <div
-                  key={req.id}
-                  onClick={() => setRichiestaDaGestire(req)}
-                  style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
-                  className="absolute left-1 right-1 bg-sky-200 border-2 border-sky-400 rounded-xl p-2 text-xs shadow-md cursor-pointer hover:bg-sky-300 flex flex-col justify-between z-20"
-                >
-                  <div>
-                    <div className="font-black text-sky-950 truncate">🔔 {stdsNames(req.studentiIds, studenti)}</div>
-                    <div className="text-[9px] font-bold text-sky-800">{req.oraInizio} - {req.oraFine}</div>
-                  </div>
-                  <span className="text-[8px] bg-sky-900 text-white px-1 py-0.5 rounded font-black w-max">Da Assegnare</span>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Colonna Annullate Compatta */}
-          <div className="bg-slate-50 border-l border-slate-200 relative divide-y divide-slate-100">
-            {slots30.map((_, i) => <div key={i} className="h-8"/>)}
-
-            {lezioniAnnullateOggi.map(lez => {
-              const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
-              const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
-              const topMins = hStart * 60 + mStart - startHourMins;
-              const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
-              const topPercent = (topMins / totalHoursMins) * 100;
-              const heightPercent = (durationMins / totalHoursMins) * 100;
-
-              return (
-                <div
-                  key={lez.id}
-                  onClick={() => handleOpenDetail(lez)}
-                  style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
-                  className="absolute left-1 right-1 bg-slate-200 border-l-2 border-slate-400 rounded-lg p-1 text-[10px] shadow-sm opacity-75 cursor-pointer truncate"
-                >
-                  <span className="line-through font-bold text-slate-700">{stdsNames(lez.studentiIds, studenti)}</span>
-                </div>
-              );
-            })}
-          </div>
-
           {/* Linea Rossa ORA */}
           {isToday && redLineTop >= 0 && redLineTop <= 100 && (
             <div style={{ top: `${redLineTop}%` }} className="absolute left-0 right-0 border-b-2 border-rose-500 z-30 pointer-events-none flex items-center">
@@ -483,71 +354,121 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* MODALE GESTIONE RICHIESTA APP */}
-      {richiestaDaGestire && (
+      {/* MODALE GESTIONE RICHIESTE APP (In alto) */}
+      {showRichiesteModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2 text-sky-700">
-                <Bell className="w-5 h-5"/>
-                <h3 className="font-extrabold text-base text-slate-900">Gestione Richiesta Utente App</h3>
+              <div className="flex items-center space-x-2 text-rose-600">
+                <Bell className="w-6 h-6 animate-bounce"/>
+                <h3 className="font-extrabold text-lg text-slate-900">Richieste App in Attesa ({lezioniRichiesteOggi.length})</h3>
               </div>
-              <button onClick={() => setRichiestaDaGestire(null)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
+              <button onClick={() => setShowRichiesteModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div className="bg-sky-50 p-3.5 rounded-2xl border border-sky-200 space-y-1">
-                <p className="font-bold text-slate-900">Studente: <strong className="text-sky-950">{stdsNames(richiestaDaGestire.studentiIds, studenti)}</strong></p>
-                <p className="font-bold text-slate-900">Data e Ora: <strong className="text-sky-950">{richiestaDaGestire.data} ({richiestaDaGestire.oraInizio} - {richiestaDaGestire.oraFine})</strong></p>
-                <p className="font-bold text-slate-900">Materia / Richiesta: <strong className="text-sky-950">{richiestaDaGestire.materia || 'Doposcuola'}</strong></p>
-              </div>
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+              {lezioniRichiesteOggi.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna nuova richiesta in attesa per oggi.</div>
+              ) : (
+                lezioniRichiesteOggi.map(req => {
+                  const insRichiesto = insegnanti.find(i => i.id === req.insegnanteId);
+                  return (
+                    <div key={req.id} className="bg-sky-50 border border-sky-200 p-4 rounded-2xl space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h4 className="font-black text-slate-900 text-sm">👤 {stdsNames(req.studentiIds, studenti)}</h4>
+                          <p className="text-xs text-sky-900 font-bold mt-0.5">Materia: {req.materia || 'Doposcuola'} • 🕒 {req.oraInizio} - {req.oraFine}</p>
+                          <p className="text-[11px] text-gray-600 mt-1">
+                            Docente richiesto: <strong className="text-amber-800">{insRichiesto ? `${insRichiesto.nome} ${insRichiesto.cognome}` : 'Nessuno specifico'}</strong>
+                          </p>
+                        </div>
+                        <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">Da Approvare</span>
+                      </div>
 
-              <div>
-                <label className="block font-bold text-gray-700 mb-1">Assegna / Conferma Insegnante</label>
-                <select
-                  value={nuovoDocenteRichiesta || richiestaDaGestire.insegnanteId || insegnanti[0]?.id}
-                  onChange={(e) => setNuovoDocenteRichiesta(e.target.value)}
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900"
-                >
-                  {insegnanti.map(ins => (
-                    <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
-                  ))}
-                </select>
-              </div>
+                      <div className="pt-2 border-t border-sky-200 flex items-center justify-between gap-2">
+                        <select
+                          defaultValue={req.insegnanteId || insegnanti[0]?.id}
+                          id={`sel_doc_${req.id}`}
+                          className="p-1.5 bg-white border border-sky-300 rounded-xl font-bold text-slate-900 text-xs flex-1"
+                        >
+                          {insegnanti.map(ins => (
+                            <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
+                          ))}
+                        </select>
+
+                        <button
+                          onClick={() => {
+                            const selectedDocId = document.getElementById(`sel_doc_${req.id}`).value;
+                            if (onAcceptRichiesta) onAcceptRichiesta(req.id, selectedDocId);
+                          }}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1 shadow-sm shrink-0"
+                        >
+                          <Check className="w-3.5 h-3.5"/> Accetta
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (onRejectRichiesta) onRejectRichiesta(req.id, 'Orario o docente non disponibile');
+                          }}
+                          className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-xl text-xs flex items-center gap-1 shrink-0"
+                        >
+                          <X className="w-3.5 h-3.5"/> Rifiuta
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
 
-            <div className="flex flex-col gap-2 pt-3 border-t border-gray-100">
-              <button
-                onClick={() => {
-                  const docId = nuovoDocenteRichiesta || richiestaDaGestire.insegnanteId || insegnanti[0]?.id;
-                  if (onAcceptRichiesta) onAcceptRichiesta(richiestaDaGestire.id, docId);
-                  setRichiestaDaGestire(null);
-                }}
-                className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-md flex items-center justify-center gap-1.5"
-              >
-                <Check className="w-4 h-4"/> Accetta e Conferma Lezione
-              </button>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => {
-                    if (onRejectRichiesta) onRejectRichiesta(richiestaDaGestire.id, 'Orario o docente già occupato');
-                    setRichiestaDaGestire(null);
-                  }}
-                  className="py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1"
-                >
-                  <X className="w-3.5 h-3.5"/> Rifiuta (Già Occupato)
-                </button>
-                <button onClick={() => setRichiestaDaGestire(null)} className="py-2 bg-gray-100 text-gray-600 font-bold rounded-xl text-xs">
-                  Annulla
-                </button>
-              </div>
+            <div className="pt-3 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowRichiesteModal(false)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* DETTAGLIO LEZIONE CON WHATSAPP */}
+      {/* MODALE ANNULLATE (In alto) */}
+      {showAnnullateModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-2 text-slate-800">
+                <AlertOctagon className="w-6 h-6"/>
+                <h3 className="font-extrabold text-lg text-slate-900">Lezioni Annullate Oggi ({lezioniAnnullateOggi.length})</h3>
+              </div>
+              <button onClick={() => setShowAnnullateModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
+            </div>
+
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+              {lezioniAnnullateOggi.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna lezione annullata registrata per oggi.</div>
+              ) : (
+                lezioniAnnullateOggi.map(lez => (
+                  <div key={lez.id} className="bg-slate-50 border border-slate-200 p-3.5 rounded-2xl space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-black text-slate-900 line-through">{stdsNames(lez.studentiIds, studenti)}</span>
+                      <span className="text-[10px] bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded">
+                        {lez.tipoAnnullamento === 'addebito' ? 'Con Addebito' : 'Gratuita'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-600 font-medium">{lez.materia} • 🕒 {lez.oraInizio} - {lez.oraFine}</p>
+                    {lez.motivoAnnullamento && (
+                      <p className="text-xs text-rose-700 font-bold mt-1">Motivo: {lez.motivoAnnullamento}</p>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 flex justify-end">
+              <button onClick={() => setShowAnnullateModal(false)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DETTAGLIO LEZIONE */}
       {selectedLezioneDetail && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -568,7 +489,7 @@ export default function PlanningCalendario({
                 </div>
                 {selectedLezioneDetail.insegnanteId && (
                   <p className="text-slate-800 font-bold">
-                    Docente Assegnato: <span className="text-amber-700">{insegnanti.find(i => i.id === selectedLezioneDetail.insegnanteId)?.nome || 'N.D.'}</span>
+                    Docente: <span className="text-amber-700">{insegnanti.find(i => i.id === selectedLezioneDetail.insegnanteId)?.nome || 'N.D.'}</span>
                   </p>
                 )}
 
