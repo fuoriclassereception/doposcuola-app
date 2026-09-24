@@ -7,8 +7,7 @@ export default function ModaleInsegnante({
   onSave,
   formData,
   setFormData,
-  isEditing,
-  colorOptions
+  isEditing
 }) {
   if (!isOpen) return null;
 
@@ -85,17 +84,19 @@ export default function ModaleInsegnante({
             </div>
           </div>
 
+          {/* Selezione personalizzata di qualsiasi colore */}
           <div>
-            <label className="block text-xs font-bold text-gray-700 mb-1">Colore Calendario</label>
-            <div className="flex space-x-2">
-              {colorOptions.map((c) => (
-                <button
-                  key={c.class}
-                  type="button"
-                  onClick={() => setFormData({ ...formData, colore: c.class })}
-                  className={`w-6 h-6 rounded-full ${c.class} ${formData.colore === c.class ? 'ring-2 ring-offset-2 ring-slate-900' : 'opacity-70'}`}
-                />
-              ))}
+            <label className="block text-xs font-bold text-gray-700 mb-1">Colore Identificativo Calendario</label>
+            <div className="flex items-center space-x-3 bg-gray-50 p-2 rounded-xl border border-gray-200">
+              <input
+                type="color"
+                value={formData.colore}
+                onChange={(e) => setFormData({ ...formData, colore: e.target.value })}
+                className="w-9 h-9 p-0.5 rounded-lg cursor-pointer border border-gray-300 bg-white"
+              />
+              <span className="text-xs text-gray-600 font-medium">
+                Scegli il colore per riconoscere il docente nel Planning ({formData.colore})
+              </span>
             </div>
           </div>
 
