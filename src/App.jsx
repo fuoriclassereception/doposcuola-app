@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import GestioneInsegnanti from './components/GestioneInsegnanti';
 import ModaleInsegnante from './components/ModaleInsegnante';
+import GestioneStudenti from './components/GestioneStudenti';
+import ModaleStudente from './components/ModaleStudente';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('insegnanti');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Nessun dato di prova: lista insegnanti parte con i dati reali dell'anagrafica
+  // ---------- STATO INSEGNANTI ----------
   const [insegnanti, setInsegnanti] = useState([
     {
       id: 'ins_1',
@@ -71,7 +73,7 @@ export default function App() {
         id: `ins_${Date.now()}`,
         ...insegnanteForm,
         attivo: true,
-        gdprConfermato: false // Di default il GDPR parte da confermare fino ad azione reale
+        gdprConfermato: false
       };
       setInsegnanti([...insegnanti, newIns]);
     }
@@ -89,8 +91,84 @@ export default function App() {
     setInsegnanti(insegnanti.map(ins => ins.id === id ? { ...ins, attivo: !ins.attivo } : ins));
   };
 
+  // ---------- STATO STUDENTI & GENITORI ----------
+  const [studenti, setStudenti] = useState([]);
+  const [showStudenteModal, setShowStudenteModal] = useState(false);
+  const [editingStudente, setEditingStudente] = useState(null);
+  const [studenteForm, setStudenteForm] = useState({
+    nome: '',
+    cognome: '',
+    dataNascita: '',
+    scuola: '',
+    telefono: '',
+    email: '',
+    isMinorenne: true,
+    genitoreNome: '',
+    genitoreTelefono: '',
+    genitoreEmail: '',
+    genitoreCodiceFiscale: '',
+    note: ''
+  });
+
+  const handleOpenStudenteModal = (std = null) => {
+    if (std) {
+      setEditingStudente(std.id);
+      setStudenteForm({ ...std });
+    } else {
+      setEditingStudente(null);
+      setStudenteForm({
+        nome: '',
+        cognome: '',
+        dataNascita: '',
+        scuola: '',
+        telefono: '',
+        email: '',
+        isMinorenne: true,
+        genitoreNome: '',
+        genitoreTelefono: '',
+        genitoreEmail: '',
+        genitoreCodiceFiscale: '',
+        note: ''
+      });
+    }
+    setShowStudenteModal(true);
+  };
+
+  const handleSaveStudente = (e) => {
+    e.preventDefault();
+    if (!studenteForm.nome || !studenteForm.cognome) return;
+
+    if (editingStudente) {
+      setStudenti(studenti.map(s => s.id === editingStudente ? {
+        ...s,
+        ...studenteForm
+      } : s));
+    } else {
+      const newStudente = {
+        id: `std_${Date.now()}`,
+        ...studenteForm,
+        attivo: true,
+        gdprConfermato: false
+      };
+      setStudenti([...studenti, newStudente]);
+    }
+
+    setShowStudenteModal(false);
+  };
+
+  const handleDeleteStudente = (id) => {
+    if (window.confirm("Sei sicuro di voler eliminare questo studente dall'anagrafica?")) {
+      setStudenti(studenti.filter(s => s.id !== id));
+    }
+  };
+
+  const toggleStudenteStato = (id) => {
+    setStudenti(studenti.map(s => s.id === id ? { ...s, attivo: !s.attivo } : s));
+  };
+
   return (
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
+      {/* Sidebar Laterale */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -98,6 +176,7 @@ export default function App() {
         setSearchQuery={setSearchQuery}
       />
 
+      {/* Area Principale dei Contenuti */}
       <main className="flex-1 overflow-auto bg-gray-50/50">
         {activeTab === 'insegnanti' && (
           <GestioneInsegnanti
@@ -109,15 +188,19 @@ export default function App() {
           />
         )}
 
+        {activeTab === 'studenti' && (
+          <GestioneStudenti
+            studenti={studenti}
+            searchQuery={searchQuery}
+            onOpenModal={handleOpenStudenteModal}
+            onToggleStato={toggleStudenteStato}
+            onDelete={handleDeleteStudente}
+          />
+        )}
+
         {activeTab === 'planning' && (
           <div className="p-8 text-center text-gray-500 font-bold">
             Sezione Planning
-          </div>
-        )}
-
-        {activeTab === 'studenti' && (
-          <div className="p-8 text-center text-gray-500 font-bold">
-            Sezione Anagrafica Studenti
           </div>
         )}
 
@@ -128,6 +211,7 @@ export default function App() {
         )}
       </main>
 
+      {/* Modale Insegnante */}
       <ModaleInsegnante
         isOpen={showInsegnanteModal}
         onClose={() => setShowInsegnanteModal(false)}
@@ -135,6 +219,16 @@ export default function App() {
         formData={insegnanteForm}
         setFormData={setInsegnanteForm}
         isEditing={Boolean(editingInsegnante)}
+      />
+
+      {/* Modale Studente */}
+      <ModaleStudente
+        isOpen={showStudenteModal}
+        onClose={() => setShowStudenteModal(false)}
+        onSave={handleSaveStudente}
+        formData={studenteForm}
+        setFormData={setStudenteForm}
+        isEditing={Boolean(editingStudente)}
       />
     </div>
   );
