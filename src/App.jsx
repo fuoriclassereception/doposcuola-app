@@ -65,9 +65,11 @@ export default function App() {
     setShowStudenteModal(false);
   };
 
-  // ---------- STATO LEZIONI / PLANNING ----------
+  // ---------- STATO LEZIONI / PLANNING CON RICHIESTA DI TEST ----------
   const [lezioni, setLezioni] = useState([
-    { id: 'lez_1', data: new Date().toISOString().split('T')[0], insegnanteId: 'ins_1', isGruppo: false, studentiIds: ['std_1'], materia: 'Tedesco', oraInizio: '15:00', oraFine: '16:00', stato: 'attiva' }
+    { id: 'lez_1', data: new Date().toISOString().split('T')[0], insegnanteId: 'ins_1', isGruppo: false, studentiIds: ['std_1'], materia: 'Tedesco', oraInizio: '15:00', oraFine: '16:00', stato: 'attiva' },
+    // Richiesta fittizia generata per testare subito la funzionalità sulla colonna di Maria (ins_2)
+    { id: 'req_test', data: new Date().toISOString().split('T')[0], insegnanteId: 'ins_2', isGruppo: false, studentiIds: ['std_2'], materia: 'Inglese / Conversazione', oraInizio: '16:00', oraFine: '17:00', stato: 'richiesta' }
   ]);
   const [showLezioneModal, setShowLezioneModal] = useState(false);
 
@@ -121,10 +123,27 @@ export default function App() {
     }));
   };
 
-  // FUNZIONE PER ESTRARE UN SINGOLO STUDENTE DAL GRUPPO E MANDARLO DA UN DOCENTE
+  // Funzioni per gestire le richieste app (Accetta / Rifiuta)
+  const handleAcceptRichiesta = (lezioneId, nuovoDocenteId) => {
+    setLezioni(prev => prev.map(l => {
+      if (l.id === lezioneId) {
+        return { ...l, stato: 'attiva', insegnanteId: nuovoDocenteId };
+      }
+      return l;
+    }));
+  };
+
+  const handleRejectRichiesta = (lezioneId, motivo) => {
+    setLezioni(prev => prev.map(l => {
+      if (l.id === lezioneId) {
+        return { ...l, stato: 'annullata', motivoAnnullamento: motivo, tipoAnnullamento: 'gratuito' };
+      }
+      return l;
+    }));
+  };
+
   const handleEstraiStudenteDaGruppo = (lezioneGruppoId, studenteId, nuovoInsegnanteId, oraInizio, oraFine, data) => {
     setLezioni(prev => {
-      // 1. Rimuovi lo studente dalla lezione di gruppo originale
       const aggiornate = prev.map(l => {
         if (l.id === lezioneGruppoId) {
           return {
@@ -133,9 +152,8 @@ export default function App() {
           };
         }
         return l;
-      }).filter(l => !(l.isGruppo && (l.studentiIds || []).length === 0)); // elimina il gruppo se rimane vuoto
+      }).filter(l => !(l.isGruppo && (l.studentiIds || []).length === 0));
 
-      // 2. Crea la nuova lezione individuale per lo studente staccato
       const lezioneSingola = {
         id: `lez_${Date.now()}`,
         data: data || new Date().toISOString().split('T')[0],
@@ -181,6 +199,8 @@ export default function App() {
             }}
             onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
             onEstraiStudenteDaGruppo={handleEstraiStudenteDaGruppo}
+            onAcceptRichiesta={handleAcceptRichiesta}
+            onRejectRichiesta={handleRejectRichiesta}
           />
         )}
 
