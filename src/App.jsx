@@ -2,617 +2,325 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, Calendar, Users, FileText, Lock, 
   Printer, ChevronLeft, ChevronRight, Plus, 
-  AlertCircle, CheckCircle, Clock, Ban, CreditCard 
+  AlertCircle, CheckCircle, Clock, Ban, CreditCard, DollarSign, X
 } from 'lucide-react';
 
-const initialCustomers = [];
-const initialBlocks = [];
-
-export default function GestioneReceptionApp() {
+export default function App() {
   // --- STATI GLOBALI ---
-  const [currentView, setCurrentView] = useState('calendar'); // 'calendar', 'customer', 'daily'
-  const [customers, setCustomers] = useState(initialCustomers);
-  const [blocks, setBlocks] = useState(initialBlocks);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [activeTab, setActiveTab] = useState('planning'); // 'planning' | 'cassa'
+  const [viewMode, setViewMode] = useState('giornaliera'); // 'giornaliera' | 'settimanale' | 'mensile'
+  const [searchQuery, setSearchQuery] = useState('');
   
-  const [selectedDate, setSelectedDate] = useState(new Date("2026-09-24"));
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeCustomer, setActiveCustomer] = useState(null);
+  // Database locale
+  const [customers, setCustomers] = useState([]);
+  const [blocks, setBlocks] = useState([]);
+  
+  // Modali
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [showFastAnagrafica, setShowFastAnagrafica] = useState(false);
+  const [newCustomerForm, setNewCustomerForm] = useState({ nome: '', email: '', telefono: '', saldo: 0, note_interne: '', note_esterne: '' });
 
-  // --- STATI MODALI ---
-  const [pinModal, setPinModal] = useState({ isOpen: false, pendingAction: null, data: null });
-  const [pinInput, setPinInput] = useState("");
-  const [printModal, setPrintModal] = useState({ isOpen: false, data: null });
-  const [eventModal, setEventModal] = useState({ isOpen: false, data: null, isBlock: false });
+  // --- CALCOLI E SINCRO GIORNALIERA ---
+  // Filtra le lezioni in base al giorno selezionato
+  const dayLezioni = useMemo(() => {
+    const list = [];
+    customers.forEach(c => {
+      (c.lezioni || []).forEach(lez => {
+        if (lez.data === selectedDate) {
+          list.push({ ...lez, allievo: c });
+        }
+      });
+    });
+    return list;
+  }, [customers, selectedDate]);
 
-  // --- LOGICA DI RICERCA E JUMP ---
-  const filteredCustomers = customers.filter(c => 
-    c.nome.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const handleCustomerSelect = (customer) => {
-    setActiveCustomer(customer);
-    setCurrentView('customer');
-    setSearchQuery("");
+  // Gestione cambio data nel Planning / Cassa
+  const handleDateChange = (days) => {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + days);
+    setSelectedDate(d.toISOString().split('T')[0]);
   };
 
-  const jumpToLesson = (lesson) => {
-    setSelectedDate(new Date(lesson.data));
-    setCurrentView('calendar');
+  // Aggiungi allievo veloce
+  const handleCreateCustomer = (e) => {
+    e.preventDefault();
+    if (!newCustomerForm.nome) return;
+    const newCli = {
+      id: `cli_${Date.now()}`,
+      ...newCustomerForm,
+      saldo_attuale: Number(newCustomerForm.saldo) || 0,
+      sospesi: [],
+      storico_pagamenti: [],
+      lezioni: []
+    };
+    setCustomers([...customers, newCli]);
+    setNewCustomerForm({ nome: '', email: '', telefono: '', saldo: 0, note_interne: '', note_esterne: '' });
+    setShowFastAnagrafica(false);
   };
 
-  // --- LOGICA DI SICUREZZA (PIN) ---
-  const requestPin = (actionType, data) => {
-    setPinModal({ isOpen: true, pendingAction: actionType, data: data });
-    setPinInput("");
-  };
-
-  const confirmPin = () => {
-    if (pinInput === "1234") {
-      executeAction(pinModal.pendingAction, pinModal.data);
-      setPinModal({ isOpen: false, pendingAction: null, data: null });
-    } else {
-      alert("PIN errato. Operazione annullata.");
-    }
-  };
-
-  const executeAction = (action, data) => {
-    switch (action) {
-      case 'save_customer':
-        setCustomers(customers.map(c => c.id === data.id ? data : c));
-        setActiveCustomer(data);
-        alert("Scheda cliente aggiornata con successo.");
-        break;
-      case 'print_receipt':
-        // Sincronizzazione bidirezionale: aggiorno il cliente prima di stampare
-        const updatedCustomer = { ...activeCustomer };
-        updatedCustomer.sospesi = data.voci;
-        // Aggiorna saldo in base alle modifiche
-        updatedCustomer.saldo_attuale = -data.voci.reduce((acc, v) => acc + parseFloat(v.importo), 0);
-        
-        setCustomers(customers.map(c => c.id === updatedCustomer.id ? updatedCustomer : c));
-        setActiveCustomer(updatedCustomer);
-        
-        // Chiudo la modale e avvio la stampa nativa
-        setPrintModal({ isOpen: false, data: null });
-        setTimeout(() => window.print(), 300);
-        break;
-      case 'add_block':
-        setBlocks([...blocks, data]);
-        setEventModal({ isOpen: false, data: null, isBlock: false });
-        break;
-      default:
-        break;
-    }
-  };
-
-  // --- COMPONENTI UI ---
-
-  const renderSidebar = () => (
-    <div className="w-80 bg-slate-50 border-r border-slate-200 h-screen flex flex-col print:hidden">
-      <div className="p-4 border-b border-slate-200">
-        {/* Placeholder Logo */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
-            S
+  return (
+    <div className="flex h-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
+      
+      {/* BARRA LATERALE / SIDEBAR */}
+      <aside className="w-80 bg-white border-r border-gray-200 flex flex-col z-10">
+        {/* BRAND HEADER */}
+        <div className="p-4 border-b border-gray-100 flex items-center space-x-3 bg-indigo-900 text-white">
+          <div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-xl text-amber-400 shadow-sm">
+            FC
           </div>
-          <span className="font-bold text-lg text-slate-800">StudioManager</span>
+          <div>
+            <h1 className="font-bold text-lg leading-tight">Fuori Classe</h1>
+            <p className="text-xs text-indigo-200 uppercase tracking-wider">Reception & Management</p>
+          </div>
         </div>
-        
-        <div className="relative">
-          <Search className="absolute left-3 top-2.5 text-slate-400 w-5 h-5" />
-          <input 
-            type="text" 
-            placeholder="Cerca allievo..." 
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {searchQuery && filteredCustomers.length === 0 && (
-          <p className="text-sm text-slate-500 text-center">Nessun allievo trovato.</p>
-        )}
-        
-        {filteredCustomers.map(customer => {
-          const nextLesson = customer.lezioni.find(l => new Date(l.data) >= new Date(new Date().setHours(0,0,0,0)));
-          
-          return (
-            <div key={customer.id} className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 hover:border-indigo-300 transition cursor-pointer">
-              <div onClick={() => handleCustomerSelect(customer)} className="font-semibold text-slate-800 mb-1">{customer.nome}</div>
-              <div className="flex justify-between items-center text-xs text-slate-500">
-                <span>{customer.saldo_attuale < 0 ? <span className="text-red-500 font-medium">Debito: {customer.saldo_attuale}€</span> : <span className="text-emerald-600 font-medium">In regola</span>}</span>
+        {/* RICERCA ALLIEVI */}
+        <div className="p-4 border-b border-gray-100">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 text-gray-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="Cerca allievo..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-gray-100 border border-transparent rounded-lg text-sm focus:bg-white focus:border-indigo-500 focus:outline-none transition-all"
+            />
+          </div>
+        </div>
+
+        {/* LISTA ALLIEVI */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {customers
+            .filter(c => c.nome.toLowerCase().includes(searchQuery.toLowerCase()))
+            .map(cli => (
+              <div 
+                key={cli.id}
+                onClick={() => setSelectedCustomer(cli)}
+                className="p-3 rounded-xl border border-gray-100 bg-white hover:border-indigo-300 hover:shadow-md cursor-pointer transition-all"
+              >
+                <div className="flex justify-between items-start">
+                  <span className="font-semibold text-gray-900 text-sm">{cli.nome}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cli.saldo_attuale < 0 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                    {cli.saldo_attuale < 0 ? `${cli.saldo_attuale}€` : 'In regola'}
+                  </span>
+                </div>
+                {cli.telefono && <p className="text-xs text-gray-500 mt-1">{cli.telefono}</p>}
               </div>
-              {nextLesson && (
-                <div 
-                  onClick={(e) => { e.stopPropagation(); jumpToLesson(nextLesson); }}
-                  className="mt-2 text-xs bg-indigo-50 text-indigo-700 p-2 rounded-lg flex items-center gap-2 hover:bg-indigo-100 transition"
+            ))}
+            {customers.length === 0 && (
+              <p className="text-center text-xs text-gray-400 py-6">Nessun allievo in archivio.</p>
+            )}
+        </div>
+      </aside>
+
+      {/* CONTENUTO PRINCIPALE */}
+      <main className="flex-1 flex flex-col min-w-0 bg-white">
+        
+        {/* HEADER TOP NAV */}
+        <header className="h-16 border-b border-gray-200 px-6 flex items-center justify-between bg-white">
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setActiveTab('planning')}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                activeTab === 'planning' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Planning</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('cassa')}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg font-medium text-sm transition-all ${
+                activeTab === 'cassa' ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>Cassa e Presenze</span>
+            </button>
+
+            <button
+              onClick={() => setShowFastAnagrafica(true)}
+              className="flex items-center space-x-2 px-4 py-2 rounded-lg font-medium text-sm text-gray-600 hover:bg-indigo-50 hover:text-indigo-600 transition-all border border-dashed border-gray-300"
+            >
+              <Users className="w-4 h-4" />
+              <span>+ Anagrafica Veloce</span>
+            </button>
+          </div>
+
+          {/* VISTE PLANNING (SELEZIONE VISTA) */}
+          {activeTab === 'planning' && (
+            <div className="flex items-center bg-gray-100 p-1 rounded-lg border border-gray-200">
+              {['giornaliera', 'settimanale', 'mensile'].map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold capitalize transition-all ${
+                    viewMode === mode ? 'bg-white text-indigo-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'
+                  }`}
                 >
-                  <Calendar className="w-3 h-3" />
-                  Prossima: {nextLesson.data} ore {nextLesson.ora_inizio}:00
+                  {mode}
+                </button>
+              ))}
+            </div>
+          )}
+        </header>
+
+        {/* BARRA DATA E CONTROLLI */}
+        <div className="px-6 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <button onClick={() => handleDateChange(-1)} className="p-1 rounded-lg hover:bg-gray-200 border bg-white"><ChevronLeft className="w-5 h-5 text-gray-600"/></button>
+            <span className="font-bold text-gray-800 text-lg capitalize">
+              {new Date(selectedDate).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </span>
+            <button onClick={() => handleDateChange(1)} className="p-1 rounded-lg hover:bg-gray-200 border bg-white"><ChevronRight className="w-5 h-5 text-gray-600"/></button>
+          </div>
+          <span className="text-xs text-gray-400 font-mono">Data attiva: {selectedDate}</span>
+        </div>
+
+        {/* AREA PRINCIPALE DINAMICA */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {activeTab === 'planning' ? (
+            <div>
+              {/* VISTA GIORNALIERA */}
+              {viewMode === 'giornaliera' && (
+                <div className="max-w-3xl mx-auto space-y-3">
+                  {Array.from({ length: 11 }).map((_, i) => {
+                    const hour = 8 + i;
+                    const lezioniHour = dayLezioni.filter(l => Number(l.ora_inizio) === hour);
+                    return (
+                      <div key={hour} className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm min-h-[64px] bg-white">
+                        <div className="w-20 bg-gray-50 border-r border-gray-200 p-3 font-semibold text-gray-500 text-sm flex items-center justify-center">
+                          {hour}:00
+                        </div>
+                        <div className="flex-1 p-3 flex flex-wrap gap-2 items-center">
+                          {lezioniHour.map(l => (
+                            <span key={l.id} className="bg-indigo-100 text-indigo-900 px-3 py-1.5 rounded-lg text-sm font-medium border border-indigo-200">
+                              {l.allievo.nome} ({l.durata}h)
+                            </span>
+                          ))}
+                          {lezioniHour.length === 0 && (
+                            <span className="text-xs text-gray-300 italic">Slot libero</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* VISTA SETTIMANALE */}
+              {viewMode === 'settimanale' && (
+                <div className="grid grid-cols-7 gap-2">
+                  {['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'].map((d, idx) => (
+                    <div key={d} className="border border-gray-200 rounded-xl p-3 bg-white min-h-[400px]">
+                      <p className="font-bold text-center text-gray-700 border-b pb-2 mb-2">{d}</p>
+                      <p className="text-xs text-center text-gray-400">Programma orari</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* VISTA MENSILE */}
+              {viewMode === 'mensile' && (
+                <div className="p-8 text-center bg-gray-50 border rounded-2xl">
+                  <Calendar className="w-12 h-12 text-indigo-500 mx-auto mb-3" />
+                  <h3 className="font-bold text-lg text-gray-800">Vista Mensile Rapida</h3>
+                  <p className="text-sm text-gray-500 max-w-sm mx-auto mt-1">Usa le frecce in alto per navigare velocemente i giorni del mese selezionato.</p>
                 </div>
               )}
             </div>
-          );
-        })}
-      </div>
-    </div>
-  );
+          ) : (
+            /* VISTA CASSA E PRESENZE */
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="bg-indigo-900 text-white p-6 rounded-2xl shadow-lg flex justify-between items-center">
+                <div>
+                  <h2 className="text-xl font-bold">Riepilogo Cassa e Presenze</h2>
+                  <p className="text-xs text-indigo-200 mt-1">Giorno: {selectedDate}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-indigo-200">Presenze Totali</p>
+                  <p className="text-3xl font-extrabold text-amber-400">{dayLezioni.length}</p>
+                </div>
+              </div>
 
-  const renderCalendar = () => {
-    const dateStr = selectedDate.toISOString().split('T')[0];
-    const hours = Array.from({ length: 13 }, (_, i) => i + 8); // 08:00 to 20:00
-
-    return (
-      <div className="flex-1 flex flex-col bg-white overflow-hidden print:hidden">
-        {/* Header Calendario */}
-        <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-white">
-          <div className="flex items-center gap-4">
-            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() - 1); setSelectedDate(d); }} className="p-2 hover:bg-slate-100 rounded-lg"><ChevronLeft className="w-5 h-5"/></button>
-            <h2 className="text-xl font-bold text-slate-800">
-              {selectedDate.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-            </h2>
-            <button onClick={() => { const d = new Date(selectedDate); d.setDate(d.getDate() + 1); setSelectedDate(d); }} className="p-2 hover:bg-slate-100 rounded-lg"><ChevronRight className="w-5 h-5"/></button>
-          </div>
-          <div className="flex gap-2">
-             <span className="px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-sm font-medium">Vista Giornaliera</span>
-          </div>
-        </div>
-
-        {/* Griglia Oraria */}
-        <div className="flex-1 overflow-y-auto p-6 relative">
-          <div className="max-w-4xl mx-auto border border-slate-200 rounded-xl bg-slate-50 overflow-hidden shadow-sm">
-            {hours.map(hour => {
-              // Trova lezioni e blocchi per questa ora
-              const activeLessons = customers.flatMap(c => c.lezioni.map(l => ({...l, customer: c}))).filter(l => l.data === dateStr && l.ora_inizio === hour);
-              const activeBlocks = blocks.filter(b => b.data === dateStr && b.ora_inizio === hour);
-
-              return (
-                <div key={hour} className="flex border-b border-slate-200 min-h-[80px] group relative">
-                  <div className="w-20 bg-white border-r border-slate-200 flex items-center justify-center text-sm font-medium text-slate-500">
-                    {hour}:00
-                  </div>
-                  <div 
-                    className="flex-1 p-1 relative bg-slate-50 hover:bg-slate-100 transition cursor-pointer"
-                    onClick={() => setEventModal({ isOpen: true, data: { data: dateStr, ora_inizio: hour }, isBlock: false })}
-                  >
-                    {/* Pulsante rapido blocco orario al passaggio del mouse */}
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setEventModal({ isOpen: true, data: { data: dateStr, ora_inizio: hour }, isBlock: true }); }}
-                      className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 p-1.5 bg-red-100 text-red-600 rounded hover:bg-red-200 transition text-xs flex items-center gap-1 z-10"
-                    >
-                      <Ban className="w-3 h-3" /> Chiudi Slot
-                    </button>
-
-                    {activeBlocks.map(block => (
-                      <div key={block.id} className="absolute inset-x-2 top-1 bottom-1 bg-slate-200 border-2 border-dashed border-slate-400 rounded-lg p-2 flex flex-col justify-center items-center opacity-80 cursor-not-allowed">
-                        <Ban className="w-5 h-5 text-slate-500 mb-1" />
-                        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">{block.causale}</span>
-                      </div>
-                    ))}
-
-                    {activeLessons.map(lesson => (
-                      <div key={lesson.id} onClick={(e) => { e.stopPropagation(); handleCustomerSelect(lesson.customer); }} className="absolute inset-x-2 top-1 bottom-1 bg-indigo-100 border border-indigo-300 rounded-lg p-3 flex flex-col justify-between hover:shadow-md transition cursor-pointer z-10">
-                        <div className="flex justify-between items-start">
-                          <span className="font-bold text-indigo-900">{lesson.customer.nome}</span>
-                          <span className="text-xs font-medium px-2 py-1 bg-white text-indigo-700 rounded-full">{lesson.stato}</span>
+              <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm">
+                <h3 className="font-bold text-gray-800 mb-3 text-sm">Lezioni e Presenze del giorno</h3>
+                {dayLezioni.length > 0 ? (
+                  <div className="divide-y divide-gray-100">
+                    {dayLezioni.map((l) => (
+                      <div key={l.id} className="py-3 flex justify-between items-center">
+                        <div>
+                          <p className="font-semibold text-gray-900 text-sm">{l.allievo.nome}</p>
+                          <p className="text-xs text-gray-500">Ore: {l.ora_inizio}:00 - Durata: {l.durata}h</p>
                         </div>
-                        <span className="text-xs text-indigo-600 mt-1 line-clamp-1">{lesson.customer.note_esterne}</span>
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-800">
+                          Confermato
+                        </span>
                       </div>
                     ))}
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderCustomerProfile = () => {
-    if (!activeCustomer) return null;
-    const c = activeCustomer;
-
-    return (
-      <div className="flex-1 overflow-y-auto bg-slate-100 p-6 print:hidden">
-        <div className="max-w-5xl mx-auto space-y-6">
-          
-          {/* Intestazione */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-start">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-800">{c.nome}</h1>
-              <p className="text-slate-500 flex items-center gap-4 mt-2">
-                <span>{c.email}</span> • <span>{c.telefono}</span>
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => setCurrentView('calendar')} className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 font-medium">
-                Torna al Calendario
-              </button>
-              <button 
-                onClick={() => setPrintModal({ isOpen: true, data: { ...c, voci: [...c.sospesi], scontoExtra: 0, noteAggiuntive: c.note_esterne } })}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center gap-2"
-              >
-                <Printer className="w-4 h-4" /> Stampa / Genera PDF
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-6">
-            {/* Colonna Finanziaria */}
-            <div className="col-span-1 space-y-6">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4"><CreditCard className="w-5 h-5"/> Stato Contabile</h3>
-                <div className={`p-4 rounded-xl mb-4 ${c.saldo_attuale < 0 ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'}`}>
-                  <p className="text-sm font-medium text-slate-600 mb-1">Saldo Attuale</p>
-                  <p className={`text-3xl font-bold ${c.saldo_attuale < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
-                    {c.saldo_attuale.toFixed(2)} €
-                  </p>
-                </div>
-                
-                <h4 className="font-semibold text-slate-700 mb-2 mt-6">Da Saldare (Sospesi)</h4>
-                {c.sospesi.length === 0 ? (
-                  <p className="text-sm text-slate-500 italic">Nessun importo in sospeso.</p>
                 ) : (
-                  <ul className="space-y-2">
-                    {c.sospesi.map(s => (
-                      <li key={s.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
-                        <span className="text-sm font-medium text-slate-700">{s.causale}</span>
-                        <span className="text-sm font-bold text-red-600">{s.importo.toFixed(2)}€</span>
-                      </li>
-                    ))}
-                  </ul>
+                  <p className="text-xs text-gray-400 py-4 text-center">Nessuna presenza o lezione registrata per la data del {selectedDate}.</p>
                 )}
               </div>
             </div>
-
-            {/* Colonna Note (Doppio Livello) e Compiti */}
-            <div className="col-span-2 space-y-6">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">Gestione Note & Compiti</h3>
-                
-                <div className="grid grid-cols-2 gap-6">
-                  {/* Note Interne */}
-                  <div>
-                    <label className="flex items-center gap-2 text-sm font-bold text-red-600 mb-2">
-                      <AlertCircle className="w-4 h-4" /> Note Interne (Riservate Staff)
-                    </label>
-                    <textarea 
-                      className="w-full h-32 p-3 bg-red-50 border border-red-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500"
-                      value={c.note_interne}
-                      onChange={(e) => setActiveCustomer({...c, note_interne: e.target.value})}
-                      placeholder="Annotazioni visibili solo alla reception..."
-                    />
-                  </div>
-
-                  {/* Note Esterne */}
-                  <div>
-                    <label className="flex items-center gap-2 text-sm font-bold text-indigo-600 mb-2">
-                      <FileText className="w-4 h-4" /> Note / Compiti (Visibili al Cliente)
-                    </label>
-                    <textarea 
-                      className="w-full h-32 p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500"
-                      value={c.note_esterne}
-                      onChange={(e) => setActiveCustomer({...c, note_esterne: e.target.value})}
-                      placeholder="Compiti, promemoria, comunicazioni ufficiali..."
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-6 flex justify-end">
-                  <button 
-                    onClick={() => requestPin('save_customer', c)}
-                    className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 font-bold flex items-center gap-2 shadow-sm"
-                  >
-                    <Lock className="w-4 h-4" /> Salva Modifiche Scheda
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderDailyRegister = () => (
-    <div className="flex-1 overflow-y-auto bg-slate-100 p-6 print:hidden">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <h1 className="text-3xl font-bold text-slate-800">Registro Giornaliero & Cassa</h1>
-        <p className="text-slate-500">{new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-
-        <div className="grid grid-cols-3 gap-6 mt-6">
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-emerald-500">
-            <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-1">Incasso POS</h3>
-            <p className="text-3xl font-black text-slate-800">120.00 €</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-blue-500">
-            <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-1">Incasso Contanti</h3>
-            <p className="text-3xl font-black text-slate-800">40.00 €</p>
-          </div>
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-indigo-500">
-            <h3 className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-1">Presenze Odierne</h3>
-            <p className="text-3xl font-black text-slate-800">12 Allievi</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  // --- MODALI ---
-  const renderPinModal = () => {
-    if (!pinModal.isOpen) return null;
-    return (
-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 print:hidden">
-        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center transform transition-all">
-          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Lock className="w-8 h-8" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-800 mb-2">Autorizzazione</h2>
-          <p className="text-slate-500 text-sm mb-6">Inserisci il PIN per confermare l'operazione (Test: 1234).</p>
-          
-          <input 
-            type="password" 
-            maxLength="4"
-            autoFocus
-            className="w-40 text-center text-3xl tracking-[0.5em] font-bold p-3 border-2 border-slate-200 rounded-xl mx-auto block mb-6 focus:border-indigo-500 focus:ring-0 outline-none"
-            value={pinInput}
-            onChange={e => setPinInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && confirmPin()}
-          />
-
-          <div className="flex gap-3 justify-center">
-            <button onClick={() => setPinModal({isOpen: false})} className="px-6 py-2 text-slate-600 font-medium hover:bg-slate-100 rounded-lg">Annulla</button>
-            <button onClick={confirmPin} className="px-6 py-2 bg-slate-800 text-white font-bold rounded-lg hover:bg-slate-900 shadow-md">Sblocca</button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderPrintModal = () => {
-    if (!printModal.isOpen || !printModal.data) return null;
-    const pData = printModal.data;
-
-    return (
-      <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex py-10 justify-center overflow-y-auto z-40 print:hidden">
-        <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-2xl w-full my-auto">
-          <div className="flex justify-between items-center mb-6 border-b pb-4">
-            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Printer/> Anteprima di Stampa Editabile</h2>
-            <button onClick={() => setPrintModal({isOpen: false})} className="text-slate-500 hover:text-slate-800 font-bold text-xl">×</button>
-          </div>
-
-          <div className="space-y-6">
-            <div className="bg-yellow-50 p-4 border border-yellow-200 rounded-xl text-sm text-yellow-800 mb-6">
-              <span className="font-bold">Nota per la Reception:</span> Tutto ciò che modifichi qui verrà aggiornato e salvato nella scheda del cliente dopo aver inserito il PIN e confermato la stampa. Zero discrepanze.
-            </div>
-
-            {/* Dati Documento */}
-            <div>
-              <h3 className="font-bold text-slate-700 mb-3 border-b pb-1">Voci Contabili / Ricevuta</h3>
-              {pData.voci.map((voce, idx) => (
-                <div key={idx} className="flex gap-3 mb-2 items-center">
-                  <input 
-                    className="flex-1 p-2 border border-slate-300 rounded focus:ring-1 focus:ring-indigo-500 font-medium"
-                    value={voce.causale}
-                    onChange={(e) => {
-                      const newVoci = [...pData.voci];
-                      newVoci[idx].causale = e.target.value;
-                      setPrintModal({...printModal, data: {...pData, voci: newVoci}});
-                    }}
-                  />
-                  <div className="relative">
-                    <input 
-                      type="number"
-                      className="w-28 p-2 border border-slate-300 rounded text-right pr-6 focus:ring-1 focus:ring-indigo-500 font-bold text-slate-800"
-                      value={voce.importo}
-                      onChange={(e) => {
-                        const newVoci = [...pData.voci];
-                        newVoci[idx].importo = parseFloat(e.target.value) || 0;
-                        setPrintModal({...printModal, data: {...pData, voci: newVoci}});
-                      }}
-                    />
-                    <span className="absolute right-3 top-2.5 text-slate-500">€</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div>
-               <h3 className="font-bold text-slate-700 mb-2 mt-4">Sconto / Abbuono applicato al volo</h3>
-               <div className="relative w-40">
-                  <input 
-                    type="number"
-                    className="w-full p-2 border border-slate-300 rounded text-right pr-6 text-emerald-600 font-bold"
-                    value={pData.scontoExtra}
-                    onChange={(e) => setPrintModal({...printModal, data: {...pData, scontoExtra: parseFloat(e.target.value) || 0}})}
-                  />
-                  <span className="absolute right-3 top-2.5 text-slate-500">€</span>
-               </div>
-            </div>
-
-            <div>
-              <h3 className="font-bold text-slate-700 mb-2 mt-4 border-b pb-1">Note e Compiti (Stamperanno sul foglio)</h3>
-              <textarea 
-                className="w-full h-32 p-3 border border-slate-300 rounded-xl focus:ring-1 focus:ring-indigo-500"
-                value={pData.noteAggiuntive}
-                onChange={(e) => setPrintModal({...printModal, data: {...pData, noteAggiuntive: e.target.value}})}
-              />
-            </div>
-          </div>
-
-          <div className="mt-8 pt-4 border-t flex justify-end gap-4">
-            <button onClick={() => setPrintModal({isOpen: false})} className="px-6 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium">Annulla</button>
-            <button 
-              onClick={() => requestPin('print_receipt', pData)}
-              className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow-md flex items-center gap-2"
-            >
-              <Lock className="w-4 h-4"/> Salva Dati e Stampa
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderEventModal = () => {
-    if (!eventModal.isOpen) return null;
-    const isBlock = eventModal.isBlock;
-    const [causaleBlock, setCausaleBlock] = useState("");
-
-    return (
-      <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-40 print:hidden">
-        <div className="bg-white p-6 rounded-2xl shadow-xl max-w-sm w-full">
-          <h2 className="text-xl font-bold text-slate-800 mb-4 border-b pb-2">
-            {isBlock ? "Chiudi Disponibilità Oraria" : "Gestione Slot Orario"}
-          </h2>
-          
-          <div className="mb-4 text-sm text-slate-600 flex items-center gap-2 bg-slate-50 p-3 rounded-lg border border-slate-100">
-            <Clock className="w-4 h-4 text-slate-400" /> 
-            {eventModal.data.data} - Ore {eventModal.data.ora_inizio}:00
-          </div>
-
-          {isBlock ? (
-            <div className="space-y-4">
-              <label className="block text-sm font-bold text-slate-700">Causale Chiusura:</label>
-              <input 
-                type="text" 
-                placeholder="Es. Ferie, Manutenzione..." 
-                className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-red-500"
-                value={causaleBlock}
-                onChange={e => setCausaleBlock(e.target.value)}
-              />
-              <button 
-                onClick={() => requestPin('add_block', { id: Date.now().toString(), data: eventModal.data.data, ora_inizio: eventModal.data.ora_inizio, durata: 1, causale: causaleBlock })}
-                className="w-full py-2 mt-4 bg-red-600 text-white font-bold rounded hover:bg-red-700 flex justify-center items-center gap-2"
-              >
-                <Lock className="w-4 h-4" /> Conferma Blocco (PIN)
-              </button>
-            </div>
-          ) : (
-             <div className="text-center py-6 text-slate-500 text-sm">
-                Per programmare una lezione in questo slot, seleziona prima l'allievo dalla barra di ricerca.
-             </div>
           )}
-
-          <div className="mt-4 pt-4 border-t text-center">
-            <button onClick={() => setEventModal({isOpen: false, data: null, isBlock: false})} className="text-slate-500 hover:text-slate-800 text-sm font-medium">Annulla e Chiudi</button>
-          </div>
         </div>
-      </div>
-    );
-  };
+      </main>
 
-  // --- LAYOUT PRINCIPALE E STAMPA (Nascosta all'interfaccia) ---
-  return (
-    <div className="flex h-screen bg-white font-sans overflow-hidden">
-      
-      {/* Stili per la stampa - visibili solo su carta/pdf */}
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          #printable-area, #printable-area * { visibility: visible; }
-          #printable-area { position: absolute; left: 0; top: 0; width: 100%; padding: 40px; }
-        }
-      `}</style>
-
-      {/* Area effettivamente stampata */}
-      <div id="printable-area" className="hidden print:block font-sans text-slate-800">
-        {printModal.data && (
-          <div className="max-w-3xl mx-auto space-y-8">
-            <div className="flex justify-between items-end border-b-2 border-slate-800 pb-4">
+      {/* MODALE ANAGRAFICA VELOCE */}
+      {showFastAnagrafica && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100">
+            <div className="flex justify-between items-center border-b pb-3 mb-4">
+              <h3 className="font-bold text-lg text-gray-900">Nuova Anagrafica Veloce</h3>
+              <button onClick={() => setShowFastAnagrafica(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={handleCreateCustomer} className="space-y-4">
               <div>
-                <h1 className="text-4xl font-black tracking-tighter">StudioManager</h1>
-                <p className="text-slate-500 text-sm mt-1">Ricevuta & Riepilogo Allievo</p>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Nome e Cognome *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Es. Marco Rossi"
+                  value={newCustomerForm.nome}
+                  onChange={(e) => setNewCustomerForm({ ...newCustomerForm, nome: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:border-indigo-500"
+                />
               </div>
-              <div className="text-right">
-                <p className="font-bold text-lg">{printModal.data.nome}</p>
-                <p className="text-slate-500 text-sm">Data emissione: {new Date().toLocaleDateString('it-IT')}</p>
-              </div>
-            </div>
-
-            <div className="mt-8">
-              <h2 className="text-xl font-bold uppercase tracking-widest text-slate-400 mb-4 text-sm border-b pb-2">Riepilogo Importi</h2>
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200">
-                    <th className="py-2 font-bold text-slate-700">Descrizione Voce</th>
-                    <th className="py-2 font-bold text-slate-700 text-right">Importo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {printModal.data.voci.map((v, i) => (
-                    <tr key={i} className="border-b border-slate-100">
-                      <td className="py-3">{v.causale}</td>
-                      <td className="py-3 text-right font-medium">{v.importo.toFixed(2)} €</td>
-                    </tr>
-                  ))}
-                  {printModal.data.scontoExtra > 0 && (
-                     <tr>
-                        <td className="py-3 font-medium text-slate-600">Sconto Applicato</td>
-                        <td className="py-3 text-right font-bold text-slate-800">- {printModal.data.scontoExtra.toFixed(2)} €</td>
-                     </tr>
-                  )}
-                  <tr className="bg-slate-50">
-                    <td className="py-4 font-black text-lg">TOTALE</td>
-                    <td className="py-4 text-right font-black text-xl">
-                      {(printModal.data.voci.reduce((acc, v) => acc + parseFloat(v.importo), 0) - printModal.data.scontoExtra).toFixed(2)} €
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {printModal.data.noteAggiuntive && (
-              <div className="mt-12 pt-6 border-t-2 border-slate-100">
-                <h2 className="text-xl font-bold uppercase tracking-widest text-slate-400 mb-4 text-sm">Comunicazioni / Compiti</h2>
-                <div className="p-6 bg-slate-50 rounded-xl whitespace-pre-wrap leading-relaxed">
-                  {printModal.data.noteAggiuntive}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Telefono</label>
+                  <input
+                    type="text"
+                    placeholder="333..."
+                    value={newCustomerForm.telefono}
+                    onChange={(e) => setNewCustomerForm({ ...newCustomerForm, telefono: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Saldo Iniziale (€)</label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={newCustomerForm.saldo}
+                    onChange={(e) => setNewCustomerForm({ ...newCustomerForm, saldo: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:border-indigo-500"
+                  />
                 </div>
               </div>
-            )}
-            
-            <div className="mt-20 pt-8 border-t text-center text-slate-400 text-xs">
-              Documento generato dal sistema gestionale interno. Le note interne non sono riportate.
-            </div>
+              <div className="flex justify-end space-x-2 pt-3 border-t">
+                <button type="button" onClick={() => setShowFastAnagrafica(false)} className="px-4 py-2 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg">Annulla</button>
+                <button type="submit" className="px-4 py-2 text-xs font-medium bg-indigo-900 text-white hover:bg-indigo-800 rounded-lg">Salva Allievo</button>
+              </div>
+            </form>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* INTERFACCIA REALE */}
-      {renderSidebar()}
-      
-      <div className="flex-1 flex flex-col min-w-0 print:hidden">
-        {/* Header di Navigazione Rapida */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center px-6 justify-between shrink-0">
-          <div className="flex gap-4">
-            <button onClick={() => setCurrentView('calendar')} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition ${currentView === 'calendar' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-              <Calendar className="w-4 h-4"/> Planning
-            </button>
-            <button onClick={() => setCurrentView('daily')} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition ${currentView === 'daily' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-              <CreditCard className="w-4 h-4"/> Cassa e Presenze
-            </button>
-            <button onClick={() => {if(customers[0]) handleCustomerSelect(customers[0])}} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition ${currentView === 'customer' ? 'bg-indigo-50 text-indigo-700' : 'text-slate-600 hover:bg-slate-50'}`}>
-              <Users className="w-4 h-4"/> Anagrafica Veloce
-            </button>
-          </div>
-          <div className="text-sm font-bold text-slate-400">
-            {new Date().toLocaleDateString('it-IT')} - Ore {new Date().toLocaleTimeString('it-IT', {hour: '2-digit', minute: '2-digit'})}
-          </div>
-        </header>
-
-        {/* Content Area */}
-        {currentView === 'calendar' && renderCalendar()}
-        {currentView === 'customer' && renderCustomerProfile()}
-        {currentView === 'daily' && renderDailyRegister()}
-      </div>
-
-      {/* Render Modals */}
-      {renderPinModal()}
-      {renderPrintModal()}
-      {renderEventModal()}
     </div>
   );
 }
