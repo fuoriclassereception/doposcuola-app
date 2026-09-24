@@ -1,41 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Search, Calendar, Users, FileText, Lock, 
   Printer, ChevronLeft, ChevronRight, Plus, 
   AlertCircle, CheckCircle, Clock, Ban, CreditCard 
 } from 'lucide-react';
 
-// --- MOCK DATA INIZIALE ---
-const initialCustomers = [
-  {
-    id: "cli_001",
-    nome: "Mario Rossi",
-    email: "mario.rossi@email.com",
-    telefono: "+39 333 1234567",
-    saldo_attuale: -30.00,
-    note_interne: "Attenzione: ricordargli di portare il certificato medico.",
-    note_esterne: "Ottimo lavoro sull'ultimo modulo. Compiti: ripassare cap. 3.",
-    sospesi: [{ id: 1, causale: "Lezione extra 10/06", importo: 30.00 }],
-    storico_pagamenti: [{ id: 1, data: "2026-06-01", importo: 120.00, causale: "Pacchetto 4 lezioni", metodo: "POS" }],
-    lezioni: [{ id: "lez_1", data: "2026-09-24", ora_inizio: 15, durata: 1, stato: "Programmata" }]
-  },
-  {
-    id: "cli_002",
-    nome: "Giulia Bianchi",
-    email: "giulia.b@email.com",
-    telefono: "+39 340 9876543",
-    saldo_attuale: 0.00,
-    note_interne: "Livello avanzato.",
-    note_esterne: "Compiti: Esercizi pag. 45.",
-    sospesi: [],
-    storico_pagamenti: [{ id: 2, data: "2026-09-20", importo: 40.00, causale: "Lezione Singola", metodo: "Contanti" }],
-    lezioni: [{ id: "lez_2", data: "2026-09-25", ora_inizio: 10, durata: 2, stato: "Programmata" }]
-  }
-];
-
-const initialBlocks = [
-  { id: "blk_1", data: "2026-09-24", ora_inizio: 13, durata: 1, causale: "Pausa Pranzo / Chiusura" }
-];
+const initialCustomers = [];
+const initialBlocks = [];
 
 export default function GestioneReceptionApp() {
   // --- STATI GLOBALI ---
