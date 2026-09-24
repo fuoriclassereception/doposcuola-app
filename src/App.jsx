@@ -160,12 +160,13 @@ export default function App() {
       />
 
       <ModaleLezione
-        isOpen={showLezioneModal}
-        onClose={() => setShowLezioneModal(false)}
-        onSave={handleSaveLezione}
-        insegnanti={insegnanti}
-        studenti={studenti}
-      />
+  isOpen={showLezioneModal}
+  onClose={() => setShowLezioneModal(false)}
+  onSave={handleSaveLezione}
+  insegnanti={insegnanti}
+  studenti={studenti}
+  lezioni={lezioni}
+     />
     </div>
   );
 }
