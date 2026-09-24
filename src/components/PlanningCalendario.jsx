@@ -152,7 +152,7 @@ export default function PlanningCalendario({
     window.open(url, '_blank');
   };
 
-  // Dinamica colonne: Ora + Insegnanti + Gruppo (senza colonne fisse laterali per richieste/annullate)
+  // Dinamica colonne: Ora + Insegnanti + Gruppo
   const gridTemplateColumns = `60px repeat(${insegnanti.length}, minmax(150px, 1fr)) 160px`;
 
   return (
@@ -220,7 +220,7 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* Griglia Calendario Pulita (In adattamento automatico per qualsiasi numero di insegnanti) */}
+      {/* Griglia Calendario Pulita */}
       <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
         {/* Intestazione Colonne */}
         <div 
@@ -354,7 +354,7 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* MODALE GESTIONE RICHIESTE APP (In alto) */}
+      {/* MODALE GESTIONE RICHIESTE APP */}
       {showRichiesteModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -428,7 +428,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* MODALE ANNULLATE (In alto) */}
+      {/* MODALE ANNULLATE */}
       {showAnnullateModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -474,14 +474,6 @@ export default function PlanningCalendario({
                   </div>
                 ))
               )}
-            </div>
-
-            <div className="pt-3 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setShowAnnullateModal(false)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
-            </div>
-          </div>
-        </div>
-      )}
             </div>
 
             <div className="pt-3 border-t border-gray-100 flex justify-end">
