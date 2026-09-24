@@ -12,32 +12,27 @@ export default function PlanningCalendario({
   onRestoreLezione,
   onUpdateLezioneCompleta,
   onEstraiStudenteDaGruppo,
-  onAcceptRichiesta, // Funziona per accettare/spostare la richiesta app
-  onRejectRichiesta  // Funzione per rifiutare la richiesta app
+  onAcceptRichiesta,
+  onRejectRichiesta
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
 
-  // Modali
   const [groupModalData, setGroupModalData] = useState(null);
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
-  const [richiestaDaGestire, setRichiestaDaGestire] = useState(null); // Per gestire richieste app
+  const [richiestaDaGestire, setRichiestaDaGestire] = useState(null);
   const [nuovoDocenteRichiesta, setNuovoDocenteRichiesta] = useState('');
 
-  // Estrazione Studente da Gruppo
   const [estrazioneData, setEstrazioneData] = useState(null);
   const [estrazioneForm, setEstrazioneForm] = useState({ data: '', insegnanteId: '', oraInizio: '15:00', oraFine: '16:00' });
 
-  // Annullamento
   const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
   const [motivoAnnullamento, setMotivoAnnullamento] = useState('');
   const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
 
-  // Spostamento
   const [isEditingMove, setIsEditingMove] = useState(false);
   const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '', insegnanteId: '', isGruppo: false });
 
-  // PIN e Drag
   const [pendingMove, setPendingMove] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
@@ -153,12 +148,11 @@ export default function PlanningCalendario({
     setPinError(false);
   };
 
-  const handleResizeStep = (deltaMins) => {
-    if (!resizingLezione) return;
-    const [hEnd, mEnd] = resizingLezione.oraFine.split(':').map(Number);
+  const handleResizeStep = (deltaMins, lez) => {
+    const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
     let totalEnd = hEnd * 60 + mEnd + deltaMins;
 
-    const [hStart, mStart] = resizingLezione.oraInizio.split(':').map(Number);
+    const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
     const totalStart = hStart * 60 + mStart;
 
     if (totalEnd <= totalStart + 30) totalEnd = totalStart + 30;
@@ -167,14 +161,13 @@ export default function PlanningCalendario({
     const newEndM = (totalEnd % 60).toString().padStart(2, '0');
 
     setPendingMove({
-      lezioneId: resizingLezione.id,
-      data: resizingLezione.data,
-      oraInizio: resizingLezione.oraInizio,
+      lezioneId: lez.id,
+      data: lez.data,
+      oraInizio: lez.oraInizio,
       oraFine: `${newEndH}:${newEndM}`,
-      insegnanteId: resizingLezione.insegnanteId,
-      isGruppo: resizingLezione.isGruppo
+      insegnanteId: lez.insegnanteId,
+      isGruppo: lez.isGruppo
     });
-    setResizingLezione(null);
   };
 
   const confirmPendingMoveWithPin = (e) => {
@@ -212,18 +205,6 @@ export default function PlanningCalendario({
     });
   };
 
-  const handleRequestMoveFromDetail = () => {
-    setPendingMove({
-      lezioneId: selectedLezioneDetail.id,
-      ...moveForm
-    });
-    setSelectedLezioneDetail(null);
-    setIsEditingMove(false);
-    setPinInput('');
-    setPinError(false);
-  };
-
-  // Apertura WhatsApp con nome insegnante incluso
   const sendWhatsAppConfirmation = (lez) => {
     const std = studenti.find(s => (lez.studentiIds || []).includes(s.id));
     const ins = insegnanti.find(i => i.id === lez.insegnanteId);
@@ -234,6 +215,9 @@ export default function PlanningCalendario({
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`;
     window.open(url, '_blank');
   };
+
+  // Dinamica colonne: Ora + Insegnanti + Gruppo + Richieste App + Annullate
+  const gridTemplateColumns = `60px repeat(${insegnanti.length}, minmax(140px, 1fr)) 150px 140px 90px`;
 
   return (
     <div className="w-full h-full p-0 flex flex-col space-y-3 select-none">
@@ -269,9 +253,13 @@ export default function PlanningCalendario({
         </button>
       </div>
 
-      {/* Griglia Calendario (Colonna Annullate resa molto più stretta / compatta) */}
+      {/* Griglia Calendario Allineata */}
       <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
-        <div className="grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))_130px_90px] border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 w-full min-w-[950px]">
+        {/* Intestazione Colonne */}
+        <div 
+          className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[1050px]"
+          style={{ gridTemplateColumns }}
+        >
           <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">ORA</div>
 
           {insegnanti.map(ins => (
@@ -281,25 +269,39 @@ export default function PlanningCalendario({
             </div>
           ))}
 
-          {/* Colonna RICHIESTE APP */}
-          <div className="p-3 text-center bg-sky-50 border-r border-sky-200 flex flex-col items-center justify-center">
-            <Bell className="w-4 h-4 text-sky-700 mb-0.5 animate-bounce"/>
-            <span className="font-black text-[11px] text-sky-950 uppercase tracking-wider flex items-center">
-              RICHIESTE <span className="ml-1 text-[9px] bg-sky-200 text-sky-900 px-1 rounded-full">{lezioniRichiesteOggi.length}</span>
+          {/* Colonna Gruppo */}
+          <div
+            onClick={() => setGroupModalData({ fascia: 'Intero Giorno', lezioniGroup: lezioniGruppoOggi })}
+            className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 border-r border-amber-300 flex flex-col items-center justify-center cursor-pointer"
+          >
+            <Users className="w-4 h-4 text-amber-800 mb-0.5"/>
+            <span className="font-black text-xs text-amber-950 uppercase tracking-wider flex items-center">
+              GRUPPO <span className="ml-1 text-[10px] bg-amber-300 text-amber-950 px-1.5 rounded-full">{lezioniGruppoOggi.length}</span>
             </span>
           </div>
 
-          {/* Colonna ANNULLATE COMPATTA */}
-          <div className="p-3 text-center bg-slate-100 border-l border-slate-200 flex flex-col items-center justify-center">
-            <AlertOctagon className="w-3.5 h-3.5 text-slate-500 mb-0.5"/>
-            <span className="font-black text-[10px] text-slate-600 uppercase tracking-wider">
+          {/* Colonna Richieste App */}
+          <div className="p-3 text-center bg-sky-100/70 border-r border-sky-300 flex flex-col items-center justify-center">
+            <Bell className="w-4 h-4 text-sky-800 mb-0.5 animate-bounce"/>
+            <span className="font-black text-xs text-sky-950 uppercase tracking-wider flex items-center">
+              RICHIESTE <span className="ml-1 text-[10px] bg-sky-300 text-sky-950 px-1.5 rounded-full">{lezioniRichiesteOggi.length}</span>
+            </span>
+          </div>
+
+          {/* Colonna Annullate Compatta */}
+          <div className="p-3 text-center bg-slate-200/80 border-l border-slate-300 flex flex-col items-center justify-center">
+            <AlertOctagon className="w-3.5 h-3.5 text-slate-600 mb-0.5"/>
+            <span className="font-black text-[10px] text-slate-700 uppercase tracking-wider">
               ANNULLATE ({lezioniAnnullateOggi.length})
             </span>
           </div>
         </div>
 
         {/* Corpo della Griglia */}
-        <div className="relative flex-1 grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))_130px_90px] w-full min-w-[950px]">
+        <div 
+          className="relative flex-1 grid w-full min-w-[1050px]"
+          style={{ gridTemplateColumns }}
+        >
           <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
             {slots30.map((slot, i) => (
               <div key={i} className="h-8 text-[10px] font-extrabold text-gray-400 pt-1">
@@ -311,7 +313,6 @@ export default function PlanningCalendario({
           {/* Colonne Insegnanti Singoli con Pre-assegnazione Richieste */}
           {insegnanti.map(ins => {
             const lezioniDocente = lezioniAttive.filter(l => l.insegnanteId === ins.id && !l.isGruppo);
-            // Richieste pendenti per questo specifico insegnante
             const richiesteDocente = lezioniRichiesteOggi.filter(l => l.insegnanteId === ins.id);
 
             return (
@@ -320,7 +321,6 @@ export default function PlanningCalendario({
                   <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, ins.id, false, slot.oraStr)} className="h-8 hover:bg-slate-50/60"/>
                 ))}
 
-                {/* Lezioni Attive Docente */}
                 {lezioniDocente.map(lez => {
                   const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
                   const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
@@ -381,7 +381,7 @@ export default function PlanningCalendario({
             );
           })}
 
-          {/* COLONNA GRUPPO */}
+          {/* Colonna Gruppo */}
           <div className="border-r border-amber-200 bg-amber-50/30 relative divide-y divide-amber-100/50">
             {slots30.map((slot, i) => (
               <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, '', true, slot.oraStr)} className="h-8 hover:bg-amber-100/30"/>
@@ -420,7 +420,7 @@ export default function PlanningCalendario({
             })}
           </div>
 
-          {/* COLONNA RICHIESTE APP (Generiche senza docente specifico) */}
+          {/* Colonna Richieste App Generiche */}
           <div className="border-r border-sky-200 bg-sky-50/40 relative divide-y divide-sky-100">
             {slots30.map((_, i) => <div key={i} className="h-8"/>)}
 
@@ -449,7 +449,7 @@ export default function PlanningCalendario({
             })}
           </div>
 
-          {/* COLONNA ANNULLATE COMPATTA */}
+          {/* Colonna Annullate Compatta */}
           <div className="bg-slate-50 border-l border-slate-200 relative divide-y divide-slate-100">
             {slots30.map((_, i) => <div key={i} className="h-8"/>)}
 
@@ -483,7 +483,7 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* MODALE GESTIONE RICHIESTA APP (Accetta / Rifiuta / Sposta Docente) */}
+      {/* MODALE GESTIONE RICHIESTA APP */}
       {richiestaDaGestire && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
@@ -547,7 +547,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* DETTAGLIO LEZIONE CON PULSANTE WHATSAPP E NOME DOCENTE */}
+      {/* DETTAGLIO LEZIONE CON WHATSAPP */}
       {selectedLezioneDetail && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -572,7 +572,6 @@ export default function PlanningCalendario({
                   </p>
                 )}
 
-                {/* Pulsante invio WhatsApp di conferma con nome docente */}
                 <button
                   onClick={() => sendWhatsAppConfirmation(selectedLezioneDetail)}
                   className="w-full mt-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center space-x-2 shadow-sm"
