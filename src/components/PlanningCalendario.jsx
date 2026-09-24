@@ -27,13 +27,11 @@ export default function PlanningCalendario({
   const [isEditingMove, setIsEditingMove] = useState(false);
   const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '', insegnanteId: '', isGruppo: false });
 
-  // Drag & Drop e PIN con Focus Automatico
-  const [draggedLezione, setDraggedLezione] = useState(null);
+  // Stato per autorizzazione PIN per TUTTI gli spostamenti
   const [pendingMove, setPendingMove] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
 
-  // Ref per Focus Automatico sul campo PIN
   const pinInputRef = useRef(null);
 
   const orari = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
@@ -50,12 +48,13 @@ export default function PlanningCalendario({
     return () => clearInterval(interval);
   }, []);
 
-  // FOCUS AUTOMATICO SUL PIN ALL'APERTURA
+  // FOCUS AUTOMATICO PIN
   useEffect(() => {
-    if (pendingMove && pinInputRef.current) {
-      setTimeout(() => {
+    if (pendingMove) {
+      const timer = setTimeout(() => {
         pinInputRef.current?.focus();
-      }, 50);
+      }, 100);
+      return () => clearTimeout(timer);
     }
   }, [pendingMove]);
 
@@ -72,10 +71,9 @@ export default function PlanningCalendario({
   const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
 
-  // LOGICA DRAG & DROP
+  // DRAG & DROP
   const handleDragStart = (e, lezione) => {
-    setDraggedLezione(lezione);
-    e.dataTransfer.setData('text/plain', lezione.id);
+    e.dataTransfer.setData('application/json', JSON.stringify(lezione));
   };
 
   const handleDragOver = (e) => {
@@ -84,10 +82,12 @@ export default function PlanningCalendario({
 
   const handleDrop = (e, targetInsegnanteId, targetIsGruppo = false, targetOra) => {
     e.preventDefault();
-    if (!draggedLezione) return;
+    const dataJson = e.dataTransfer.getData('application/json');
+    if (!dataJson) return;
 
-    const [hStart, mStart] = draggedLezione.oraInizio.split(':').map(Number);
-    const [hEnd, mEnd] = draggedLezione.oraFine.split(':').map(Number);
+    const lezione = JSON.parse(dataJson);
+    const [hStart, mStart] = lezione.oraInizio.split(':').map(Number);
+    const [hEnd, mEnd] = lezione.oraFine.split(':').map(Number);
     const durataMins = (hEnd - hStart) * 60 + (mEnd - mStart);
 
     const newStart = `${targetOra.toString().padStart(2, '0')}:00`;
@@ -96,8 +96,9 @@ export default function PlanningCalendario({
     const endM = (endTotalMins % 60).toString().padStart(2, '0');
     const newEnd = `${endH}:${endM}`;
 
+    // Richiede PIN per il Drag & Drop
     setPendingMove({
-      lezioneId: draggedLezione.id,
+      lezioneId: lezione.id,
       data: dataSelezionata,
       oraInizio: newStart,
       oraFine: newEnd,
@@ -105,16 +106,27 @@ export default function PlanningCalendario({
       isGruppo: targetIsGruppo
     });
 
-    setDraggedLezione(null);
     setPinInput('');
     setPinError(false);
   };
 
-  // CONFERMA PIN ED ESECUZIONE SPOSTAMENTO
+  // RICHIEDE PIN PER SPOSTAMENTO DA SCHEDA DETTAGLIO
+  const handleRequestMoveFromDetail = () => {
+    setPendingMove({
+      lezioneId: selectedLezioneDetail.id,
+      ...moveForm
+    });
+    setSelectedLezioneDetail(null);
+    setIsEditingMove(false);
+    setPinInput('');
+    setPinError(false);
+  };
+
+  // EXECUTE MOVE WITH PIN
   const confirmPendingMoveWithPin = (e) => {
     if (e) e.preventDefault();
 
-    if (pinInput !== '1234') { // PIN Predefinito
+    if (pinInput !== '1234') {
       setPinError(true);
       return;
     }
@@ -138,17 +150,6 @@ export default function PlanningCalendario({
       insegnanteId: lez.insegnanteId || (insegnanti[0]?.id || ''),
       isGruppo: lez.isGruppo || false
     });
-  };
-
-  const handleSaveMoveFromDetail = () => {
-    if (onUpdateLezioneCompleta) {
-      onUpdateLezioneCompleta({
-        lezioneId: selectedLezioneDetail.id,
-        ...moveForm
-      });
-    }
-    setSelectedLezioneDetail(null);
-    setIsEditingMove(false);
   };
 
   const handleStartAnnullamento = (lez) => {
@@ -180,7 +181,7 @@ export default function PlanningCalendario({
           </div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Trascina la lezione per spostarla e inserisci il PIN</p>
+            <p className="text-xs text-gray-500">Trascina la lezione o usa la scheda per spostarla (PIN 1234)</p>
           </div>
         </div>
 
@@ -363,7 +364,7 @@ export default function PlanningCalendario({
             })}
           </div>
 
-          {/* Linea Rossa dell'Ora Attuale */}
+          {/* Linea Rossa ORA */}
           {isToday && redLineTop >= 0 && redLineTop <= 100 && (
             <div style={{ top: `${redLineTop}%` }} className="absolute left-0 right-0 border-b-2 border-rose-500 z-30 pointer-events-none flex items-center">
               <span className="bg-rose-500 text-white text-[9px] font-black px-1 rounded-r">ORA</span>
@@ -372,16 +373,16 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* POPUP RICHIESTA PIN CON FOCUS AUTOMATICO */}
+      {/* POPUP UNICO DI VERIFICA PIN CON AUTO-FOCUS */}
       {pendingMove && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <form onSubmit={confirmPendingMoveWithPin} className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+          <form onSubmit={confirmPendingMoveWithPin} className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center space-x-2 text-amber-700">
               <ShieldAlert className="w-6 h-6 text-amber-600"/>
               <h3 className="font-extrabold text-base text-slate-900">Autorizza Spostamento</h3>
             </div>
             <p className="text-xs text-gray-600">
-              Spostamento alle ore <strong>{pendingMove.oraInizio}</strong>. Digita il PIN Amministratore e premi Invio:
+              Conferma lo spostamento alle ore <strong>{pendingMove.oraInizio}</strong>. Digita il PIN Amministratore (es. <strong>1234</strong>) e premi Invio:
             </p>
             <div className="relative">
               <Lock className="w-4 h-4 absolute left-3 top-2.5 text-gray-400"/>
@@ -389,13 +390,13 @@ export default function PlanningCalendario({
                 ref={pinInputRef}
                 type="password"
                 maxLength={4}
-                placeholder="PIN (es. 1234)"
+                placeholder="1234"
                 value={pinInput}
                 onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
                 className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-900"
               />
             </div>
-            {pinError && <p className="text-[11px] font-bold text-rose-600">PIN errato (prova con 1234).</p>}
+            {pinError && <p className="text-[11px] font-bold text-rose-600">PIN errato. Inserisci 1234.</p>}
             <div className="flex justify-end space-x-2 pt-2">
               <button type="button" onClick={() => setPendingMove(null)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold">Annulla</button>
               <button type="submit" className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md">Autorizza</button>
@@ -404,7 +405,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* MODALE ANNULLAMENTO CON GIUSTIFICAZIONE */}
+      {/* MODALE ANNULLAMENTO */}
       {lezioneDaAnnullare && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -467,7 +468,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* DETTAGLIO E RIPROGRAMMAZIONE RAPIDA */}
+      {/* DETTAGLIO E SPOSTAMENTO RAPIDO */}
       {selectedLezioneDetail && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -496,7 +497,7 @@ export default function PlanningCalendario({
                 </button>
               </div>
 
-              {/* BOX SPOSTAMENTO RAPIDO */}
+              {/* BOX SPOSTAMENTO CON PROMPT PIN */}
               {isEditingMove && (
                 <div className="bg-amber-50/80 p-4 rounded-2xl border border-amber-200 space-y-3">
                   <h4 className="font-extrabold text-amber-950 text-xs">Seleziona Nuovo Giorno e Orario</h4>
@@ -554,10 +555,10 @@ export default function PlanningCalendario({
                   </div>
 
                   <button
-                    onClick={handleSaveMoveFromDetail}
+                    onClick={handleRequestMoveFromDetail}
                     className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-md"
                   >
-                    Conferma Spostamento Lezione
+                    Conferma e Richiedi PIN
                   </button>
                 </div>
               )}
