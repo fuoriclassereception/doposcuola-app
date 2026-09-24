@@ -123,11 +123,40 @@ export default function App() {
     }));
   };
 
-  // Funzioni per gestire le richieste app (Accetta / Rifiuta)
+  // Funzioni per gestire le richieste app con controllo conflitti integrato
   const handleAcceptRichiesta = (lezioneId, nuovoDocenteId) => {
+    const richiestaDaAccettare = lezioni.find(l => l.id === lezioneId);
+    if (!richiestaDaAccettare) return;
+
+    const dataLezione = richiestaDaAccettare.data;
+
+    // Verifichiamo se l'insegnante scelto ha già una lezione attiva in quella fascia oraria
+    const conflitto = lezioni.some(l => 
+      l.id !== lezioneId &&
+      l.data === dataLezione &&
+      l.insegnanteId === nuovoDocenteId &&
+      l.stato === 'attiva' &&
+      !l.isGruppo &&
+      ((richiestaDaAccettare.oraInizio >= l.oraInizio && richiestaDaAccettare.oraInizio < l.oraFine) ||
+       (richiestaDaAccettare.oraFine > l.oraInizio && richiestaDaAccettare.oraFine <= l.oraFine))
+    );
+
+    if (conflitto) {
+      alert(`⚠️ Attenzione: La fascia oraria ${richiestaDaAccettare.oraInizio} - ${richiestaDaAccettare.oraFine} per questo insegnante è già occupata!\n\nLa richiesta rimane in sospeso nella colonna laterale con tutti i suoi dettagli: seleziona un altro insegnante competente per confermarla.`);
+      
+      setLezioni(prev => prev.map(l => {
+        if (l.id === lezioneId) {
+          return { ...l, haConflitto: true, ultimoTentativoDocente: nuovoDocenteId };
+        }
+        return l;
+      }));
+      return;
+    }
+
+    // Se la fascia è libera, la richiesta diventa ufficialmente una lezione attiva
     setLezioni(prev => prev.map(l => {
       if (l.id === lezioneId) {
-        return { ...l, stato: 'attiva', insegnanteId: nuovoDocenteId };
+        return { ...l, stato: 'attiva', insegnanteId: nuovoDocenteId, haConflitto: false };
       }
       return l;
     }));
