@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders, Ban } from 'lucide-react';
+import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders, Ban, Lock } from 'lucide-react';
 import { stampaReportStudente } from '../utils/printReport';
 
 export default function DettaglioStudente({ studente, lezioni = [], onClose, onUpdateLezioneCompleta, onUpdateLezioneStatus }) {
@@ -7,12 +7,20 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '' });
 
-  // Stato per gestire il modale di annullamento lezione
+  // Stati per PIN di sicurezza amministrativo (default 1234)
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const [pendingActionType, setPendingActionType] = useState(null); // 'move' o 'cancel'
+  const [pendingMoveData, setPendingMoveData] = useState(null);
+  const [pendingCancelData, setPendingCancelData] = useState(null);
+
+  // Stato per annullamento lezione
   const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
   const [motivoAnnullamento, setMotivoAnnullamento] = useState('');
   const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
 
-  // Opzioni di stampa configurabili dalla reception
+  // Opzioni stampa
   const [opzioniStampa, setOpzioniStampa] = useState({
     includiSvolte: true,
     includiProgramma: true,
@@ -20,7 +28,6 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
     includiContabilita: true,
     tariffaOraria: 25
   });
-
   const [mostraImpostazioniStampa, setMostraImpostazioniStampa] = useState(false);
 
   if (!studente) return null;
@@ -43,39 +50,59 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
     setMoveForm({ data: l.data, oraInizio: l.oraInizio, oraFine: l.oraFine });
   };
 
-  const handleSaveMoveFromStudentCard = (l) => {
-    if (onUpdateLezioneCompleta) {
-      onUpdateLezioneCompleta({
-        lezioneId: l.id,
-        data: moveForm.data,
-        oraInizio: moveForm.oraInizio,
-        oraFine: moveForm.oraFine,
-        insegnanteId: l.insegnanteId,
-        isGruppo: l.isGruppo
-      });
-    }
-    setEditingLezioneId(null);
+  const handleRequestMoveWithPin = (l) => {
+    setPendingMoveData({
+      lezioneId: l.id,
+      data: moveForm.data,
+      oraInizio: moveForm.oraInizio,
+      oraFine: moveForm.oraFine,
+      insegnanteId: l.insegnanteId,
+      isGruppo: l.isGruppo
+    });
+    setPendingActionType('move');
+    setPinInput('');
+    setPinError(false);
+    setShowPinModal(true);
   };
 
-  const confermaAnnullamento = () => {
+  const handleRequestCancelWithPin = () => {
     if (!lezioneDaAnnullare) return;
-    
-    // Esegue direttamente la funzione passata dalle props per aggiornare lo stato della lezione
-    if (onUpdateLezioneStatus) {
-      onUpdateLezioneStatus(lezioneDaAnnullare.id, 'annullata', motivoAnnullamento || 'Motivo non specificato', tipoAnnullamento);
-    } else {
-      console.warn("Funzione onUpdateLezioneStatus non trovata nelle props.");
-    }
+    setPendingCancelData({
+      id: lezioneDaAnnullare.id,
+      motivo: motivoAnnullamento || 'Motivo non specificato',
+      tipo: tipoAnnullamento
+    });
+    setPendingActionType('cancel');
+    setPinInput('');
+    setPinError(false);
+    setShowPinModal(true);
+  };
 
-    setLezioneDaAnnullare(null);
-    setMotivoAnnullamento('');
+  const verifyPinAndExecute = (e) => {
+    e.preventDefault();
+    if (pinInput === '1234') {
+      if (pendingActionType === 'move' && onUpdateLezioneCompleta && pendingMoveData) {
+        onUpdateLezioneCompleta(pendingMoveData);
+        setEditingLezioneId(null);
+      } else if (pendingActionType === 'cancel' && onUpdateLezioneStatus && pendingCancelData) {
+        onUpdateLezioneStatus(pendingCancelData.id, 'annullata', pendingCancelData.motivo, pendingCancelData.tipo);
+        setLezioneDaAnnullare(null);
+        setMotivoAnnullamento('');
+      }
+      setShowPinModal(false);
+      setPendingActionType(null);
+      setPendingMoveData(null);
+      setPendingCancelData(null);
+    } else {
+      setPinError(true);
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 space-y-5 max-h-[90vh] overflow-y-auto relative">
         
-        {/* Header Studente & Tasti */}
+        {/* Header */}
         <div className="flex justify-between items-start border-b border-gray-100 pb-4">
           <div className="flex items-center space-x-3">
             <div className="p-3 bg-slate-900 text-amber-400 rounded-2xl">
@@ -93,7 +120,6 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
             <button
               onClick={() => setMostraImpostazioniStampa(!mostraImpostazioniStampa)}
               className="flex items-center space-x-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-slate-800 font-bold rounded-xl text-xs shadow-sm transition-all"
-              title="Configura cosa stampare"
             >
               <Sliders className="w-4 h-4"/>
               <span>Opzioni Stampa</span>
@@ -110,71 +136,40 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </div>
         </div>
 
-        {/* PANNELLO CONFIGURAZIONE OPZIONI DI STAMPA */}
+        {/* Opzioni Stampa */}
         {mostraImpostazioniStampa && (
           <div className="bg-amber-50/80 border border-amber-300 p-4 rounded-2xl space-y-3 text-xs animate-in fade-in duration-150">
             <h4 className="font-extrabold text-amber-950 uppercase tracking-wide">Configura il Report da Stampare</h4>
             <div className="grid grid-cols-2 gap-2">
               <label className="flex items-center space-x-2 font-bold text-slate-800 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={opzioniStampa.includiSvolte}
-                  onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiSvolte: e.target.checked })}
-                  className="rounded text-slate-900 focus:ring-slate-900"
-                />
+                <input type="checkbox" checked={opzioniStampa.includiSvolte} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiSvolte: e.target.checked })} className="rounded text-slate-900"/>
                 <span>Includi Lezioni Svolte</span>
               </label>
-
               <label className="flex items-center space-x-2 font-bold text-slate-800 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={opzioniStampa.includiProgramma}
-                  onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiProgramma: e.target.checked })}
-                  className="rounded text-slate-900 focus:ring-slate-900"
-                />
+                <input type="checkbox" checked={opzioniStampa.includiProgramma} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiProgramma: e.target.checked })} className="rounded text-slate-900"/>
                 <span>Includi In Programma</span>
               </label>
-
               <label className="flex items-center space-x-2 font-bold text-slate-800 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={opzioniStampa.includiAnnullate}
-                  onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiAnnullate: e.target.checked })}
-                  className="rounded text-slate-900 focus:ring-slate-900"
-                />
+                <input type="checkbox" checked={opzioniStampa.includiAnnullate} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiAnnullate: e.target.checked })} className="rounded text-slate-900"/>
                 <span>Includi Annullate</span>
               </label>
-
               <label className="flex items-center space-x-2 font-bold text-slate-800 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={opzioniStampa.includiContabilita}
-                  onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiContabilita: e.target.checked })}
-                  className="rounded text-slate-900 focus:ring-slate-900"
-                />
+                <input type="checkbox" checked={opzioniStampa.includiContabilita} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiContabilita: e.target.checked })} className="rounded text-slate-900"/>
                 <span>Includi Riepilogo Saldo & Ore</span>
               </label>
             </div>
-
             {opzioniStampa.includiContabilita && (
               <div className="pt-2 border-t border-amber-200 flex items-center justify-between">
                 <span className="font-bold text-amber-900">Tariffa Oraria (€):</span>
-                <input
-                  type="number"
-                  value={opzioniStampa.tariffaOraria}
-                  onChange={(e) => setOpzioniStampa({ ...opzioniStampa, tariffaOraria: Number(e.target.value) || 0 })}
-                  className="w-24 p-1 bg-white border border-amber-300 rounded-lg font-bold text-slate-900 text-xs"
-                />
+                <input type="number" value={opzioniStampa.tariffaOraria} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, tariffaOraria: Number(e.target.value) || 0 })} className="w-24 p-1 bg-white border border-amber-300 rounded-lg font-bold text-xs"/>
               </div>
             )}
           </div>
         )}
 
-        {/* CONTATORI RIEPILOGATIVI */}
+        {/* Contatori */}
         <div>
-          <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-2">
-            Riepilogo Lezioni
-          </label>
+          <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Riepilogo Lezioni</label>
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl flex items-center space-x-3">
               <CheckCircle className="w-6 h-6 text-emerald-600 shrink-0"/>
@@ -183,7 +178,6 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                 <div className="text-[11px] font-bold text-emerald-800">Svolte</div>
               </div>
             </div>
-
             <div className="bg-sky-50 border border-sky-200 p-3 rounded-2xl flex items-center space-x-3">
               <Clock className="w-6 h-6 text-sky-600 shrink-0"/>
               <div>
@@ -191,7 +185,6 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                 <div className="text-[11px] font-bold text-sky-800">In Programma</div>
               </div>
             </div>
-
             <div className="bg-slate-100 border border-slate-300 p-3 rounded-2xl flex items-center space-x-3">
               <AlertOctagon className="w-6 h-6 text-slate-600 shrink-0"/>
               <div>
@@ -202,7 +195,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </div>
         </div>
 
-        {/* Sezione Note / Compiti */}
+        {/* Note */}
         <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 space-y-2">
           <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center">
             <Paperclip className="w-4 h-4 mr-1.5 text-amber-700"/> Note e Materiali Didattici
@@ -212,24 +205,15 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
           </p>
         </div>
 
-        {/* Storico e Gestione Lezioni */}
+        {/* Storico */}
         <div className="space-y-3">
           <div className="flex justify-between items-center">
             <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Storico e Programmazione</h4>
-            
             <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl text-[11px] font-extrabold">
-              <button onClick={() => setFiltroStato('tutte')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'tutte' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>
-                Tutte ({lezioniStudente.length})
-              </button>
-              <button onClick={() => setFiltroStato('programma')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'programma' ? 'bg-white text-sky-900 shadow-sm' : 'text-gray-500'}`}>
-                In Programma
-              </button>
-              <button onClick={() => setFiltroStato('svolta')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'svolta' ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500'}`}>
-                Svolte
-              </button>
-              <button onClick={() => setFiltroStato('annullata')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'annullata' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>
-                Annullate
-              </button>
+              <button onClick={() => setFiltroStato('tutte')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'tutte' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>Tutte ({lezioniStudente.length})</button>
+              <button onClick={() => setFiltroStato('programma')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'programma' ? 'bg-white text-sky-900 shadow-sm' : 'text-gray-500'}`}>In Programma</button>
+              <button onClick={() => setFiltroStato('svolta')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'svolta' ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500'}`}>Svolte</button>
+              <button onClick={() => setFiltroStato('annullata')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'annullata' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>Annullate</button>
             </div>
           </div>
 
@@ -251,24 +235,11 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                     <div className="flex items-center space-x-2">
                       {(!l.stato || l.stato === 'attiva') && (
                         <>
-                          <button
-                            onClick={() => handleStartEditLezione(l)}
-                            className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1"
-                          >
-                            <ArrowRightLeft className="w-3 h-3"/>
-                            <span>Sposta</span>
+                          <button onClick={() => handleStartEditLezione(l)} className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1">
+                            <ArrowRightLeft className="w-3 h-3"/><span>Sposta</span>
                           </button>
-
-                          <button
-                            onClick={() => {
-                              setLezioneDaAnnullare(l);
-                              setMotivoAnnullamento('');
-                              setTipoAnnullamento('gratuito');
-                            }}
-                            className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-lg text-[10px] flex items-center space-x-1"
-                          >
-                            <Ban className="w-3 h-3"/>
-                            <span>Annulla</span>
+                          <button onClick={() => { setLezioneDaAnnullare(l); setMotivoAnnullamento(''); setTipoAnnullamento('gratuito'); }} className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-lg text-[10px] flex items-center space-x-1">
+                            <Ban className="w-3 h-3"/><span>Annulla</span>
                           </button>
                         </>
                       )}
@@ -288,40 +259,20 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
                       <div className="grid grid-cols-3 gap-2">
                         <div>
                           <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Nuovo Giorno</label>
-                          <input
-                            type="date"
-                            value={moveForm.data}
-                            onChange={(e) => setMoveForm({ ...moveForm, data: e.target.value })}
-                            className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"
-                          />
+                          <input type="date" value={moveForm.data} onChange={(e) => setMoveForm({ ...moveForm, data: e.target.value })} className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"/>
                         </div>
                         <div>
                           <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Ora Inizio</label>
-                          <input
-                            type="time"
-                            value={moveForm.oraInizio}
-                            onChange={(e) => setMoveForm({ ...moveForm, oraInizio: e.target.value })}
-                            className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"
-                          />
+                          <input type="time" value={moveForm.oraInizio} onChange={(e) => setMoveForm({ ...moveForm, oraInizio: e.target.value })} className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"/>
                         </div>
                         <div>
                           <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Ora Fine</label>
-                          <input
-                            type="time"
-                            value={moveForm.oraFine}
-                            onChange={(e) => setMoveForm({ ...moveForm, oraFine: e.target.value })}
-                            className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"
-                          />
+                          <input type="time" value={moveForm.oraFine} onChange={(e) => setMoveForm({ ...moveForm, oraFine: e.target.value })} className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"/>
                         </div>
                       </div>
-
                       <div className="flex justify-end space-x-2 pt-1">
-                        <button onClick={() => setEditingLezioneId(null)} className="px-3 py-1 bg-white border border-gray-200 text-gray-600 font-bold rounded-lg text-[11px]">
-                          Annulla
-                        </button>
-                        <button onClick={() => handleSaveMoveFromStudentCard(l)} className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-[11px]">
-                          Salva Spostamento
-                        </button>
+                        <button onClick={() => setEditingLezioneId(null)} className="px-3 py-1 bg-white border border-gray-200 text-gray-600 font-bold rounded-lg text-[11px]">Annulla</button>
+                        <button onClick={() => handleRequestMoveWithPin(l)} className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-[11px]">Salva Spostamento (PIN)</button>
                       </div>
                     </div>
                   )}
@@ -330,6 +281,36 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
             )}
           </div>
         </div>
+
+        {/* MODALE PIN DI SICUREZZA (1234) */}
+        {showPinModal && (
+          <div className="absolute inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4 rounded-3xl">
+            <form onSubmit={verifyPinAndExecute} className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 space-y-4">
+              <div className="flex items-center space-x-2 text-slate-900">
+                <Lock className="w-5 h-5 text-amber-600"/>
+                <h4 className="font-extrabold text-sm">Autorizzazione PIN Richiesta</h4>
+              </div>
+              <p className="text-xs text-gray-500">Inserisci il PIN amministrativo (default: 1234) per confermare l'operazione:</p>
+              
+              <input
+                type="password"
+                maxLength={4}
+                autoFocus
+                placeholder="****"
+                value={pinInput}
+                onChange={(e) => { setPinInput(e.target.value); setPinError(false); }}
+                className="w-full p-2.5 text-center tracking-widest text-lg font-black border border-gray-300 rounded-xl bg-gray-50"
+              />
+
+              {pinError && <p className="text-xs text-rose-600 font-bold text-center">PIN errato! Riprova (default: 1234)</p>}
+
+              <div className="flex justify-end space-x-2 pt-1">
+                <button type="button" onClick={() => setShowPinModal(false)} className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Annulla</button>
+                <button type="submit" className="px-4 py-1.5 bg-slate-900 text-white font-bold rounded-xl text-xs">Autorizza</button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* MODALE PER ANNULLAMENTO LEZIONE CON MOTIVO E PENALE */}
         {lezioneDaAnnullare && (
@@ -341,22 +322,11 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
               <div className="space-y-3 text-xs">
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">Motivo Annullamento</label>
-                  <input
-                    type="text"
-                    placeholder="Es. Malattia, Impegno familiare..."
-                    value={motivoAnnullamento}
-                    onChange={(e) => setMotivoAnnullamento(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900"
-                  />
+                  <input type="text" placeholder="Es. Malattia, Impegno..." value={motivoAnnullamento} onChange={(e) => setMotivoAnnullamento(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900"/>
                 </div>
-
                 <div>
                   <label className="block font-bold text-gray-700 mb-1">Tipo Gestione</label>
-                  <select
-                    value={tipoAnnullamento}
-                    onChange={(e) => setTipoAnnullamento(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900"
-                  >
+                  <select value={tipoAnnullamento} onChange={(e) => setTipoAnnullamento(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900">
                     <option value="gratuito">Gratuito (Annullamento senza addebito)</option>
                     <option value="addebito">Con Addebito / Penalità</option>
                   </select>
@@ -364,27 +334,15 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose, onU
               </div>
 
               <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  onClick={() => setLezioneDaAnnullare(null)}
-                  className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs"
-                >
-                  Indietro
-                </button>
-                <button
-                  onClick={confermaAnnullamento}
-                  className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs"
-                >
-                  Conferma Annullamento
-                </button>
+                <button onClick={() => setLezioneDaAnnullare(null)} className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Indietro</button>
+                <button onClick={handleRequestCancelWithPin} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs">Conferma Annullamento (PIN)</button>
               </div>
             </div>
           </div>
         )}
 
         <div className="pt-3 border-t border-gray-100 flex justify-end">
-          <button onClick={onClose} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">
-            Chiudi
-          </button>
+          <button onClick={onClose} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
         </div>
       </div>
     </div>
