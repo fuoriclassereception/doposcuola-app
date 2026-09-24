@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Search, Calendar, Users, CreditCard, ChevronLeft, ChevronRight, 
-  Plus, X, UserPlus, UserCheck, Clock, AlertCircle, Phone, Mail, FileText
+  Plus, X, UserPlus, UserCheck, Clock, Phone, Mail, Settings, User
 } from 'lucide-react';
 
 export default function App() {
   // --- STATI PRINCIPALI ---
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [activeTab, setActiveTab] = useState('planning'); // 'planning' | 'cassa' | 'anagrafica'
+  const [activeTab, setActiveTab] = useState('planning'); // 'planning' | 'cassa' | 'operatori'
   const [viewMode, setViewMode] = useState('giornaliera'); // 'giornaliera' | 'settimanale'
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -15,25 +15,25 @@ export default function App() {
   const [genitori, setGenitori] = useState([]);
   const [customers, setCustomers] = useState([]);
   
-  // Modali e Dettagli
-  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  // OPERATORI E DISPONIBILITÀ
+  const [operatori, setOperatori] = useState([
+    { id: 'op_1', nome: 'Marco Bianchi', colore: 'bg-blue-100 border-blue-300 text-blue-900' },
+    { id: 'op_2', nome: 'Laura Rossi', colore: 'bg-emerald-100 border-emerald-300 text-emerald-900' }
+  ]);
+  
+  // Mappa di abilitazione operatori per data: { "2026-09-24": ["op_1", "op_2"] }
+  const [disponibilitaOperatori, setDisponibilitaOperatori] = useState({});
+
+  // Modali e Form
   const [showFastAnagrafica, setShowFastAnagrafica] = useState(false);
+  const [showAddOperator, setShowAddOperator] = useState(false);
+  const [newOpName, setNewOpName] = useState('');
 
   // Form Anagrafica Veloce
   const [newStudent, setNewStudent] = useState({
-    nome: '',
-    cognome: '',
-    email: '',
-    telefono: '',
-    note: '',
-    genitoreId: '',
-    creaNuovoGenitore: false,
-    genitoreNome: '',
-    genitoreEmail: '',
-    genitoreTelefono: ''
+    nome: '', cognome: '', email: '', telefono: '', note: '',
+    genitoreId: '', creaNuovoGenitore: false, genitoreNome: '', genitoreEmail: '', genitoreTelefono: ''
   });
-
-  // Ricerca genitore nel form
   const [genitoreSearch, setGenitoreSearch] = useState('');
 
   // --- LOGICA NAVIGAZIONE DATE ---
@@ -44,10 +44,10 @@ export default function App() {
     setSelectedDate(d.toISOString().split('T')[0]);
   };
 
-  // Calcolo dei giorni per la vista settimanale
+  // Calcolo giorni della settimana
   const currentWeekDays = useMemo(() => {
     const curr = new Date(selectedDate);
-    const dayOfWeek = curr.getDay(); // 0 is Sunday
+    const dayOfWeek = curr.getDay();
     const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     
     const monday = new Date(curr);
@@ -60,14 +60,58 @@ export default function App() {
     });
   }, [selectedDate]);
 
-  // --- SALVATAGGIO ANAGRAFICA VELOCE ---
+  // Operatori attivi nel giorno selezionato (se non definiti, di default sono tutti attivi)
+  const activeOperatorIdsForDate = useMemo(() => {
+    if (disponibilitaOperatori[selectedDate]) {
+      return disponibilitaOperatori[selectedDate];
+    }
+    return operatori.map(o => o.id); // default: tutti attivi
+  }, [disponibilitaOperatori, selectedDate, operatori]);
+
+  // Toggle operatore per la data corrente
+  const toggleOperatorForDate = (opId) => {
+    const currentActive = activeOperatorIdsForDate;
+    let updated;
+    if (currentActive.includes(opId)) {
+      updated = currentActive.filter(id => id !== opId);
+    } else {
+      updated = [...currentActive, opId];
+    }
+    setDisponibilitaOperatori({
+      ...disponibilitaOperatori,
+      [selectedDate]: updated
+    });
+  };
+
+  // Generazione fasce orarie 08:00 - 21:00
+  const hoursRange = Array.from({ length: 14 }).map((_, i) => 8 + i);
+
+  // Aggiungi nuovo operatore
+  const handleAddOperator = (e) => {
+    e.preventDefault();
+    if (!newOpName) return;
+    const colors = [
+      'bg-purple-100 border-purple-300 text-purple-900',
+      'bg-amber-100 border-amber-300 text-amber-900',
+      'bg-rose-100 border-rose-300 text-rose-900',
+      'bg-cyan-100 border-cyan-300 text-cyan-900'
+    ];
+    const newOp = {
+      id: `op_${Date.now()}`,
+      nome: newOpName,
+      colore: colors[operatori.length % colors.length]
+    };
+    setOperatori([...operatori, newOp]);
+    setNewOpName('');
+    setShowAddOperator(false);
+  };
+
+  // Salva studente
   const handleSaveStudent = (e) => {
     e.preventDefault();
     if (!newStudent.nome || !newStudent.cognome) return;
 
     let targetGenitoreId = newStudent.genitoreId;
-
-    // Se si crea un nuovo genitore al volo
     if (newStudent.creaNuovoGenitore && newStudent.genitoreNome) {
       const newGen = {
         id: `gen_${Date.now()}`,
@@ -86,39 +130,22 @@ export default function App() {
       telefono: newStudent.telefono,
       note: newStudent.note,
       genitoreId: targetGenitoreId,
-      saldo: 0,
       lezioni: []
     };
 
     setCustomers([...customers, createdStudent]);
     setShowFastAnagrafica(false);
-    
-    // Reset form
     setNewStudent({
       nome: '', cognome: '', email: '', telefono: '', note: '',
       genitoreId: '', creaNuovoGenitore: false, genitoreNome: '', genitoreEmail: '', genitoreTelefono: ''
     });
-    setGenitoreSearch('');
   };
-
-  // Lezioni del giorno corrente
-  const dayLezioni = useMemo(() => {
-    const list = [];
-    customers.forEach(c => {
-      (c.lezioni || []).forEach(lez => {
-        if (lez.data === selectedDate) {
-          list.push({ ...lez, allievo: c });
-        }
-      });
-    });
-    return list;
-  }, [customers, selectedDate]);
 
   return (
     <div className="flex h-screen bg-gray-100 text-gray-800 font-sans overflow-hidden">
       
       {/* SIDEBAR LATERALE */}
-      <aside className="w-80 bg-white border-r border-gray-200 flex flex-col z-10">
+      <aside className="w-72 bg-white border-r border-gray-200 flex flex-col z-10">
         <div className="p-4 border-b border-gray-100 flex items-center space-x-3 bg-indigo-950 text-white">
           <div className="w-10 h-10 rounded-xl bg-amber-400 text-indigo-950 flex items-center justify-center font-black text-xl shadow-md">
             FC
@@ -138,7 +165,7 @@ export default function App() {
               placeholder="Cerca allievo o genitore..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-indigo-600"
+              className="w-full pl-9 pr-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-indigo-600"
             />
           </div>
         </div>
@@ -147,26 +174,19 @@ export default function App() {
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
           {customers
             .filter(c => c.nome.toLowerCase().includes(searchQuery.toLowerCase()))
-            .map(cli => {
-              const gen = genitori.find(g => g.id === cli.genitoreId);
-              return (
-                <div 
-                  key={cli.id}
-                  onClick={() => setSelectedCustomer(cli)}
-                  className="p-3 rounded-xl border border-gray-100 bg-white hover:border-indigo-400 hover:shadow-sm cursor-pointer transition-all"
-                >
-                  <div className="flex justify-between items-start">
-                    <span className="font-bold text-gray-900 text-sm">{cli.nome}</span>
-                  </div>
-                  {gen && <p className="text-xs text-indigo-600 mt-0.5">Genitore: {gen.nome}</p>}
-                  {cli.telefono && <p className="text-xs text-gray-400 mt-1 flex items-center"><Phone className="w-3 h-3 mr-1"/>{cli.telefono}</p>}
-                </div>
-              );
-            })}
+            .map(cli => (
+              <div 
+                key={cli.id}
+                className="p-3 rounded-xl border border-gray-100 bg-white hover:border-indigo-400 hover:shadow-sm cursor-pointer transition-all"
+              >
+                <p className="font-bold text-gray-900 text-xs">{cli.nome}</p>
+                {cli.telefono && <p className="text-[11px] text-gray-400 mt-0.5 flex items-center"><Phone className="w-3 h-3 mr-1"/>{cli.telefono}</p>}
+              </div>
+            ))}
           {customers.length === 0 && (
-            <div className="text-center py-10 px-4 text-gray-400">
-              <Users className="w-8 h-8 mx-auto mb-2 opacity-40"/>
-              <p className="text-xs">Nessun allievo trovato.</p>
+            <div className="text-center py-8 text-gray-400">
+              <Users className="w-6 h-6 mx-auto mb-1 opacity-40"/>
+              <p className="text-xs">Nessun allievo.</p>
             </div>
           )}
         </div>
@@ -175,13 +195,13 @@ export default function App() {
       {/* AREA PRINCIPALE */}
       <main className="flex-1 flex flex-col min-w-0 bg-white">
         
-        {/* NAV BAR TOP */}
+        {/* TOP BAR */}
         <header className="h-16 border-b border-gray-200 px-6 flex items-center justify-between bg-white shadow-sm">
           <div className="flex items-center space-x-2">
             <button
               onClick={() => setActiveTab('planning')}
-              className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all ${
-                activeTab === 'planning' ? 'bg-indigo-900 text-white' : 'text-gray-600 hover:bg-gray-100'
+              className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-semibold text-xs transition-all ${
+                activeTab === 'planning' ? 'bg-indigo-950 text-white' : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
               <Calendar className="w-4 h-4" />
@@ -190,8 +210,8 @@ export default function App() {
 
             <button
               onClick={() => setActiveTab('cassa')}
-              className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all ${
-                activeTab === 'cassa' ? 'bg-indigo-900 text-white' : 'text-gray-600 hover:bg-gray-100'
+              className={`flex items-center space-x-2 px-4 py-2 rounded-xl font-semibold text-xs transition-all ${
+                activeTab === 'cassa' ? 'bg-indigo-950 text-white' : 'text-gray-600 hover:bg-gray-100'
               }`}
             >
               <CreditCard className="w-4 h-4" />
@@ -200,20 +220,19 @@ export default function App() {
 
             <button
               onClick={() => setShowFastAnagrafica(true)}
-              className="flex items-center space-x-2 px-4 py-2 rounded-xl font-semibold text-sm text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-all ml-4"
+              className="flex items-center space-x-2 px-4 py-2 rounded-xl font-semibold text-xs text-indigo-950 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-all ml-4"
             >
-              <UserPlus className="w-4 h-4 text-indigo-700" />
+              <UserPlus className="w-4 h-4 text-indigo-900" />
               <span>+ Nuova Anagrafica</span>
             </button>
           </div>
 
-          {/* Viste Planning (Solo Giornaliera e Settimanale) */}
           {activeTab === 'planning' && (
             <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200">
               <button
                 onClick={() => setViewMode('giornaliera')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  viewMode === 'giornaliera' ? 'bg-white text-indigo-900 shadow-sm' : 'text-gray-500'
+                  viewMode === 'giornaliera' ? 'bg-white text-indigo-950 shadow-sm' : 'text-gray-500'
                 }`}
               >
                 Giornaliera
@@ -221,7 +240,7 @@ export default function App() {
               <button
                 onClick={() => setViewMode('settimanale')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  viewMode === 'settimanale' ? 'bg-white text-indigo-900 shadow-sm' : 'text-gray-500'
+                  viewMode === 'settimanale' ? 'bg-white text-indigo-950 shadow-sm' : 'text-gray-500'
                 }`}
               >
                 Settimanale
@@ -230,78 +249,140 @@ export default function App() {
           )}
         </header>
 
-        {/* CONTROLLO DATE (FRECCE FISSE SULLE ESTREMITÀ PER EVITARE SOVRAPPOSIZIONI) */}
+        {/* NAVIGAZIONE DATA CON PULSANTI VICINI A SINISTRA */}
         <div className="px-6 py-3 border-b border-gray-200 bg-gray-50 flex items-center justify-between">
-          <div className="flex items-center space-x-6 w-full max-w-xl">
-            <button 
-              onClick={() => handleDateNavigate(-1)} 
-              className="p-2 rounded-xl hover:bg-gray-200 border border-gray-300 bg-white text-gray-700 shadow-sm transition-all shrink-0"
-              title="Precedente"
-            >
-              <ChevronLeft className="w-5 h-5"/>
-            </button>
-
-            <div className="flex-1 text-center">
-              <span className="font-extrabold text-gray-900 text-lg capitalize block">
-                {viewMode === 'giornaliera' 
-                  ? new Date(selectedDate).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-                  : `Settimana dal ${new Date(currentWeekDays[0]).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} al ${new Date(currentWeekDays[6]).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })}`
-                }
-              </span>
+          <div className="flex items-center space-x-3">
+            {/* Pulsanti Avanti/Indietro vicini */}
+            <div className="flex items-center space-x-1 bg-white border border-gray-300 rounded-xl p-0.5 shadow-sm">
+              <button 
+                onClick={() => handleDateNavigate(-1)} 
+                className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-700 transition-all"
+                title="Precedente"
+              >
+                <ChevronLeft className="w-4 h-4"/>
+              </button>
+              <button 
+                onClick={() => handleDateNavigate(1)} 
+                className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-700 transition-all"
+                title="Successivo"
+              >
+                <ChevronRight className="w-4 h-4"/>
+              </button>
             </div>
 
             <button 
-              onClick={() => handleDateNavigate(1)} 
-              className="p-2 rounded-xl hover:bg-gray-200 border border-gray-300 bg-white text-gray-700 shadow-sm transition-all shrink-0"
-              title="Successivo"
+              onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+              className="text-xs font-bold text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl border border-indigo-200"
             >
-              <ChevronRight className="w-5 h-5"/>
+              Oggi
             </button>
+
+            {/* Testo Data */}
+            <span className="font-extrabold text-gray-900 text-sm capitalize ml-2">
+              {viewMode === 'giornaliera' 
+                ? new Date(selectedDate).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                : `Settimana dal ${new Date(currentWeekDays[0]).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' })} al ${new Date(currentWeekDays[6]).toLocaleDateString('it-IT', { day: 'numeric', month: 'short', year: 'numeric' })}`
+              }
+            </span>
           </div>
 
-          <button 
-            onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
-            className="text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg border border-indigo-200"
-          >
-            Oggi
-          </button>
+          {/* BARRA ABILITAZIONE OPERATORI DEL GIORNO */}
+          {activeTab === 'planning' && viewMode === 'giornaliera' && (
+            <div className="flex items-center space-x-2">
+              <span className="text-[11px] font-bold text-gray-500 uppercase">Operatori del giorno:</span>
+              <div className="flex items-center space-x-1">
+                {operatori.map(op => {
+                  const isActive = activeOperatorIdsForDate.includes(op.id);
+                  return (
+                    <button
+                      key={op.id}
+                      onClick={() => toggleOperatorForDate(op.id)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+                        isActive 
+                          ? `${op.colore} shadow-sm` 
+                          : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'
+                      }`}
+                    >
+                      {op.nome}
+                    </button>
+                  );
+                })}
+              </div>
+              <button 
+                onClick={() => setShowAddOperator(true)}
+                className="p-1 text-gray-400 hover:text-indigo-900 hover:bg-gray-200 rounded-lg"
+                title="Aggiungi Operatore"
+              >
+                <Plus className="w-4 h-4"/>
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* CONTENUTO TAB */}
-        <div className="flex-1 overflow-y-auto p-6 bg-gray-50/50">
+        {/* CONTENUTO PLANNING CON COLONNE PER OPERATORE */}
+        <div className="flex-1 overflow-auto bg-gray-50/50">
           {activeTab === 'planning' ? (
-            <div>
-              {/* VISTA GIORNALIERA */}
+            <div className="h-full flex flex-col min-w-[800px]">
+              
               {viewMode === 'giornaliera' && (
-                <div className="max-w-4xl mx-auto space-y-3">
-                  {Array.from({ length: 11 }).map((_, i) => {
-                    const hour = 8 + i;
-                    const lezioniHour = dayLezioni.filter(l => Number(l.ora_inizio) === hour);
-                    return (
-                      <div key={hour} className="flex border border-gray-200 rounded-2xl overflow-hidden shadow-sm min-h-[70px] bg-white">
-                        <div className="w-24 bg-gray-50 border-r border-gray-200 p-3 font-bold text-gray-500 text-sm flex items-center justify-center">
-                          {hour}:00
+                <div className="flex-1 flex flex-col">
+                  
+                  {/* HEADER COLONNE OPERATORI */}
+                  <div className="flex border-b border-gray-200 bg-white sticky top-0 z-10 shadow-sm">
+                    {/* Intestazione Fascia Oraria */}
+                    <div className="w-20 min-w-[80px] p-3 text-center border-r border-gray-200 font-extrabold text-xs text-gray-400 uppercase bg-gray-50">
+                      Ora
+                    </div>
+                    {/* Colonne Operatori Abilitati */}
+                    {operatori
+                      .filter(op => activeOperatorIdsForDate.includes(op.id))
+                      .map(op => (
+                        <div key={op.id} className="flex-1 p-3 border-r border-gray-200 font-black text-sm text-center text-gray-800 bg-white">
+                          <div className="flex items-center justify-center space-x-2">
+                            <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+                            <span>{op.nome}</span>
+                          </div>
                         </div>
-                        <div className="flex-1 p-3 flex flex-wrap gap-2 items-center">
-                          {lezioniHour.map(l => (
-                            <div key={l.id} className="bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-2">
-                              <span>{l.allievo.nome}</span>
-                              <span className="bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded text-[10px]">{l.durata}h</span>
+                      ))}
+                    {activeOperatorIdsForDate.length === 0 && (
+                      <div className="flex-1 p-3 text-center text-xs text-gray-400 italic">
+                        Nessun operatore abilitato per questa data. Selezionalo in alto a destra.
+                      </div>
+                    )}
+                  </div>
+
+                  {/* TABELLA ORARI (08:00 - 21:00) */}
+                  <div className="flex-1 divide-y divide-gray-200 bg-white">
+                    {hoursRange.map((hour) => (
+                      <div key={hour} className="flex min-h-[60px]">
+                        {/* Ora a sinistra */}
+                        <div className="w-20 min-w-[80px] border-r border-gray-200 font-bold text-xs text-gray-400 flex items-center justify-center bg-gray-50/50">
+                          {hour < 10 ? `0${hour}:00` : `${hour}:00`}
+                        </div>
+
+                        {/* Celle per ciascun operatore */}
+                        {operatori
+                          .filter(op => activeOperatorIdsForDate.includes(op.id))
+                          .map(op => (
+                            <div 
+                              key={op.id} 
+                              className="flex-1 border-r border-gray-200 p-1.5 hover:bg-indigo-50/30 transition-colors cursor-pointer group flex flex-col justify-center"
+                            >
+                              <div className="hidden group-hover:flex items-center justify-center text-[10px] text-indigo-400 font-bold">
+                                + Prenota con {op.nome.split(' ')[0]}
+                              </div>
                             </div>
                           ))}
-                          {lezioniHour.length === 0 && (
-                            <span className="text-xs text-gray-300 italic font-medium">Nessuna lezione in programma</span>
-                          )}
-                        </div>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
+
                 </div>
               )}
 
-              {/* VISTA SETTIMANALE SCORREVOLE */}
+              {/* VISTA SETTIMANALE */}
               {viewMode === 'settimanale' && (
-                <div className="grid grid-cols-7 gap-3 h-full">
+                <div className="grid grid-cols-7 gap-3 p-6 h-full">
                   {currentWeekDays.map((dateStr) => {
                     const dateObj = new Date(dateStr);
                     const isToday = dateStr === new Date().toISOString().split('T')[0];
@@ -320,76 +401,75 @@ export default function App() {
                           <p className={`text-lg font-black ${isToday ? 'text-indigo-600' : 'text-gray-800'}`}>{dayNum}</p>
                         </div>
                         <div className="flex-1 space-y-2">
-                          <p className="text-[11px] text-gray-400 text-center italic">Slot settimanali</p>
+                          <p className="text-[11px] text-gray-400 text-center italic">Palinsesto settimanale</p>
                         </div>
                       </div>
                     );
                   })}
                 </div>
               )}
+
             </div>
           ) : (
-            /* CASSA E PRESENZE GIORNALIERE */
-            <div className="max-w-4xl mx-auto space-y-6">
-              <div className="bg-indigo-950 text-white p-6 rounded-3xl shadow-xl flex justify-between items-center">
-                <div>
-                  <h2 className="text-xl font-black tracking-tight">Presenze e Registro Cassa</h2>
-                  <p className="text-xs text-indigo-300 mt-1 capitalize">
-                    {new Date(selectedDate).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-indigo-300 font-semibold uppercase">Presenze Oggi</p>
-                  <p className="text-4xl font-black text-amber-400">{dayLezioni.length}</p>
-                </div>
-              </div>
-
-              <div className="bg-white border border-gray-200 rounded-3xl p-6 shadow-sm">
-                <h3 className="font-extrabold text-gray-900 mb-4 text-base">Allievi in struttura per questa data</h3>
-                {dayLezioni.length > 0 ? (
-                  <div className="divide-y divide-gray-100">
-                    {dayLezioni.map((l) => (
-                      <div key={l.id} className="py-3 flex justify-between items-center">
-                        <div>
-                          <p className="font-bold text-gray-900 text-sm">{l.allievo.nome}</p>
-                          <p className="text-xs text-gray-500">Ore {l.ora_inizio}:00 ({l.durata} ora/e)</p>
-                        </div>
-                        <span className="text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 flex items-center">
-                          <UserCheck className="w-3 h-3 mr-1"/> Presente
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-12 text-gray-400">
-                    <Clock className="w-10 h-10 mx-auto mb-2 opacity-30"/>
-                    <p className="text-sm font-medium">Nessun ingresso o presenza programmata per questo giorno.</p>
-                  </div>
-                )}
-              </div>
+            <div className="p-6">
+              <h2 className="text-lg font-bold">Registro Cassa e Presenze</h2>
             </div>
           )}
         </div>
       </main>
 
-      {/* MODALE ANAGRAFICA VELOCE (RIVISTA E COMPLETA) */}
+      {/* MODALE NUOVO OPERATORE */}
+      {showAddOperator && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100">
+            <h3 className="font-extrabold text-base text-gray-900 mb-3">Crea Nuovo Operatore</h3>
+            <form onSubmit={handleAddOperator} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">Nome e Cognome *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Es. Mario Rossi"
+                  value={newOpName}
+                  onChange={(e) => setNewOpName(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-600"
+                />
+              </div>
+              <div className="flex justify-end space-x-2">
+                <button 
+                  type="button" 
+                  onClick={() => setShowAddOperator(false)} 
+                  className="px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-100 rounded-xl"
+                >
+                  Annulla
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-1.5 text-xs font-bold bg-indigo-950 text-white rounded-xl shadow-sm"
+                >
+                  Aggiungi
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODALE ANAGRAFICA VELOCE */}
       {showFastAnagrafica && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 overflow-hidden">
-            
             <div className="flex justify-between items-center border-b border-gray-100 pb-4 mb-4">
               <div>
                 <h3 className="font-extrabold text-lg text-gray-900">Nuova Anagrafica Allievo</h3>
                 <p className="text-xs text-gray-500">Inserimento rapido lato Receptionist</p>
               </div>
-              <button onClick={() => setShowFastAnagrafica(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowFastAnagrafica(false)} className="p-1 rounded-lg hover:bg-gray-100 text-gray-400">
                 <X className="w-5 h-5"/>
               </button>
             </div>
 
             <form onSubmit={handleSaveStudent} className="space-y-4 max-h-[80vh] overflow-y-auto pr-1">
-              
-              {/* DATI ALLIEVO */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">Nome Allievo *</label>
@@ -399,7 +479,7 @@ export default function App() {
                     placeholder="Es. Mario"
                     value={newStudent.nome}
                     onChange={(e) => setNewStudent({ ...newStudent, nome: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-indigo-600"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-600"
                   />
                 </div>
                 <div>
@@ -410,7 +490,7 @@ export default function App() {
                     placeholder="Es. Rossi"
                     value={newStudent.cognome}
                     onChange={(e) => setNewStudent({ ...newStudent, cognome: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-indigo-600"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-600"
                   />
                 </div>
               </div>
@@ -423,7 +503,7 @@ export default function App() {
                     placeholder="Es. 333 1234567"
                     value={newStudent.telefono}
                     onChange={(e) => setNewStudent({ ...newStudent, telefono: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-indigo-600"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-600"
                   />
                 </div>
                 <div>
@@ -433,106 +513,11 @@ export default function App() {
                     placeholder="mario@email.it"
                     value={newStudent.email}
                     onChange={(e) => setNewStudent({ ...newStudent, email: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-indigo-600"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-600"
                   />
                 </div>
               </div>
 
-              {/* SEZIONE COLLEGAMENTO GENITORE */}
-              <div className="pt-3 border-t border-gray-100">
-                <label className="block text-xs font-extrabold text-indigo-900 mb-2">
-                  Collegamento Genitore / Tutore (Opzionale)
-                </label>
-
-                {!newStudent.creaNuovoGenitore ? (
-                  <div className="space-y-2">
-                    <input
-                      type="text"
-                      placeholder="Cerca genitore esistente per nome o mail..."
-                      value={genitoreSearch}
-                      onChange={(e) => setGenitoreSearch(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs bg-gray-50 focus:bg-white focus:outline-none focus:border-indigo-600"
-                    />
-
-                    {genitoreSearch && (
-                      <div className="max-h-28 overflow-y-auto border border-gray-200 rounded-xl p-2 space-y-1 bg-white">
-                        {genitori
-                          .filter(g => g.nome.toLowerCase().includes(genitoreSearch.toLowerCase()) || g.email.toLowerCase().includes(genitoreSearch.toLowerCase()))
-                          .map(g => (
-                            <div 
-                              key={g.id}
-                              onClick={() => { setNewStudent({ ...newStudent, genitoreId: g.id }); setGenitoreSearch(''); }}
-                              className={`p-2 rounded-lg text-xs cursor-pointer flex justify-between ${newStudent.genitoreId === g.id ? 'bg-indigo-50 text-indigo-900 font-bold' : 'hover:bg-gray-50'}`}
-                            >
-                              <span>{g.nome}</span>
-                              <span className="text-gray-400">{g.email}</span>
-                            </div>
-                          ))}
-                        {genitori.length === 0 && <p className="text-[11px] text-gray-400 p-1">Nessun genitore in archivio.</p>}
-                      </div>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => setNewStudent({ ...newStudent, creaNuovoGenitore: true, genitoreId: '' })}
-                      className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center pt-1"
-                    >
-                      + Crea e collega un nuovo genitore
-                    </button>
-                  </div>
-                ) : (
-                  /* SCHEDA NUOVO GENITORE */
-                  <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-2xl space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-indigo-900">Dati Nuovo Genitore</span>
-                      <button 
-                        type="button" 
-                        onClick={() => setNewStudent({ ...newStudent, creaNuovoGenitore: false })}
-                        className="text-[11px] text-gray-500 hover:underline"
-                      >
-                        Annulla
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      placeholder="Nome e Cognome Genitore *"
-                      value={newStudent.genitoreNome}
-                      onChange={(e) => setNewStudent({ ...newStudent, genitoreNome: e.target.value })}
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="text"
-                        placeholder="Telefono Genitore"
-                        value={newStudent.genitoreTelefono}
-                        onChange={(e) => setNewStudent({ ...newStudent, genitoreTelefono: e.target.value })}
-                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none"
-                      />
-                      <input
-                        type="email"
-                        placeholder="Email Genitore"
-                        value={newStudent.genitoreEmail}
-                        onChange={(e) => setNewStudent({ ...newStudent, genitoreEmail: e.target.value })}
-                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* NOTE RECEPTION */}
-              <div className="pt-2">
-                <label className="block text-xs font-bold text-gray-700 mb-1">Note Reception / Interne</label>
-                <textarea
-                  rows="2"
-                  placeholder="Note utili per lo staff..."
-                  value={newStudent.note}
-                  onChange={(e) => setNewStudent({ ...newStudent, note: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-indigo-600"
-                ></textarea>
-              </div>
-
-              {/* PULSANTI AZIONE */}
               <div className="flex justify-end space-x-2 pt-3 border-t border-gray-100">
                 <button 
                   type="button" 
@@ -548,7 +533,6 @@ export default function App() {
                   Salva Anagrafica
                 </button>
               </div>
-
             </form>
           </div>
         </div>
