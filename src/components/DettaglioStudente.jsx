@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { X, CheckCircle, Clock, AlertOctagon, Paperclip, FileText, User } from 'lucide-react';
+import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft } from 'lucide-react';
 
-export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
+export default function DettaglioStudente({ studente, lezioni = [], onClose, onUpdateLezioneCompleta }) {
   const [filtroStato, setFiltroStato] = useState('tutte');
+  const [editingLezioneId, setEditingLezioneId] = useState(null);
+  const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '' });
 
   if (!studente) return null;
 
@@ -18,6 +20,25 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
     if (filtroStato === 'annullata') return l.stato === 'annullata';
     return true;
   });
+
+  const handleStartEditLezione = (l) => {
+    setEditingLezioneId(l.id);
+    setMoveForm({ data: l.data, oraInizio: l.oraInizio, oraFine: l.oraFine });
+  };
+
+  const handleSaveMoveFromStudentCard = (l) => {
+    if (onUpdateLezioneCompleta) {
+      onUpdateLezioneCompleta({
+        lezioneId: l.id,
+        data: moveForm.data,
+        oraInizio: moveForm.oraInizio,
+        oraFine: moveForm.oraFine,
+        insegnanteId: l.insegnanteId,
+        isGruppo: l.isGruppo
+      });
+    }
+    setEditingLezioneId(null);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -36,12 +57,10 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
               </p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
-            <X className="w-5 h-5"/>
-          </button>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
         </div>
 
-        {/* CONTATORI RIEPILOGATIVI LATO RECEPTION */}
+        {/* CONTATORI RIEPILOGATIVI */}
         <div>
           <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-2">
             Riepilogo Lezioni Studente
@@ -73,7 +92,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
           </div>
         </div>
 
-        {/* Sezione Note / Materiali Didattici Caricati dai Genitori */}
+        {/* Sezione Note / Compiti */}
         <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 space-y-2">
           <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center">
             <Paperclip className="w-4 h-4 mr-1.5 text-amber-700"/> Note e Materiali Caricati
@@ -83,7 +102,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
           </p>
         </div>
 
-        {/* Storico Lezioni con Filtri */}
+        {/* Storico e Gestione Diretta Lezioni */}
         <div className="space-y-3">
           <div className="flex justify-between items-center">
             <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Storico e Programmazione</h4>
@@ -104,28 +123,85 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
             </div>
           </div>
 
-          <div className="divide-y divide-gray-100 bg-gray-50/50 rounded-2xl border border-gray-200 max-h-52 overflow-y-auto">
+          <div className="divide-y divide-gray-100 bg-gray-50/50 rounded-2xl border border-gray-200 max-h-60 overflow-y-auto">
             {lezioniFiltrate.length === 0 ? (
               <p className="p-4 text-center text-xs font-bold text-gray-400">Nessuna lezione trovata per questo filtro.</p>
             ) : (
               lezioniFiltrate.map(l => (
-                <div key={l.id} className="p-3 flex justify-between items-center text-xs">
-                  <div>
-                    <span className="font-extrabold text-slate-900">{l.materia || 'Lezione'}</span>
-                    <div className="text-[11px] text-gray-500 font-medium">📅 {l.data} • 🕒 {l.oraInizio} - {l.oraFine}</div>
-                    {l.motivoAnnullamento && (
-                      <p className="text-[10px] text-rose-700 font-bold mt-0.5">Motivo annullamento: {l.motivoAnnullamento}</p>
-                    )}
+                <div key={l.id} className="p-3 space-y-2">
+                  <div className="flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-extrabold text-slate-900">{l.materia || 'Lezione'}</span>
+                      <div className="text-[11px] text-gray-500 font-medium">📅 {l.data} • 🕒 {l.oraInizio} - {l.oraFine}</div>
+                      {l.motivoAnnullamento && (
+                        <p className="text-[10px] text-rose-700 font-bold mt-0.5">Motivo annullamento: {l.motivoAnnullamento}</p>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      {(!l.stato || l.stato === 'attiva') && (
+                        <button
+                          onClick={() => handleStartEditLezione(l)}
+                          className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1"
+                        >
+                          <ArrowRightLeft className="w-3 h-3"/>
+                          <span>Sposta Lezione</span>
+                        </button>
+                      )}
+
+                      {l.stato === 'svolta' && <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">Svolta</span>}
+                      {(!l.stato || l.stato === 'attiva') && <span className="bg-sky-100 text-sky-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">In Programma</span>}
+                      {l.stato === 'annullata' && (
+                        <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md line-through">
+                          {l.tipoAnnullamento === 'addebito' ? 'Annullata (Con Addebito)' : 'Annullata (Gratuita)'}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    {l.stato === 'svolta' && <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">Svolta</span>}
-                    {(!l.stato || l.stato === 'attiva') && <span className="bg-sky-100 text-sky-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">In Programma</span>}
-                    {l.stato === 'annullata' && (
-                      <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md line-through">
-                        {l.tipoAnnullamento === 'addebito' ? 'Annullata (Con Addebito)' : 'Annullata (Gratuita)'}
-                      </span>
-                    )}
-                  </div>
+
+                  {/* Form inline per lo spostamento diretto dalla scheda studente */}
+                  {editingLezioneId === l.id && (
+                    <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl space-y-2 text-xs">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Nuovo Giorno</label>
+                          <input
+                            type="date"
+                            value={moveForm.data}
+                            onChange={(e) => setMoveForm({ ...moveForm, data: e.target.value })}
+                            className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Ora Inizio</label>
+                          <input
+                            type="time"
+                            value={moveForm.oraInizio}
+                            onChange={(e) => setMoveForm({ ...moveForm, oraInizio: e.target.value })}
+                            className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Ora Fine</label>
+                          <input
+                            type="time"
+                            value={moveForm.oraFine}
+                            onChange={(e) => setMoveForm({ ...moveForm, oraFine: e.target.value })}
+                            className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end space-x-2 pt-1">
+                        <button onClick={() => setEditingLezioneId(null)} className="px-3 py-1 bg-white border border-gray-200 text-gray-600 font-bold rounded-lg text-[11px]">
+                          Annulla
+                        </button>
+                        <button onClick={() => handleSaveMoveFromStudentCard(l)} className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-[11px]">
+                          Salva Spostamento
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))
             )}
