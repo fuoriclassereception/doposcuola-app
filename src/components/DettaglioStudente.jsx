@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { X, Calendar, CheckCircle, Clock, AlertOctagon, FileText, Download, User } from 'lucide-react';
+import { X, CheckCircle, Clock, AlertOctagon, Paperclip, FileText, User } from 'lucide-react';
 
 export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
   const [filtroStato, setFiltroStato] = useState('tutte');
 
   if (!studente) return null;
 
-  // Calcolo delle lezioni dello studente
   const lezioniStudente = lezioni.filter(l => (l.studentiIds || []).includes(studente.id));
 
   const svolte = lezioniStudente.filter(l => l.stato === 'svolta');
@@ -22,7 +21,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 space-y-5 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 space-y-5 max-h-[90vh] overflow-y-auto">
         
         {/* Header Studente */}
         <div className="flex justify-between items-start border-b border-gray-100 pb-4">
@@ -33,7 +32,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
             <div>
               <h3 className="font-extrabold text-xl text-slate-900">{studente.nome} {studente.cognome}</h3>
               <p className="text-xs text-gray-500">
-                Nato/a il: <strong className="text-slate-800">{studente.dataNascita || 'N.D.'}</strong> • Scuole: {studente.scuola || 'N.D.'}
+                Data nascita: <strong className="text-slate-800">{studente.dataNascita || 'N.D.'}</strong> • Scuole: {studente.scuola || 'N.D.'}
               </p>
             </div>
           </div>
@@ -42,7 +41,7 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
           </button>
         </div>
 
-        {/* 📊 CONTATORI RIEPILOGATIVI LATO RECEPTION */}
+        {/* CONTATORI RIEPILOGATIVI LATO RECEPTION */}
         <div>
           <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-2">
             Riepilogo Lezioni Studente
@@ -74,35 +73,32 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
           </div>
         </div>
 
-        {/* Tabella / Storico Lezioni con Filtri */}
+        {/* Sezione Note / Materiali Didattici Caricati dai Genitori */}
+        <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 space-y-2">
+          <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center">
+            <Paperclip className="w-4 h-4 mr-1.5 text-amber-700"/> Note e Materiali Caricati
+          </h4>
+          <p className="text-xs text-amber-900 font-medium">
+            {studente.note || "Nessun materiale didattico caricato per questo studente."}
+          </p>
+        </div>
+
+        {/* Storico Lezioni con Filtri */}
         <div className="space-y-3">
           <div className="flex justify-between items-center">
             <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Storico e Programmazione</h4>
             
-            {/* Filtri */}
             <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl text-[11px] font-extrabold">
-              <button
-                onClick={() => setFiltroStato('tutte')}
-                className={`px-2.5 py-1 rounded-lg ${filtroStato === 'tutte' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}
-              >
+              <button onClick={() => setFiltroStato('tutte')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'tutte' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>
                 Tutte ({lezioniStudente.length})
               </button>
-              <button
-                onClick={() => setFiltroStato('programma')}
-                className={`px-2.5 py-1 rounded-lg ${filtroStato === 'programma' ? 'bg-white text-sky-900 shadow-sm' : 'text-gray-500'}`}
-              >
+              <button onClick={() => setFiltroStato('programma')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'programma' ? 'bg-white text-sky-900 shadow-sm' : 'text-gray-500'}`}>
                 In Programma
               </button>
-              <button
-                onClick={() => setFiltroStato('svolta')}
-                className={`px-2.5 py-1 rounded-lg ${filtroStato === 'svolta' ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500'}`}
-              >
+              <button onClick={() => setFiltroStato('svolta')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'svolta' ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500'}`}>
                 Svolte
               </button>
-              <button
-                onClick={() => setFiltroStato('annullata')}
-                className={`px-2.5 py-1 rounded-lg ${filtroStato === 'annullata' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}
-              >
+              <button onClick={() => setFiltroStato('annullata')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'annullata' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>
                 Annullate
               </button>
             </div>
@@ -117,11 +113,18 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
                   <div>
                     <span className="font-extrabold text-slate-900">{l.materia || 'Lezione'}</span>
                     <div className="text-[11px] text-gray-500 font-medium">📅 {l.data} • 🕒 {l.oraInizio} - {l.oraFine}</div>
+                    {l.motivoAnnullamento && (
+                      <p className="text-[10px] text-rose-700 font-bold mt-0.5">Motivo annullamento: {l.motivoAnnullamento}</p>
+                    )}
                   </div>
                   <div>
                     {l.stato === 'svolta' && <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">Svolta</span>}
                     {(!l.stato || l.stato === 'attiva') && <span className="bg-sky-100 text-sky-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">In Programma</span>}
-                    {l.stato === 'annullata' && <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md line-through">Annullata</span>}
+                    {l.stato === 'annullata' && (
+                      <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md line-through">
+                        {l.tipoAnnullamento === 'addebito' ? 'Annullata (Con Addebito)' : 'Annullata (Gratuita)'}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))
@@ -129,7 +132,6 @@ export default function DettaglioStudente({ studente, lezioni = [], onClose }) {
           </div>
         </div>
 
-        {/* Tasto Chiudi */}
         <div className="pt-3 border-t border-gray-100 flex justify-end">
           <button onClick={onClose} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">
             Chiudi
