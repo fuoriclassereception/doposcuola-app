@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip, ArrowRightLeft } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, ShieldAlert, Paperclip, ArrowRightLeft, UserMinus } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
@@ -10,14 +10,19 @@ export default function PlanningCalendario({
   onSelectStudent,
   onUpdateLezioneStatus,
   onRestoreLezione,
-  onUpdateLezioneCompleta
+  onUpdateLezioneCompleta,
+  onEstraiStudenteDaGruppo // Callback per staccare un solo studente dal gruppo
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
 
-  // Modale Gruppo e Dettaglio
-  const [groupModalData, setGroupModalData] = useState(null); // { fascia: '11:00 - 12:00', lezioniGroup: [] }
+  // Modali
+  const [groupModalData, setGroupModalData] = useState(null);
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
+
+  // Modale Estrazione Studente Singolo
+  const [estrazioneData, setEstrazioneData] = useState(null); // { lezioneOriginale, studenteId }
+  const [estrazioneForm, setEstrazioneForm] = useState({ insegnanteId: '', oraInizio: '15:00', oraFine: '16:00' });
 
   // Modale Annullamento
   const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
@@ -51,9 +56,7 @@ export default function PlanningCalendario({
 
   useEffect(() => {
     if (pendingMove) {
-      const timer = setTimeout(() => {
-        pinInputRef.current?.focus();
-      }, 100);
+      const timer = setTimeout(() => pinInputRef.current?.focus(), 100);
       return () => clearTimeout(timer);
     }
   }, [pendingMove]);
@@ -71,23 +74,18 @@ export default function PlanningCalendario({
   const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
 
-  // --- RAGGRUPPAMENTO DELLE LEZIONI DI GRUPPO PER FASCIA ORARIA ---
+  // FUSIONE GRUPPO
   const gruppiFusiMap = {};
   lezioniGruppoOggi.forEach(l => {
     const key = `${l.oraInizio}-${l.oraFine}`;
     if (!gruppiFusiMap[key]) {
-      gruppiFusiMap[key] = {
-        oraInizio: l.oraInizio,
-        oraFine: l.oraFine,
-        lezioni: []
-      };
+      gruppiFusiMap[key] = { oraInizio: l.oraInizio, oraFine: l.oraFine, lezioni: [] };
     }
     gruppiFusiMap[key].lezioni.push(l);
   });
-
   const gruppiFusiList = Object.values(gruppiFusiMap);
 
-  // DRAG & DROP LOGIC
+  // DRAG & DROP CORRETTO (SUPPORTA SINGOLA -> GRUPPO E VICEVERSA)
   const handleDragStart = (e, payloadData) => {
     e.dataTransfer.setData('application/json', JSON.stringify(payloadData));
   };
@@ -103,7 +101,6 @@ export default function PlanningCalendario({
 
     const payload = JSON.parse(dataJson);
 
-    // Se è un blocco fuso di gruppo
     if (payload.isGruppoFuso) {
       const firstLez = payload.lezioni[0];
       const [hStart, mStart] = firstLez.oraInizio.split(':').map(Number);
@@ -116,7 +113,6 @@ export default function PlanningCalendario({
       const endM = (endTotalMins % 60).toString().padStart(2, '0');
       const newEnd = `${endH}:${endM}`;
 
-      // Applica lo spostamento a tutte le lezioni del gruppo
       setPendingMove({
         isGruppoFuso: true,
         lezioniIds: payload.lezioni.map(l => l.id),
@@ -127,7 +123,7 @@ export default function PlanningCalendario({
         isGruppo: targetIsGruppo
       });
     } else {
-      // Lezione singola
+      // Lezione Singola convertita o spostata
       const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
       const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
       const durataMins = (hEnd - hStart) * 60 + (mEnd - mStart);
@@ -144,7 +140,7 @@ export default function PlanningCalendario({
         oraInizio: newStart,
         oraFine: newEnd,
         insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
-        isGruppo: targetIsGruppo
+        isGruppo: Boolean(targetIsGruppo)
       });
     }
 
@@ -163,10 +159,7 @@ export default function PlanningCalendario({
     if (pendingMove && onUpdateLezioneCompleta) {
       if (pendingMove.isGruppoFuso) {
         pendingMove.lezioniIds.forEach(id => {
-          onUpdateLezioneCompleta({
-            ...pendingMove,
-            lezioneId: id
-          });
+          onUpdateLezioneCompleta({ ...pendingMove, lezioneId: id });
         });
       } else {
         onUpdateLezioneCompleta(pendingMove);
@@ -201,23 +194,24 @@ export default function PlanningCalendario({
     setPinError(false);
   };
 
-  const handleStartAnnullamento = (lez) => {
-    setSelectedLezioneDetail(null);
-    setLezioneDaAnnullare(lez);
-    setMotivoAnnullamento('');
-    setTipoAnnullamento('gratuito');
-  };
-
-  const handleConfirmAnnullamento = () => {
-    if (!motivoAnnullamento.trim()) {
-      alert("Inserisci una motivazione per l'annullamento.");
+  const handleConfirmEstrazioneStudente = () => {
+    if (!estrazioneForm.insegnanteId) {
+      alert('Seleziona un insegnante per la lezione individuale.');
       return;
     }
 
-    if (onUpdateLezioneStatus) {
-      onUpdateLezioneStatus(lezioneDaAnnullare.id, 'annullata', motivoAnnullamento, tipoAnnullamento);
+    if (onEstraiStudenteDaGruppo) {
+      onEstraiStudenteDaGruppo(
+        estrazioneData.lezioneOriginale.id,
+        estrazioneData.studenteId,
+        estrazioneForm.insegnanteId,
+        estrazioneForm.oraInizio,
+        estrazioneForm.oraFine,
+        dataSelezionata
+      );
     }
-    setLezioneDaAnnullare(null);
+    setEstrazioneData(null);
+    setGroupModalData(null);
   };
 
   return (
@@ -230,23 +224,19 @@ export default function PlanningCalendario({
           </div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Gestione oraria gruppi e lezioni individuali</p>
+            <p className="text-xs text-gray-500">Trascina le lezioni tra docenti o nel gruppo per convertire l'orario</p>
           </div>
         </div>
 
         <div className="flex items-center space-x-2 bg-gray-100 p-1.5 rounded-2xl border border-gray-200">
-          <button onClick={() => changeDate(-1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700">
-            <ChevronLeft className="w-4 h-4"/>
-          </button>
+          <button onClick={() => changeDate(-1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700"><ChevronLeft className="w-4 h-4"/></button>
           <input
             type="date"
             value={dataSelezionata}
             onChange={(e) => setDataSelezionata(e.target.value)}
             className="bg-transparent font-extrabold text-xs text-slate-900 focus:outline-none px-2"
           />
-          <button onClick={() => changeDate(1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700">
-            <ChevronRight className="w-4 h-4"/>
-          </button>
+          <button onClick={() => changeDate(1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700"><ChevronRight className="w-4 h-4"/></button>
         </div>
 
         <button
@@ -258,23 +248,18 @@ export default function PlanningCalendario({
         </button>
       </div>
 
-      {/* Griglia Calendario Full Width */}
+      {/* Griglia Calendario */}
       <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
         <div className="grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))_160px] border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 w-full min-w-[900px]">
-          <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">
-            ORA
-          </div>
+          <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">ORA</div>
 
           {insegnanti.map(ins => (
             <div key={ins.id} className="p-3 text-center border-r border-gray-200 flex flex-col items-center justify-center">
               <div style={{ backgroundColor: ins.colore || '#3b82f6' }} className="w-2.5 h-2.5 rounded-full mb-1 shadow-sm"/>
-              <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">
-                {ins.nome}
-              </span>
+              <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">{ins.nome}</span>
             </div>
           ))}
 
-          {/* Cliccando sull'intestazione GRUPPO si vedono tutti i gruppi del giorno */}
           <div
             onClick={() => setGroupModalData({ fascia: 'Intero Giorno', lezioniGroup: lezioniGruppoOggi })}
             className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 border-r border-amber-300 flex flex-col items-center justify-center cursor-pointer"
@@ -297,9 +282,7 @@ export default function PlanningCalendario({
         <div className="relative flex-1 grid grid-cols-[60px_repeat(auto-fit,minmax(140px,1fr))_160px] w-full min-w-[900px]">
           <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
             {orari.map(ora => (
-              <div key={ora} className="h-16 text-[11px] font-extrabold text-gray-400 pt-2">
-                {ora}:00
-              </div>
+              <div key={ora} className="h-16 text-[11px] font-extrabold text-gray-400 pt-2">{ora}:00</div>
             ))}
           </div>
 
@@ -310,12 +293,7 @@ export default function PlanningCalendario({
             return (
               <div key={ins.id} className="border-r border-gray-100 relative divide-y divide-gray-100 bg-white">
                 {orari.map(ora => (
-                  <div
-                    key={ora}
-                    onDragOver={handleDragOver}
-                    onDrop={(e) => handleDrop(e, ins.id, false, ora)}
-                    className="h-16 hover:bg-slate-50/50"
-                  />
+                  <div key={ora} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, ins.id, false, ora)} className="h-16 hover:bg-slate-50/50"/>
                 ))}
 
                 {lezioniDocente.map(lez => {
@@ -350,27 +328,18 @@ export default function PlanningCalendario({
             );
           })}
 
-          {/* COLONNA GRUPPO FUSA E UNIFICATA */}
+          {/* COLONNA GRUPPO (ACCETTA DROP DA SINGOLA) */}
           <div className="border-r border-amber-200 bg-amber-50/30 relative divide-y divide-amber-100/50">
             {orari.map(ora => (
-              <div
-                key={ora}
-                onDragOver={handleDragOver}
-                onDrop={(e) => handleDrop(e, '', true, ora)}
-                className="h-16 hover:bg-amber-100/30"
-              />
+              <div key={ora} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, '', true, ora)} className="h-16 hover:bg-amber-100/30"/>
             ))}
 
-            {/* Render Card Fuse per il Gruppo */}
             {gruppiFusiList.map((gf, idx) => {
               const [hStart, mStart] = gf.oraInizio.split(':').map(Number);
               const [hEnd, mEnd] = gf.oraFine.split(':').map(Number);
               const topPercent = (((hStart - startHour) * 60 + mStart) / (totalHours * 60)) * 100;
               const heightPercent = (((hEnd - hStart) * 60 + (mEnd - mStart)) / (totalHours * 60)) * 100;
-
-              // Raccogli tutti gli studenti del gruppo per quella fascia oraria
               const tuttiStudentiIds = gf.lezioni.flatMap(l => l.studentiIds || []);
-              const totaleRagazzi = tuttiStudentiIds.length;
 
               return (
                 <div
@@ -384,8 +353,8 @@ export default function PlanningCalendario({
                   <div>
                     <div className="font-black text-amber-950 flex items-center justify-between">
                       <span className="truncate">👥 Gruppo Studio</span>
-                      <span className="bg-amber-950 text-amber-300 font-black text-[10px] px-2 py-0.5 rounded-full shrink-0 shadow-sm">
-                        {totaleRagazzi} ragazzi
+                      <span className="bg-amber-950 text-amber-300 font-black text-[10px] px-2 py-0.5 rounded-full shrink-0">
+                        {tuttiStudentiIds.length} ragazzi
                       </span>
                     </div>
                     <div className="text-[10px] font-extrabold text-amber-900 mt-1">
@@ -393,7 +362,7 @@ export default function PlanningCalendario({
                     </div>
                   </div>
                   <div className="text-[10px] font-bold text-amber-950 underline italic mt-1">
-                    Clicca per dettaglio e presenze
+                    Clicca per dettaglio o per estrarre uno studente
                   </div>
                 </div>
               );
@@ -419,9 +388,6 @@ export default function PlanningCalendario({
                 >
                   <div className="font-extrabold text-slate-800 line-through truncate">{stdsNames(lez.studentiIds, studenti)}</div>
                   <div className="text-[10px] font-bold text-slate-600 truncate">{lez.materia}</div>
-                  <div className="text-[9px] font-bold text-rose-700 mt-0.5">
-                    {lez.tipoAnnullamento === 'addebito' ? '🔴 Con Addebito' : '🟢 Gratuita'}
-                  </div>
                 </div>
               );
             })}
@@ -436,7 +402,7 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* POPUP GRUPPO FUSO / UNIFICATO CON ELENCO RAGAZZI CLICCABILI */}
+      {/* POPUP GRUPPO FUSO CON OPZIONE DI ESTRAZIONE STUDENTE */}
       {groupModalData && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
@@ -450,41 +416,49 @@ export default function PlanningCalendario({
                   <p className="text-xs text-gray-500">Fascia Oraria: <strong>{groupModalData.fascia}</strong></p>
                 </div>
               </div>
-              <button onClick={() => setGroupModalData(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
-                <X className="w-5 h-5"/>
-              </button>
+              <button onClick={() => setGroupModalData(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
             </div>
 
             <div className="max-h-96 overflow-y-auto space-y-3 pr-1">
               {groupModalData.lezioniGroup.map((lg, idx) => (
                 <div key={idx} className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-4 space-y-2">
                   <div className="flex justify-between items-center border-b border-amber-200/60 pb-2">
-                    <span className="font-black text-xs text-amber-950 uppercase tracking-wide">
-                      {lg.materia || 'Gruppo Studio'}
-                    </span>
-                    <span className="bg-amber-200 text-amber-900 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg">
-                      🕒 {lg.oraInizio} - {lg.oraFine}
-                    </span>
+                    <span className="font-black text-xs text-amber-950 uppercase tracking-wide">{lg.materia || 'Gruppo Studio'}</span>
+                    <span className="bg-amber-200 text-amber-900 text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg">🕒 {lg.oraInizio} - {lg.oraFine}</span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 pt-1">
+                  <div className="space-y-2 pt-1">
                     {(lg.studentiIds || []).map(sId => {
                       const std = studenti.find(s => s.id === sId);
                       return (
-                        <button
-                          key={sId}
-                          onClick={() => {
-                            setGroupModalData(null);
-                            if (onSelectStudent) onSelectStudent(sId);
-                          }}
-                          className="bg-white hover:bg-amber-100 border border-amber-200 p-2.5 rounded-xl flex items-center justify-between text-xs font-bold text-slate-900 shadow-sm transition-all text-left"
-                        >
-                          <div className="flex items-center space-x-2 truncate">
+                        <div key={sId} className="bg-white border border-amber-200 p-2.5 rounded-xl flex items-center justify-between text-xs font-bold text-slate-900 shadow-sm">
+                          <button
+                            onClick={() => {
+                              setGroupModalData(null);
+                              if (onSelectStudent) onSelectStudent(sId);
+                            }}
+                            className="flex items-center space-x-2 truncate hover:text-amber-700"
+                          >
                             <User className="w-4 h-4 text-amber-600 shrink-0"/>
                             <span className="truncate">{std ? `${std.nome} ${std.cognome}` : 'Studente'}</span>
-                          </div>
-                          <FileText className="w-3.5 h-3.5 text-amber-700 shrink-0" title="Apri Scheda e Materiali"/>
-                        </button>
+                          </button>
+
+                          {/* Pulsante per estrarre il singolo studente e mandarlo da un docente */}
+                          <button
+                            onClick={() => {
+                              setEstrazioneData({ lezioneOriginale: lg, studenteId: sId });
+                              setEstrazioneForm({
+                                insegnanteId: insegnanti[0]?.id || '',
+                                oraInizio: lg.oraInizio,
+                                oraFine: lg.oraFine
+                              });
+                            }}
+                            className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-950 rounded-lg text-[11px] font-extrabold flex items-center space-x-1 border border-amber-300"
+                          >
+                            <UserMinus className="w-3 h-3 text-amber-800"/>
+                            <span>Estrai e Sposta a Docente</span>
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -493,18 +467,75 @@ export default function PlanningCalendario({
             </div>
 
             <div className="pt-3 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setGroupModalData(null)} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">
-                Chiudi
+              <button onClick={() => setGroupModalData(null)} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POPUP ESTRAZIONE STUDENTE SINGOLO DA GRUPPO */}
+      {estrazioneData && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <h3 className="font-extrabold text-base text-slate-900">Estrai Studente dal Gruppo</h3>
+              <button onClick={() => setEstrazioneData(null)} className="p-1 text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>
+            </div>
+
+            <p className="text-xs text-gray-600">
+              Seleziona l'insegnante singolo a cui riassegnare lo studente per questa lezione individuale:
+            </p>
+
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Assegna a Insegnante</label>
+                <select
+                  value={estrazioneForm.insegnanteId}
+                  onChange={(e) => setEstrazioneForm({ ...estrazioneForm, insegnanteId: e.target.value })}
+                  className="w-full p-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 text-xs"
+                >
+                  {insegnanti.map(ins => (
+                    <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Ora Inizio</label>
+                  <input
+                    type="time"
+                    value={estrazioneForm.oraInizio}
+                    onChange={(e) => setEstrazioneForm({ ...estrazioneForm, oraInizio: e.target.value })}
+                    className="w-full p-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-gray-700 mb-0.5">Ora Fine</label>
+                  <input
+                    type="time"
+                    value={estrazioneForm.oraFine}
+                    onChange={(e) => setEstrazioneForm({ ...estrazioneForm, oraFine: e.target.value })}
+                    className="w-full p-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 text-xs"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-2 pt-2 border-t border-gray-100">
+              <button onClick={() => setEstrazioneData(null)} className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold">Annulla</button>
+              <button onClick={handleConfirmEstrazioneStudente} className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md">
+                Estrai e Crea Lezione
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* POPUP RICHIESTA PIN SPOSTAMENTO */}
+      {/* POPUP RICHIESTA PIN */}
       {pendingMove && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <form onSubmit={confirmPendingMoveWithPin} className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+          <form onSubmit={confirmPendingMoveWithPin} className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
             <div className="flex items-center space-x-2 text-amber-700">
               <ShieldAlert className="w-6 h-6 text-amber-600"/>
               <h3 className="font-extrabold text-base text-slate-900">Autorizza Spostamento</h3>
@@ -554,7 +585,7 @@ export default function PlanningCalendario({
                   placeholder="Es. Avviso in ritardo, malattia, impegno personale..."
                   value={motivoAnnullamento}
                   onChange={(e) => setMotivoAnnullamento(e.target.value)}
-                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-slate-900"
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none"
                 />
               </div>
 
@@ -569,7 +600,6 @@ export default function PlanningCalendario({
                     }`}
                   >
                     <span>🟢 Gratuito</span>
-                    <span className="text-[10px] font-normal opacity-75">Nessun addebito</span>
                   </button>
 
                   <button
@@ -580,7 +610,6 @@ export default function PlanningCalendario({
                     }`}
                   >
                     <span>🔴 Con Addebito</span>
-                    <span className="text-[10px] font-normal opacity-75">Conteggia lezione</span>
                   </button>
                 </div>
               </div>
@@ -596,7 +625,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* DETTAGLIO LEZIONE */}
+      {/* DETTAGLIO ED EDITA LEZIONE */}
       {selectedLezioneDetail && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -690,7 +719,6 @@ export default function PlanningCalendario({
                 </div>
               )}
 
-              {/* Materiali */}
               <div className="bg-amber-50/60 p-3 rounded-2xl border border-amber-200/80 space-y-1">
                 <label className="block text-[11px] font-black text-amber-950 uppercase tracking-wider flex items-center">
                   <Paperclip className="w-3.5 h-3.5 mr-1 text-amber-700"/> Materiali & Compiti
