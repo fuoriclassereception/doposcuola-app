@@ -66,7 +66,40 @@ export default function App() {
     }
     setShowStudenteModal(false);
   };
+const handleUpdateLezioneCompleta = (moveData) => {
+  setLezioni(lezioni.map(l => l.id === moveData.lezioneId ? {
+    ...l,
+    oraInizio: moveData.oraInizio,
+    oraFine: moveData.oraFine,
+    insegnanteId: moveData.insegnanteId,
+    isGruppo: moveData.isGruppo
+  } : l));
+};
 
+// Nella chiamata del componente PlanningCalendario:
+<PlanningCalendario
+  insegnanti={insegnanti}
+  studenti={studenti}
+  lezioni={lezioni}
+  onDeleteLezione={handleDeleteLezione}
+  onOpenModal={() => setShowLezioneModal(true)}
+  onSelectStudent={(stdId) => {
+    const std = studenti.find(s => s.id === stdId);
+    setStudenteSelezionatoDettaglio(std);
+  }}
+  onUpdateLezioneStatus={(id, nuovoStato, motivo = '', tipo = 'gratuito') => {
+    setLezioni(lezioni.map(l => l.id === id ? {
+      ...l,
+      stato: nuovoStato,
+      motivoAnnullamento: motivo,
+      tipoAnnullamento: tipo
+    } : l));
+  }}
+  onRestoreLezione={(id) => {
+    setLezioni(lezioni.map(l => l.id === id ? { ...l, stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '' } : l));
+  }}
+  onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
+/>
   // ---------- STATO LEZIONI / PLANNING ----------
   const [lezioni, setLezioni] = useState([
     { id: 'lez_1', data: new Date().toISOString().split('T')[0], insegnanteId: 'ins_1', isGruppo: false, studentiIds: ['std_1'], materia: 'Tedesco', oraInizio: '15:00', oraFine: '16:00', stato: 'attiva' }
