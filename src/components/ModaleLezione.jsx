@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, BookOpen, Search, UserCheck, FileText } from 'lucide-react';
+import { X, BookOpen, Search, UserCheck } from 'lucide-react';
 
 export default function ModaleLezione({
   isOpen,
@@ -18,7 +18,8 @@ export default function ModaleLezione({
     insegnanteId: '',
     studentiIds: [],
     isGruppo: false,
-    note: ''
+    note: '',
+    oldLezioneId: null
   });
 
   const [searchStudente, setSearchStudente] = useState('');
@@ -36,10 +37,11 @@ export default function ModaleLezione({
         note: initialData.note || prev.note,
         insegnanteId: initialData.insegnanteId !== undefined ? initialData.insegnanteId : prev.insegnanteId,
         studentiIds: initialData.studentiIds || prev.studentiIds,
-        isGruppo: initialData.isGruppo !== undefined ? initialData.isGruppo : prev.isGruppo
+        isGruppo: initialData.isGruppo !== undefined ? initialData.isGruppo : prev.isGruppo,
+        oldLezioneId: initialData.oldLezioneId || null
       }));
     } else if (insegnanti.length > 0 && !formData.insegnanteId) {
-      setFormData(prev => ({ ...prev, insegnanteId: insegnanti[0].id }));
+      setFormData(prev => ({ ...prev, insegnanteId: insegnanti[0].id, oldLezioneId: null }));
     }
   }, [initialData, isOpen, insegnanti]);
 
@@ -50,7 +52,6 @@ export default function ModaleLezione({
     }
   }, [isOpen]);
 
-  // Chiude il dropdown dei risultati cliccando all'esterno
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
@@ -98,7 +99,7 @@ export default function ModaleLezione({
           <div className="flex items-center space-x-2">
             <BookOpen className="w-5 h-5 text-amber-500"/>
             <h3 className="font-extrabold text-lg text-slate-900">
-              {initialData?.isRischedulazione ? 'Rischedula Lezione' : 'Nuova Lezione'}
+              {formData.oldLezioneId ? 'Rischedula Lezione' : 'Nuova Lezione'}
             </h3>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
@@ -228,7 +229,7 @@ export default function ModaleLezione({
               />
             </div>
 
-            {/* Tendina a comparsa: visibile solo con focus o digitazione */}
+            {/* Tendina a comparsa */}
             {isDropdownOpen && searchStudente.trim().length > 0 && (
               <div className="absolute left-0 right-0 z-20 mt-1 max-h-44 overflow-y-auto border border-gray-200 rounded-2xl p-1.5 space-y-1 bg-white shadow-xl">
                 {studentiFiltrati.length === 0 ? (
@@ -282,7 +283,7 @@ export default function ModaleLezione({
               type="submit"
               className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-sm"
             >
-              {initialData?.isRischedulazione ? 'Conferma Rischedulazione' : 'Salva Lezione'}
+              {formData.oldLezioneId ? 'Conferma Rischedulazione' : 'Salva Lezione'}
             </button>
           </div>
         </form>
