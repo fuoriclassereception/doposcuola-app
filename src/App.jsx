@@ -33,11 +33,35 @@ export default function App() {
   // Modali Insegnanti / Studenti
   const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
   const [editingInsegnante, setEditingInsegnante] = useState(null);
-  const [insegnanteForm, setInsegnanteForm] = useState({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' });
+  const [insegnanteForm, setInsegnanteForm] = useState({ 
+    nome: '', 
+    cognome: '', 
+    telefono: '', 
+    email: '', 
+    materia: '', 
+    colore: '#3b82f6' 
+  });
 
   const [showStudenteModal, setShowStudenteModal] = useState(false);
   const [editingStudente, setEditingStudente] = useState(null);
-  const [studenteForm, setStudenteForm] = useState({ nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', isMinorenne: true, genitoreNome: '', genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' });
+  const [studenteForm, setStudenteForm] = useState({ 
+    nome: '', 
+    cognome: '', 
+    dataNascita: '', 
+    scuola: '', 
+    telefono: '', 
+    email: '', 
+    isMinorenne: true, 
+    categoriaTariffaria: 'medie',
+    haTariffaRiservata: false,
+    tariffaRiservataValore: '',
+    tariffaRiservataMotivo: '',
+    genitoreNome: '', 
+    genitoreTelefono: '', 
+    genitoreEmail: '', 
+    genitoreCodiceFiscale: '', 
+    note: '' 
+  });
   const [studenteSelezionatoDettaglio, setStudenteSelezionatoDettaglio] = useState(null);
 
   // Modale Lezione & Rischedulazione
@@ -147,10 +171,33 @@ export default function App() {
   const handleOpenStudenteModal = (std = null) => {
     if (std) {
       setEditingStudente(std.id);
-      setStudenteForm({ ...std });
+      setStudenteForm({ 
+        categoriaTariffaria: 'medie',
+        haTariffaRiservata: false,
+        tariffaRiservataValore: '',
+        tariffaRiservataMotivo: '',
+        ...std 
+      });
     } else {
       setEditingStudente(null);
-      setStudenteForm({ nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', isMinorenne: true, genitoreNome: '', genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' });
+      setStudenteForm({ 
+        nome: '', 
+        cognome: '', 
+        dataNascita: '', 
+        scuola: '', 
+        telefono: '', 
+        email: '', 
+        isMinorenne: true, 
+        categoriaTariffaria: 'medie',
+        haTariffaRiservata: false,
+        tariffaRiservataValore: '',
+        tariffaRiservataMotivo: '',
+        genitoreNome: '', 
+        genitoreTelefono: '', 
+        genitoreEmail: '', 
+        genitoreCodiceFiscale: '', 
+        note: '' 
+      });
     }
     setShowStudenteModal(true);
   };
@@ -167,10 +214,9 @@ export default function App() {
         await setDoc(newRef, { 
           ...studenteForm, 
           attivo: true,
-          oreAcquistate: 0,
-          oreSvolte: 0,
-          totaleDovuto: 0,
-          totalePagato: 0,
+          totaleVersato: 0,
+          totaleConsumato: 0,
+          totalePattuito: 0,
           storicoRicariche: []
         });
         aggiungiLog(`Iscritto nuovo studente: ${studenteForm.nome} ${studenteForm.cognome}`);
@@ -203,37 +249,41 @@ export default function App() {
     }
   };
 
-  // ---------- RICARICA PACCHETTO ORE STUDENTE ----------
+  // ---------- RICARICA PLAFOND / CREDITO DIDATTICO ----------
   const handleRicaricaPacchetto = async (studenteId, datiRicarica) => {
     const std = studenti.find(s => s.id === studenteId);
     if (!std) return;
 
-    const nuoveOreAcquistate = Number(((std.oreAcquistate || 0) + datiRicarica.oreDaAggiungere).toFixed(1));
-    const nuovoTotaleDovuto = Number(((std.totaleDovuto || 0) + datiRicarica.costoDaAggiungere).toFixed(2));
-    const nuovoTotalePagato = Number(((std.totalePagato || 0) + datiRicarica.pagatoDaAggiungere).toFixed(2));
+    const costoNuovo = Number(datiRicarica.costoDaAggiungere || 0);
+    const pagatoNuovo = Number(datiRicarica.pagatoDaAggiungere || 0);
+
+    const nuovoTotaleVersato = Number(((std.totaleVersato || std.totalePagato || 0) + pagatoNuovo).toFixed(2));
+    const nuovoTotalePattuito = Number(((std.totalePattuito || std.totaleDovuto || 0) + costoNuovo).toFixed(2));
 
     const nuovaRicaricaEntry = {
+      numero: `${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
       data: datiRicarica.data || new Date().toLocaleDateString('it-IT'),
-      ore: datiRicarica.oreDaAggiungere,
-      costo: datiRicarica.costoDaAggiungere,
-      pagato: datiRicarica.pagatoDaAggiungere,
+      costoTotale: costoNuovo,
+      pagato: pagatoNuovo,
       metodo: datiRicarica.metodoPagamento,
-      note: datiRicarica.note || ''
+      note: datiRicarica.note || '',
+      tariffaApplicata: datiRicarica.tariffaApplicata || 22.00
     };
 
     const storicoEsistente = std.storicoRicariche || [];
 
     try {
       await updateDoc(doc(db, 'studenti', studenteId), {
-        oreAcquistate: nuoveOreAcquistate,
-        totaleDovuto: nuovoTotaleDovuto,
-        totalePagato: nuovoTotalePagato,
+        totaleVersato: nuovoTotaleVersato,
+        totalePagato: nuovoTotaleVersato,
+        totalePattuito: nuovoTotalePattuito,
+        totaleDovuto: nuovoTotalePattuito,
         storicoRicariche: [nuovaRicaricaEntry, ...storicoEsistente]
       });
 
-      aggiungiLog(`Ricarica Pacchetto FuoriClasse: ${std.nome} ${std.cognome} (+${datiRicarica.oreDaAggiungere}h, versati ${datiRicarica.pagatoDaAggiungere}€ via ${datiRicarica.metodoPagamento}${datiRicarica.note ? ' - Nota: ' + datiRicarica.note : ''})`);
+      aggiungiLog(`Ricarica Plafond FuoriClasse: ${std.nome} ${std.cognome} (+${pagatoNuovo}€ via ${datiRicarica.metodoPagamento})`);
     } catch (err) {
-      console.error("Errore ricarica pacchetto ore:", err);
+      console.error("Errore ricarica plafond didattico:", err);
     }
   };
 
@@ -312,7 +362,7 @@ export default function App() {
     }
   };
 
-  // ---------- CASSA: CONFERMA PRESENZA CON SCALO ORE ----------
+  // ---------- CASSA: CONFERMA PRESENZA CON CONSUMO PLAFOND ----------
   const handleConfermaPresenzaConScalo = async (lezione, durataOre, stato = 'svolta', motivo = '', tipo = 'gratuito') => {
     try {
       await updateDoc(doc(db, 'lezioni', lezione.id), {
@@ -326,21 +376,35 @@ export default function App() {
         for (const sId of (lezione.studentiIds || [])) {
           const std = studenti.find(s => s.id === sId);
           if (std) {
-            const nuoveOreSvolte = Number(((std.oreSvolte || 0) + durataOre).toFixed(1));
+            // Importo tariffa per studente
+            let tariffaStudente = 22.00;
+            if (lezione.isGruppo) {
+              tariffaStudente = 12.00;
+            } else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) {
+              tariffaStudente = Number(std.tariffaRiservataValore);
+            } else if (std.categoriaTariffaria === 'elementari') {
+              tariffaStudente = 18.00;
+            } else if (std.categoriaTariffaria === 'superiori') {
+              tariffaStudente = 26.00;
+            }
+
+            const costoLezione = Number((durataOre * tariffaStudente).toFixed(2));
+            const nuovoConsumato = Number(((std.totaleConsumato || 0) + costoLezione).toFixed(2));
+
             await updateDoc(doc(db, 'studenti', sId), {
-              oreSvolte: nuoveOreSvolte
+              totaleConsumato: nuovoConsumato
             });
           }
         }
       }
 
-      aggiungiLog(`Cassa FuoriClasse: Registrata presenza (ID ${lezione.id}) - Scalate ${durataOre}h`);
+      aggiungiLog(`Cassa FuoriClasse: Registrata presenza (ID ${lezione.id}) - Consumato plafond per ${durataOre}h`);
     } catch (err) {
       console.error("Errore conferma presenza:", err);
     }
   };
 
-  // ---------- CASSA: STORNO PRESENZA E RIPRISTINO ORE ----------
+  // ---------- CASSA: STORNO PRESENZA E RIPRISTINO PLAFOND ----------
   const handleStornoPresenzaConRipristino = async (lezione, durataOre) => {
     try {
       const oreDaRestituire = lezione.oreScalate !== undefined ? Number(lezione.oreScalate) : durataOre;
@@ -356,15 +420,28 @@ export default function App() {
         for (const sId of (lezione.studentiIds || [])) {
           const std = studenti.find(s => s.id === sId);
           if (std) {
-            const nuoveOreSvolte = Math.max(0, Number(((std.oreSvolte || 0) - oreDaRestituire).toFixed(1)));
+            let tariffaStudente = 22.00;
+            if (lezione.isGruppo) {
+              tariffaStudente = 12.00;
+            } else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) {
+              tariffaStudente = Number(std.tariffaRiservataValore);
+            } else if (std.categoriaTariffaria === 'elementari') {
+              tariffaStudente = 18.00;
+            } else if (std.categoriaTariffaria === 'superiori') {
+              tariffaStudente = 26.00;
+            }
+
+            const costoDaStornare = Number((oreDaRestituire * tariffaStudente).toFixed(2));
+            const nuovoConsumato = Math.max(0, Number(((std.totaleConsumato || 0) - costoDaStornare).toFixed(2)));
+
             await updateDoc(doc(db, 'studenti', sId), {
-              oreSvolte: nuoveOreSvolte
+              totaleConsumato: nuovoConsumato
             });
           }
         }
       }
 
-      aggiungiLog(`Storno FuoriClasse: Ripristinata lezione ${lezione.id} e restituite ${oreDaRestituire}h`);
+      aggiungiLog(`Storno FuoriClasse: Ripristinata lezione ${lezione.id} e stornato costo didattico`);
     } catch (err) {
       console.error("Errore storno presenza:", err);
     }
