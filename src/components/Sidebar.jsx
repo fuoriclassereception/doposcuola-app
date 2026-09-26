@@ -12,7 +12,7 @@ export default function Sidebar({ activeTab, setActiveTab, searchQuery, setSearc
       <div className="p-5 flex-1">
         <h1 className="text-xl font-black text-white flex items-center mb-6">
           <span className="bg-amber-400 text-slate-900 p-1.5 rounded-lg mr-2 text-sm font-black">FC</span> 
-          Fuori Classe
+          FuoriClasse
         </h1>
 
         <nav className="space-y-1.5">
