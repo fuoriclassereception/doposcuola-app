@@ -24,13 +24,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('planning');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // ---------- STATI COLLEGATI A FIREBASE ----------
+  // ---------- STATI FIREBASE ----------
   const [insegnanti, setInsegnanti] = useState([]);
   const [studenti, setStudenti] = useState([]);
   const [lezioni, setLezioni] = useState([]);
   const [logsAttivita, setLogsAttivita] = useState([]);
 
-  // Modali Insegnanti / Studenti / Lezioni
+  // Modali Insegnanti / Studenti
   const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
   const [editingInsegnante, setEditingInsegnante] = useState(null);
   const [insegnanteForm, setInsegnanteForm] = useState({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' });
@@ -40,31 +40,24 @@ export default function App() {
   const [studenteForm, setStudenteForm] = useState({ nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', isMinorenne: true, genitoreNome: '', genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' });
   const [studenteSelezionatoDettaglio, setStudenteSelezionatoDettaglio] = useState(null);
 
-  // Gestione apertura e precompilazione Modale Lezione
+  // Modale Lezione & Rischedulazione
   const [showLezioneModal, setShowLezioneModal] = useState(false);
   const [initialLezioneData, setInitialLezioneData] = useState(null);
 
-  // ---------- ASCOLTO IN TEMPO REALE DA FIREBASE (onSnapshot) ----------
+  // ---------- ASCOLTO REALTIME DA FIREBASE ----------
   useEffect(() => {
-    // 1. Insegnanti
     const unsubInsegnanti = onSnapshot(collection(db, 'insegnanti'), (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setInsegnanti(docs);
+      setInsegnanti(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // 2. Studenti
     const unsubStudenti = onSnapshot(collection(db, 'studenti'), (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setStudenti(docs);
+      setStudenti(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // 3. Lezioni
     const unsubLezioni = onSnapshot(collection(db, 'lezioni'), (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setLezioni(docs);
+      setLezioni(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    // 4. Log di Sicurezza
     const unsubLogs = onSnapshot(collection(db, 'logs'), (snapshot) => {
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -79,7 +72,7 @@ export default function App() {
     };
   }, []);
 
-  const aggiungiLog = async (azione, operatore = 'Admin') => {
+  const aggiungiLog = async (azione, operatore = 'Admin FuoriClasse') => {
     try {
       await addDoc(collection(db, 'logs'), {
         timestamp: new Date().toLocaleString(),
@@ -196,7 +189,7 @@ export default function App() {
     }
   };
 
-  // ---------- GESTIONE LEZIONI ----------
+  // ---------- GESTIONE LEZIONI E RISCHEDULAZIONE ----------
   const handleOpenLezioneModal = (presetData = null) => {
     setInitialLezioneData(presetData);
     setShowLezioneModal(true);
@@ -204,17 +197,28 @@ export default function App() {
 
   const handleSaveLezione = async (formData) => {
     try {
+      const { oldLezioneId, ...datiLezione } = formData;
+
+      // 1. Salvataggio della nuova lezione
       const newRef = doc(collection(db, 'lezioni'));
       await setDoc(newRef, {
         stato: 'attiva',
-        ...formData
+        ...datiLezione
       });
+
+      // 2. Se si tratta di una rischedulazione, elimina la vecchia lezione dalle annullate
+      if (oldLezioneId) {
+        await deleteDoc(doc(db, 'lezioni', oldLezioneId));
+        aggiungiLog(`Rischedulata lezione: rimossa vecchia lezione ID ${oldLezioneId} e ricollocata al ${datiLezione.data} (${datiLezione.oraInizio}-${datiLezione.oraFine})`);
+      } else {
+        aggiungiLog(`Nuova lezione creata: ${datiLezione.materia || 'Lezione'} (${datiLezione.oraInizio}-${datiLezione.oraFine})`);
+      }
+
       setShowLezioneModal(false);
       setInitialLezioneData(null);
-      aggiungiLog(`Nuova lezione creata: ${formData.materia || 'Lezione'} (${formData.oraInizio}-${formData.oraFine})`);
       return true;
     } catch (err) {
-      console.error("Errore creazione lezione:", err);
+      console.error("Errore creazione/rischedulazione lezione:", err);
       return false;
     }
   };
@@ -281,7 +285,7 @@ export default function App() {
         stato: 'attiva',
         insegnanteId: nuovoDocenteId
       });
-      aggiungiLog(`Approvata richiesta App (ID: ${lezioneId})`);
+      aggiungiLog(`Approvata richiesta App FuoriClasse (ID: ${lezioneId})`);
     } catch (err) {
       console.error("Errore accettazione richiesta:", err);
     }
@@ -294,7 +298,7 @@ export default function App() {
         motivoAnnullamento: motivo,
         tipoAnnullamento: 'gratuito'
       });
-      aggiungiLog(`Rifiutata richiesta App (ID: ${lezioneId}) - ${motivo}`);
+      aggiungiLog(`Rifiutata richiesta App FuoriClasse (ID: ${lezioneId}) - ${motivo}`);
     } catch (err) {
       console.error("Errore rifiuto richiesta:", err);
     }
@@ -323,7 +327,7 @@ export default function App() {
         oraFine,
         stato: 'attiva'
       });
-      aggiungiLog(`Studente estratto dal gruppo e assegnato a docente`);
+      aggiungiLog(`Studente estratto dal gruppo studio e assegnato a docente`);
     } catch (err) {
       console.error("Errore estrazione studente gruppo:", err);
     }
