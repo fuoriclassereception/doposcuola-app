@@ -1,338 +1,344 @@
 import React, { useState } from 'react';
-import { X, CheckCircle, Clock, AlertOctagon, Paperclip, User, ArrowRightLeft, Printer, Sliders, Ban, RotateCcw } from 'lucide-react';
-import { stampaReportStudente } from '../utils/printReport';
-import ModalePin from './ModalePin';
+import { 
+  X, 
+  User, 
+  Phone, 
+  Mail, 
+  BookOpen, 
+  Clock, 
+  Calendar, 
+  CreditCard, 
+  Plus, 
+  Wallet, 
+  AlertCircle, 
+  CheckCircle2, 
+  Banknote, 
+  ArrowRight 
+} from 'lucide-react';
 
-export default function DettaglioStudente({ studente, lezioni = [], onClose, onUpdateLezioneCompleta, onUpdateLezioneStatus }) {
-  const [filtroStato, setFiltroStato] = useState('tutte');
-  const [editingLezioneId, setEditingLezioneId] = useState(null);
-  const [moveForm, setMoveForm] = useState({ data: '', oraInizio: '', oraFine: '' });
-
-  // Stato Modale Pin Unificato
-  const [pinConfig, setPinConfig] = useState({ isOpen: false, callback: null, description: '' });
-
-  // Stato per annullamento lezione
-  const [lezioneDaAnnullare, setLezioneDaAnnullare] = useState(null);
-  const [motivoAnnullamento, setMotivoAnnullamento] = useState('');
-  const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
-
-  // Opzioni stampa
-  const [opzioniStampa, setOpzioniStampa] = useState({
-    includiSvolte: true,
-    includiProgramma: true,
-    includiAnnullate: true,
-    includiContabilita: true,
-    tariffaOraria: 25
+export default function DettaglioStudente({
+  studente,
+  lezioni = [],
+  onClose,
+  onRicaricaPacchetto,
+  aggiungiLog
+}) {
+  const [showRicaricaModal, setShowRicaricaModal] = useState(false);
+  const [ricaricaForm, setRicaricaForm] = useState({
+    ore: 10,
+    costoTotale: 250,
+    importoPagato: 250,
+    metodoPagamento: 'Contanti',
+    note: ''
   });
-  const [mostraImpostazioniStampa, setMostraImpostazioniStampa] = useState(false);
 
   if (!studente) return null;
 
-  const lezioniStudente = lezioni.filter(l => (l.studentiIds || []).includes(studente.id));
-  const svolte = lezioniStudente.filter(l => l.stato === 'svolta');
-  const inProgramma = lezioniStudente.filter(l => (!l.stato || l.stato === 'attiva'));
-  const annullate = lezioniStudente.filter(l => l.stato === 'annullata');
+  // Dati contabili studente (con valori di default se non ancora presenti)
+  const oreAcquistate = Number(studente.oreAcquistate || 0);
+  const oreSvolte = Number(studente.oreSvolte || 0);
+  const oreResidue = Number((oreAcquistate - oreSvolte).toFixed(1));
 
-  const lezioniFiltrate = lezioniStudente.filter(l => {
-    if (filtroStato === 'svolta') return l.stato === 'svolta';
-    if (filtroStato === 'programma') return (!l.stato || l.stato === 'attiva');
-    if (filtroStato === 'annullata') return l.stato === 'annullata';
-    return true;
-  });
+  const totaleDovuto = Number(studente.totaleDovuto || 0);
+  const totalePagato = Number(studente.totalePagato || 0);
+  const saldoDebito = Number((totaleDovuto - totalePagato).toFixed(2));
 
-  const handleStartEditLezione = (l) => {
-    setEditingLezioneId(l.id);
-    setMoveForm({ data: l.data, oraInizio: l.oraInizio, oraFine: l.oraFine });
-  };
+  // Storico lezioni di questo studente
+  const lezioniStudente = lezioni.filter(l => 
+    (l.studentiIds || []).includes(studente.id)
+  ).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
 
-  const handleRequestMove = (l) => {
-    setPinConfig({
-      isOpen: true,
-      description: `Spostamento lezione alle ore ${moveForm.oraInizio} del ${moveForm.data}`,
-      callback: () => {
-        if (onUpdateLezioneCompleta) {
-          onUpdateLezioneCompleta({
-            lezioneId: l.id,
-            data: moveForm.data,
-            oraInizio: moveForm.oraInizio,
-            oraFine: moveForm.oraFine,
-            insegnanteId: l.insegnanteId,
-            isGruppo: l.isGruppo
-          });
-        }
-        setEditingLezioneId(null);
-      }
-    });
-  };
+  const handleSalvaRicarica = (e) => {
+    e.preventDefault();
+    const oreNuove = parseFloat(ricaricaForm.ore) || 0;
+    const costo = parseFloat(ricaricaForm.costoTotale) || 0;
+    const pagato = parseFloat(ricaricaForm.importoPagato) || 0;
 
-  const handleRequestCancel = () => {
-    if (!lezioneDaAnnullare) return;
-    const lId = lezioneDaAnnullare.id;
-    const mot = motivoAnnullamento || 'Motivo non specificato';
-    const tip = tipoAnnullamento;
+    if (oreNuove <= 0) {
+      alert("Inserisci un numero di ore valido maggiore di 0.");
+      return;
+    }
 
-    setLezioneDaAnnullare(null);
-    setPinConfig({
-      isOpen: true,
-      description: `Annullamento lezione di ${studente.nome}`,
-      callback: () => {
-        if (onUpdateLezioneStatus) {
-          onUpdateLezioneStatus(lId, 'annullata', mot, tip);
-        }
-      }
-    });
-  };
+    if (onRicaricaPacchetto) {
+      onRicaricaPacchetto(studente.id, {
+        oreDaAggiungere: oreNuove,
+        costoDaAggiungere: costo,
+        pagatoDaAggiungere: pagato,
+        metodoPagamento: ricaricaForm.metodoPagamento,
+        note: ricaricaForm.note
+      });
+    }
 
-  const handleRequestRestore = (lezioneId) => {
-    setPinConfig({
-      isOpen: true,
-      description: `Ripristino lezione di ${studente.nome}`,
-      callback: () => {
-        if (onUpdateLezioneStatus) {
-          onUpdateLezioneStatus(lezioneId, 'attiva', '', '');
-        }
-      }
-    });
+    setShowRicaricaModal(false);
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-gray-100 space-y-5 max-h-[90vh] overflow-y-auto relative">
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 select-none">
+      <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[92vh] flex flex-col shadow-2xl border border-gray-100 overflow-hidden">
         
-        {/* Header */}
-        <div className="flex justify-between items-start border-b border-gray-100 pb-4">
-          <div className="flex items-center space-x-3">
-            <div className="p-3 bg-slate-900 text-amber-400 rounded-2xl">
-              <User className="w-6 h-6"/>
+        {/* Intestazione */}
+        <div className="p-6 bg-slate-900 text-white flex justify-between items-start">
+          <div className="flex items-center space-x-4">
+            <div className="w-14 h-14 bg-amber-400 text-slate-950 font-black text-xl rounded-2xl flex items-center justify-center shadow-md">
+              {studente.nome?.[0]}{studente.cognome?.[0]}
             </div>
             <div>
-              <h3 className="font-extrabold text-xl text-slate-900">{studente.nome} {studente.cognome}</h3>
-              <p className="text-xs text-gray-500">
-                Data nascita: <strong className="text-slate-800">{studente.dataNascita || 'N.D.'}</strong> • Scuole: {studente.scuola || 'N.D.'}
+              <div className="flex items-center space-x-2">
+                <h2 className="text-2xl font-black">{studente.nome} {studente.cognome}</h2>
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${studente.attivo !== false ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
+                  {studente.attivo !== false ? 'Attivo' : 'Inattivo'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-300 mt-1">
+                {studente.scuola || 'Scuola non indicata'} • {studente.telefono || 'Nessun tel.'}
               </p>
             </div>
           </div>
-
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setMostraImpostazioniStampa(!mostraImpostazioniStampa)}
-              className="flex items-center space-x-1 px-3 py-2 bg-gray-100 hover:bg-gray-200 text-slate-800 font-bold rounded-xl text-xs transition-all"
-            >
-              <Sliders className="w-4 h-4"/>
-              <span>Opzioni Stampa</span>
-            </button>
-
-            <button
-              onClick={() => stampaReportStudente(studente, lezioniStudente, opzioniStampa)}
-              className="flex items-center space-x-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-amber-400 font-bold rounded-xl text-xs shadow-sm transition-all"
-            >
-              <Printer className="w-4 h-4"/>
-              <span>Stampa A4</span>
-            </button>
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
-          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-full text-gray-400 hover:text-white transition-colors">
+            <X className="w-6 h-6"/>
+          </button>
         </div>
 
-        {/* Opzioni Stampa */}
-        {mostraImpostazioniStampa && (
-          <div className="bg-amber-50/80 border border-amber-300 p-4 rounded-2xl space-y-3 text-xs animate-in fade-in duration-150">
-            <h4 className="font-extrabold text-amber-950 uppercase tracking-wide">Configura il Report da Stampare</h4>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="flex items-center space-x-2 font-bold text-slate-800 cursor-pointer">
-                <input type="checkbox" checked={opzioniStampa.includiSvolte} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiSvolte: e.target.checked })} className="rounded text-slate-900"/>
-                <span>Includi Lezioni Svolte</span>
-              </label>
-              <label className="flex items-center space-x-2 font-bold text-slate-800 cursor-pointer">
-                <input type="checkbox" checked={opzioniStampa.includiProgramma} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiProgramma: e.target.checked })} className="rounded text-slate-900"/>
-                <span>Includi In Programma</span>
-              </label>
-              <label className="flex items-center space-x-2 font-bold text-slate-800 cursor-pointer">
-                <input type="checkbox" checked={opzioniStampa.includiAnnullate} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiAnnullate: e.target.checked })} className="rounded text-slate-900"/>
-                <span>Includi Annullate</span>
-              </label>
-              <label className="flex items-center space-x-2 font-bold text-slate-800 cursor-pointer">
-                <input type="checkbox" checked={opzioniStampa.includiContabilita} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, includiContabilita: e.target.checked })} className="rounded text-slate-900"/>
-                <span>Includi Riepilogo Saldo & Ore</span>
-              </label>
-            </div>
-            {opzioniStampa.includiContabilita && (
-              <div className="pt-2 border-t border-amber-200 flex items-center justify-between">
-                <span className="font-bold text-amber-900">Tariffa Oraria (€):</span>
-                <input type="number" value={opzioniStampa.tariffaOraria} onChange={(e) => setOpzioniStampa({ ...opzioniStampa, tariffaOraria: Number(e.target.value) || 0 })} className="w-24 p-1 bg-white border border-amber-300 rounded-lg font-bold text-xs"/>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Contatori */}
-        <div>
-          <label className="block text-xs font-black text-slate-700 uppercase tracking-wider mb-2">Riepilogo Lezioni</label>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl flex items-center space-x-3">
-              <CheckCircle className="w-6 h-6 text-emerald-600 shrink-0"/>
+        {/* Corpo scrollabile */}
+        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+          
+          {/* CRUSCOTTO CONTABILE & SALDO ORE */}
+          <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 space-y-4">
+            <div className="flex justify-between items-center flex-wrap gap-2">
               <div>
-                <div className="text-xl font-black text-emerald-950">{svolte.length}</div>
-                <div className="text-[11px] font-bold text-emerald-800">Svolte</div>
+                <h3 className="font-black text-slate-900 text-base flex items-center gap-2">
+                  <Wallet className="w-5 h-5 text-amber-500"/>
+                  <span>Pacchetto Ore & Stato Cassa</span>
+                </h3>
+                <p className="text-xs text-gray-500">Saldo aggiornato in automatico ad ogni lezione svolta</p>
+              </div>
+
+              <button
+                onClick={() => setShowRicaricaModal(true)}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-sm flex items-center gap-2 transition-all"
+              >
+                <Plus className="w-4 h-4"/>
+                <span>+ Ricarica Ore / Pagamento</span>
+              </button>
+            </div>
+
+            {/* Riquadri Statistiche Ore */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className={`p-4 rounded-2xl border flex flex-col justify-between ${
+                oreResidue > 2 
+                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950' 
+                  : oreResidue > 0 
+                    ? 'bg-amber-50 border-amber-200 text-amber-950' 
+                    : 'bg-rose-50 border-rose-200 text-rose-950'
+              }`}>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Ore Rimanenti</span>
+                <div className="text-3xl font-black mt-1">{oreResidue} h</div>
+                <span className="text-[10px] font-bold mt-1">
+                  {oreResidue > 0 ? '✓ Saldo coperto' : '⚠️ Ore esaurite (da ricaricare)'}
+                </span>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-gray-200 bg-white flex flex-col justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Ore Acquistate</span>
+                <div className="text-2xl font-black text-slate-900 mt-1">{oreAcquistate} h</div>
+                <span className="text-[10px] font-bold text-gray-500 mt-1">Totale storico pacchetti</span>
+              </div>
+
+              <div className="p-4 rounded-2xl border border-gray-200 bg-white flex flex-col justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">Ore Svolte</span>
+                <div className="text-2xl font-black text-slate-900 mt-1">{oreSvolte} h</div>
+                <span className="text-[10px] font-bold text-gray-500 mt-1">Gia usufruite e scalate</span>
               </div>
             </div>
-            <div className="bg-sky-50 border border-sky-200 p-3 rounded-2xl flex items-center space-x-3">
-              <Clock className="w-6 h-6 text-sky-600 shrink-0"/>
-              <div>
-                <div className="text-xl font-black text-sky-950">{inProgramma.length}</div>
-                <div className="text-[11px] font-bold text-sky-800">In Programma</div>
+
+            {/* Riquadro Economico: Dovuto vs Versato */}
+            <div className="p-4 bg-white rounded-2xl border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <div className="flex items-center space-x-6 text-xs">
+                <div>
+                  <span className="text-gray-400 font-bold block text-[10px] uppercase">Totale Dovuto</span>
+                  <span className="text-base font-black text-slate-900">{totaleDovuto.toFixed(2)} €</span>
+                </div>
+                <div className="border-r border-gray-200 h-8"/>
+                <div>
+                  <span className="text-gray-400 font-bold block text-[10px] uppercase">Gia Versato</span>
+                  <span className="text-base font-black text-emerald-600">{totalePagato.toFixed(2)} €</span>
+                </div>
               </div>
-            </div>
-            <div className="bg-slate-100 border border-slate-300 p-3 rounded-2xl flex items-center space-x-3">
-              <AlertOctagon className="w-6 h-6 text-slate-600 shrink-0"/>
-              <div>
-                <div className="text-xl font-black text-slate-900">{annullate.length}</div>
-                <div className="text-[11px] font-bold text-slate-700">Annullate</div>
+
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-bold text-gray-500">Stato Pagamenti:</span>
+                {saldoDebito > 0 ? (
+                  <span className="px-3 py-1 bg-rose-100 text-rose-800 text-xs font-black rounded-xl">
+                    Da Saldare: {saldoDebito.toFixed(2)} €
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-black rounded-xl flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5"/> In Regola
+                  </span>
+                )}
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Note */}
-        <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200/80 space-y-2">
-          <h4 className="text-xs font-black text-amber-950 uppercase tracking-wider flex items-center">
-            <Paperclip className="w-4 h-4 mr-1.5 text-amber-700"/> Note e Materiali Didattici
-          </h4>
-          <p className="text-xs text-amber-900 font-medium">
-            {studente.note || "Nessun materiale didattico o nota registrata per questo studente."}
-          </p>
-        </div>
+          {/* DATI ANAGRAFICI & GENITORE */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div className="p-4 bg-white border border-gray-200 rounded-2xl space-y-2">
+              <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider text-gray-400">Recapiti Studente</h4>
+              <p><strong>Telefono:</strong> {studente.telefono || 'Non specificato'}</p>
+              <p><strong>Email:</strong> {studente.email || 'Non specificata'}</p>
+              <p><strong>Data di Nascita:</strong> {studente.dataNascita || 'Non specificata'}</p>
+            </div>
 
-        {/* Storico con FORM SPOSTA ATTIVO */}
-        <div className="space-y-3">
-          <div className="flex justify-between items-center">
-            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">Storico e Programmazione</h4>
-            <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl text-[11px] font-extrabold">
-              <button onClick={() => setFiltroStato('tutte')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'tutte' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>Tutte ({lezioniStudente.length})</button>
-              <button onClick={() => setFiltroStato('programma')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'programma' ? 'bg-white text-sky-900 shadow-sm' : 'text-gray-500'}`}>In Programma</button>
-              <button onClick={() => setFiltroStato('svolta')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'svolta' ? 'bg-white text-emerald-900 shadow-sm' : 'text-gray-500'}`}>Svolte</button>
-              <button onClick={() => setFiltroStato('annullata')} className={`px-2.5 py-1 rounded-lg ${filtroStato === 'annullata' ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>Annullate</button>
+            <div className="p-4 bg-white border border-gray-200 rounded-2xl space-y-2">
+              <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider text-gray-400">Referente Genitore</h4>
+              <p><strong>Nome:</strong> {studente.genitoreNome || 'Non specificato'}</p>
+              <p><strong>Telefono:</strong> {studente.genitoreTelefono || 'Non specificato'}</p>
+              <p><strong>Codice Fiscale:</strong> {studente.genitoreCodiceFiscale || 'Non specificato'}</p>
             </div>
           </div>
 
-          <div className="divide-y divide-gray-100 bg-gray-50/50 rounded-2xl border border-gray-200 max-h-64 overflow-y-auto">
-            {lezioniFiltrate.length === 0 ? (
-              <p className="p-4 text-center text-xs font-bold text-gray-400">Nessuna lezione trovata per questo filtro.</p>
-            ) : (
-              lezioniFiltrate.map(l => (
-                <div key={l.id} className="p-3 space-y-2">
-                  <div className="flex justify-between items-center text-xs">
+          {/* STORICO ULTIME LEZIONI */}
+          <div className="space-y-3">
+            <h4 className="font-black text-slate-900 text-sm">Registro Ultime Lezioni ({lezioniStudente.length})</h4>
+            <div className="max-h-48 overflow-y-auto space-y-2 border border-gray-200 rounded-2xl p-2 bg-gray-50/50">
+              {lezioniStudente.length === 0 ? (
+                <div className="text-center py-6 text-gray-400 text-xs font-bold">Nessuna lezione registrata per questo studente.</div>
+              ) : (
+                lezioniStudente.map(l => (
+                  <div key={l.id} className="p-3 bg-white border border-gray-200 rounded-xl flex justify-between items-center text-xs">
                     <div>
-                      <span className="font-extrabold text-slate-900">{l.materia || 'Lezione'}</span>
-                      <div className="text-[11px] text-gray-500 font-medium">📅 {l.data} • 🕒 {l.oraInizio} - {l.oraFine}</div>
-                      {l.motivoAnnullamento && (
-                        <p className="text-[10px] text-rose-700 font-bold mt-0.5">Motivo annullamento: {l.motivoAnnullamento}</p>
-                      )}
+                      <div className="font-extrabold text-slate-900">{l.materia || 'Doposcuola'}</div>
+                      <div className="text-gray-500 text-[11px] mt-0.5">
+                        📅 {l.data} • 🕒 {l.oraInizio} - {l.oraFine}
+                      </div>
                     </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      {(!l.stato || l.stato === 'attiva') && (
-                        <>
-                          <button onClick={() => handleStartEditLezione(l)} className="px-2.5 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center space-x-1 cursor-pointer">
-                            <ArrowRightLeft className="w-3 h-3"/><span>Sposta</span>
-                          </button>
-                          <button onClick={() => { setLezioneDaAnnullare(l); setMotivoAnnullamento(''); setTipoAnnullamento('gratuito'); }} className="px-2.5 py-1 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-lg text-[10px] flex items-center space-x-1 cursor-pointer">
-                            <Ban className="w-3 h-3"/><span>Annulla</span>
-                          </button>
-                        </>
-                      )}
-
-                      {l.stato === 'svolta' && <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">Svolta</span>}
-                      {(!l.stato || l.stato === 'attiva') && <span className="bg-sky-100 text-sky-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md">In Programma</span>}
-                      
-                      {l.stato === 'annullata' && (
-                        <div className="flex items-center space-x-2">
-                          <span className="bg-slate-200 text-slate-800 text-[10px] font-extrabold px-2 py-0.5 rounded-md line-through">
-                            {l.tipoAnnullamento === 'addebito' ? 'Annullata (Con Addebito)' : 'Annullata (Gratuita)'}
-                          </span>
-                          <button 
-                            onClick={() => handleRequestRestore(l.id)}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-[10px] flex items-center space-x-1 shadow-sm cursor-pointer"
-                          >
-                            <RotateCcw className="w-3 h-3"/><span>Ripristina</span>
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase ${
+                      l.stato === 'svolta' 
+                        ? 'bg-emerald-100 text-emerald-800' 
+                        : l.stato === 'annullata' 
+                          ? 'bg-rose-100 text-rose-800' 
+                          : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {l.stato || 'in programma'}
+                    </span>
                   </div>
-
-                  {/* FORM PER RISCHEDULARE / SPOSTARE LA LEZIONE */}
-                  {editingLezioneId === l.id && (
-                    <div className="bg-amber-50 border border-amber-300 p-3 rounded-xl space-y-2 text-xs animate-in fade-in duration-100">
-                      <div className="grid grid-cols-3 gap-2">
-                        <div>
-                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Nuovo Giorno</label>
-                          <input type="date" value={moveForm.data} onChange={(e) => setMoveForm({ ...moveForm, data: e.target.value })} className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"/>
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Ora Inizio</label>
-                          <input type="time" value={moveForm.oraInizio} onChange={(e) => setMoveForm({ ...moveForm, oraInizio: e.target.value })} className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"/>
-                        </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-amber-900 mb-0.5">Ora Fine</label>
-                          <input type="time" value={moveForm.oraFine} onChange={(e) => setMoveForm({ ...moveForm, oraFine: e.target.value })} className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"/>
-                        </div>
-                      </div>
-                      <div className="flex justify-end space-x-2 pt-1">
-                        <button onClick={() => setEditingLezioneId(null)} className="px-3 py-1 bg-white border border-gray-200 text-gray-600 font-bold rounded-lg text-[11px]">Annulla</button>
-                        <button onClick={() => handleRequestMove(l)} className="px-3 py-1 bg-slate-900 text-white font-bold rounded-lg text-[11px]">Salva Spostamento</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
+
         </div>
 
-        {/* MODALE PER ANNULLAMENTO LEZIONE CON MOTIVO E PENALE */}
-        {lezioneDaAnnullare && (
-          <div className="fixed inset-0 z-[60] bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-gray-200 space-y-4">
-              <h4 className="font-extrabold text-slate-900 text-sm">Disdici / Annulla Lezione</h4>
-              <p className="text-xs text-gray-500">Specifica il motivo della cancellazione e la gestione dell'addebito:</p>
-              
-              <div className="space-y-3 text-xs">
+        {/* Chiusura */}
+        <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end">
+          <button onClick={onClose} className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-sm">
+            Chiudi Scheda
+          </button>
+        </div>
+
+      </div>
+
+      {/* MINI-MODALE RICARICA ORE & PAGAMENTO */}
+      {showRicaricaModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <Wallet className="w-5 h-5 text-emerald-600"/>
+                <h3 className="font-extrabold text-base text-slate-900">Ricarica Pacchetto Ore</h3>
+              </div>
+              <button onClick={() => setShowRicaricaModal(false)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full">
+                <X className="w-5 h-5"/>
+              </button>
+            </div>
+
+            <form onSubmit={handleSalvaRicarica} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">Motivo Annullamento</label>
-                  <input type="text" placeholder="Es. Malattia, Impegno..." value={motivoAnnullamento} onChange={(e) => setMotivoAnnullamento(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900"/>
+                  <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Ore da Aggiungere</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="1"
+                    required
+                    value={ricaricaForm.ore}
+                    onChange={(e) => setRicaricaForm(prev => ({ ...prev, ore: e.target.value }))}
+                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none focus:border-amber-400"
+                  />
                 </div>
                 <div>
-                  <label className="block font-bold text-gray-700 mb-1">Tipo Gestione</label>
-                  <select value={tipoAnnullamento} onChange={(e) => setTipoAnnullamento(e.target.value)} className="w-full p-2 border border-gray-300 rounded-xl font-bold text-slate-900">
-                    <option value="gratuito">Gratuito (Annullamento senza addebito)</option>
-                    <option value="addebito">Con Addebito / Penalità</option>
+                  <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Costo Totale (€)</label>
+                  <input
+                    type="number"
+                    step="5"
+                    min="0"
+                    required
+                    value={ricaricaForm.costoTotale}
+                    onChange={(e) => setRicaricaForm(prev => ({ ...prev, costoTotale: e.target.value }))}
+                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Importo Pagato Ora (€)</label>
+                  <input
+                    type="number"
+                    step="5"
+                    min="0"
+                    required
+                    value={ricaricaForm.importoPagato}
+                    onChange={(e) => setRicaricaForm(prev => ({ ...prev, importoPagato: e.target.value }))}
+                    className="w-full p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl font-bold text-emerald-950 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Metodo Pagamento</label>
+                  <select
+                    value={ricaricaForm.metodoPagamento}
+                    onChange={(e) => setRicaricaForm(prev => ({ ...prev, metodoPagamento: e.target.value }))}
+                    className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none"
+                  >
+                    <option value="Contanti">Contanti</option>
+                    <option value="POS / Carta">POS / Carta</option>
+                    <option value="Bonifico">Bonifico</option>
+                    <option value="Non Pagato (Sospeso)">Non Pagato (Sospeso)</option>
                   </select>
                 </div>
               </div>
 
-              <div className="flex justify-end space-x-2 pt-2">
-                <button onClick={() => setLezioneDaAnnullare(null)} className="px-3 py-1.5 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Indietro</button>
-                <button onClick={handleRequestCancel} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs">Conferma Annullamento</button>
+              <div>
+                <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Note (opzionale)</label>
+                <input
+                  type="text"
+                  placeholder="es. Ricevuta n. 12, acconto metà pacchetto..."
+                  value={ricaricaForm.note}
+                  onChange={(e) => setRicaricaForm(prev => ({ ...prev, note: e.target.value }))}
+                  className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-medium text-slate-900 focus:outline-none"
+                />
               </div>
-            </div>
+
+              <div className="pt-2 border-t border-gray-100 flex justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRicaricaModal(false)}
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl"
+                >
+                  Annulla
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-sm"
+                >
+                  Conferma Ricarica
+                </button>
+              </div>
+            </form>
           </div>
-        )}
-
-        {/* MODALE PIN ISOLATO TOUCH */}
-        <ModalePin
-          isOpen={pinConfig.isOpen}
-          descrizione={pinConfig.description}
-          onClose={() => setPinConfig({ isOpen: false, callback: null, description: '' })}
-          onSuccess={() => {
-            if (pinConfig.callback) pinConfig.callback();
-            setPinConfig({ isOpen: false, callback: null, description: '' });
-          }}
-        />
-
-        <div className="pt-3 border-t border-gray-100 flex justify-end">
-          <button onClick={onClose} className="px-5 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
         </div>
-      </div>
+      )}
+
     </div>
   );
 }
