@@ -18,6 +18,7 @@ import ModaleStudente from './components/ModaleStudente';
 import PlanningCalendario from './components/PlanningCalendario';
 import ModaleLezione from './components/ModaleLezione';
 import DettaglioStudente from './components/DettaglioStudente';
+import CassaPresenze from './components/CassaPresenze';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('planning');
@@ -222,7 +223,6 @@ export default function App() {
     }
   };
 
-  // Spostamento lezione (da Drag & Drop o da scheda studente)
   const handleUpdateLezioneCompleta = async (moveData) => {
     if (!moveData.lezioneId) return;
     try {
@@ -373,6 +373,17 @@ export default function App() {
             onOpenModal={handleOpenStudenteModal} 
             onToggleStato={handleToggleStatoStudente} 
             onDelete={handleDeleteStudente} 
+          />
+        )}
+
+        {/* TAB CASSA & PRESENZE */}
+        {activeTab === 'cassa' && (
+          <CassaPresenze
+            lezioni={lezioni}
+            studenti={studenti}
+            insegnanti={insegnanti}
+            onUpdateLezioneStatus={handleUpdateLezioneStatus}
+            aggiungiLog={aggiungiLog}
           />
         )}
       </main>
