@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, Bell, Check, MessageSquare, History } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, Bell, Check, MessageSquare, History, Search } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
@@ -23,21 +23,45 @@ export default function PlanningCalendario({
   
   const [showRichiesteModal, setShowRichiesteModal] = useState(false);
   const [showAnnullateModal, setShowAnnullateModal] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
   
-  // STATI PER GESTIONE PIN E LOG
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null);
+  // GESTIONE PIN UNIFICATA E AUTOMATICA
+  const [pinModalConfig, setPinModalConfig] = useState({ isOpen: false, actionData: null, description: '' });
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
-  const PIN_SEGRETO = "1234"; // Puoi modificarlo a piacimento
-
-  const [showLogModal, setShowLogModal] = useState(false);
-  const [logsAttivita, setLogsAttivita] = useState([
-    { id: 1, timestamp: new Date().toLocaleString(), operatore: 'Admin', azione: 'Avvio sistema planning caricato correttamente' }
-  ]);
-
+  const PIN_SEGRETO = "1234";
   const pinInputRef = useRef(null);
+
+  // LOG PERSISTENTE CON LOCALSTORAGE
+  const [logsAttivita, setLogsAttivita] = useState(() => {
+    try {
+      const saved = localStorage.getItem('fuoriclasse_logs');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return [
+      { id: 1, timestamp: new Date().toLocaleString(), operatore: 'Admin', azione: 'Avvio sistema planning e caricamento log di sicurezza' }
+    ];
+  });
+  const [logSearchQuery, setLogSearchQuery] = useState('');
+
   const prevRichiesteCountRef = useRef(0);
+
+  useEffect(() => {
+    localStorage.setItem('fuoriclasse_logs', JSON.stringify(logsAttivita));
+  }, [logsAttivita]);
+
+  // Focus automatico sul PIN appena si apre il modale
+  useEffect(() => {
+    if (pinModalConfig.isOpen) {
+      setTimeout(() => {
+        if (pinInputRef.current) {
+          pinInputRef.current.focus();
+        }
+      }, 50);
+    }
+  }, [pinModalConfig.isOpen]);
 
   const slots30 = [];
   for (let h = 9; h < 20; h++) {
@@ -67,34 +91,42 @@ export default function PlanningCalendario({
     setLogsAttivita(prev => [nuovoLog, ...prev]);
   };
 
+  // Funzione wrapper unificata per richiedere il PIN prima di qualsiasi azione critica
+  const richiediAutorizzazionePin = (actionData, descrizione) => {
+    setPinInput('');
+    setPinError(false);
+    setPinModalConfig({
+      isOpen: true,
+      actionData,
+      description
+    });
+  };
+
+  const eseguiAzioneAutenticata = () => {
+    if (pinInput === PIN_SEGRETO) {
+      const { actionData, description } = pinModalConfig;
+      setPinModalConfig({ isOpen: false, actionData: null, description: '' });
+      setPinInput('');
+
+      if (actionData) {
+        if (actionData.tipo === 'SPOSTAMENTO') {
+          const { lezioneId, payloadAggiornato } = actionData;
+          if (onUpdateLezioneCompleta) {
+            onUpdateLezioneCompleta(lezioneId, payloadAggiornato);
+          }
+          aggiungiLog(`Spostamento autorizzato: ${description}`);
+        }
+      }
+    } else {
+      setPinError(true);
+      if (pinInputRef.current) pinInputRef.current.focus();
+    }
+  };
+
   const lezioniAttive = lezioni.filter(l => l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
   const lezioniRichiesteOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'richiesta');
   const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
-
-  useEffect(() => {
-    if (lezioniRichiesteOggi.length > prevRichiesteCountRef.current) {
-      playNotificationSound();
-    }
-    prevRichiesteCountRef.current = lezioniRichiesteOggi.length;
-  }, [lezioniRichiesteOggi.length]);
-
-  const playNotificationSound = () => {
-    try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-      gain.gain.setValueAtTime(0.1, ctx.currentTime);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.3);
-    } catch (e) {
-      console.log("Audio non supportato");
-    }
-  };
 
   const changeDate = (days) => {
     const current = new Date(dataSelezionata);
@@ -123,62 +155,48 @@ export default function PlanningCalendario({
     e.preventDefault();
   };
 
-  // Intercettazione del drop per richiedere il PIN prima di spostare la lezione
+  // GESTIONE DROP CORRETTA (Sposta per 30 min, cambia colonna docente o gruppo)
   const handleDrop = (e, targetInsegnanteId, targetIsGruppo = false, targetOraStr) => {
     e.preventDefault();
     const dataJson = e.dataTransfer.getData('application/json');
     if (!dataJson) return;
 
-    const payload = JSON.parse(dataJson);
-    const [tH, tM] = targetOraStr.split(':').map(Number);
-    const startMinsNew = tH * 60 + tM;
+    try {
+      const payload = JSON.parse(dataJson);
+      const lezioneId = payload.id;
+      if (!lezioneId) return;
 
-    const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
-    const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
-    const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
+      const [tH, tM] = targetOraStr.split(':').map(Number);
+      const startMinsNew = tH * 60 + tM;
 
-    const endTotalMins = startMinsNew + durataMins;
-    const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
-    const endM = (endTotalMins % 60).toString().padStart(2, '0');
+      const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
+      const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
+      const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
 
-    setPendingAction({
-      tipo: 'SPOSTAMENTO_LEZIONE',
-      payload: {
-        lezioneId: payload.id,
+      const endTotalMins = startMinsNew + (durataMins > 0 ? durataMins : 60); // Default 60 min se non specificato
+      const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
+      const endM = (endTotalMins % 60).toString().padStart(2, '0');
+      const oraFineNuova = `${endH}:${endM}`;
+
+      const payloadAggiornato = {
+        ...payload,
         data: dataSelezionata,
         oraInizio: targetOraStr,
-        oraFine: `${endH}:${endM}`,
+        oraFine: oraFineNuova,
         insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
         isGruppo: Boolean(targetIsGruppo)
-      },
-      descrizione: `Spostamento lezione ID ${payload.id} alle ore ${targetOraStr}`
-    });
-    setPinInput('');
-    setPinError(false);
-    setShowPinModal(true);
-  };
+      };
 
-  const confermaAzioneConPin = () => {
-    if (pinInput === PIN_SEGRETO) {
-      setShowPinModal(false);
-      if (pendingAction) {
-        if (pendingAction.tipo === 'SPOSTAMENTO_LEZIONE') {
-          if (onUpdateLezioneCompleta) {
-            onUpdateLezioneCompleta(pendingAction.payload.lezioneId, pendingAction.payload);
-          }
-          aggiungiLog(`Spostata lezione (ID: ${pendingAction.payload.lezioneId}) al nuovo orario: ${pendingAction.payload.oraInizio} - ${pendingAction.payload.oraFine}`);
-        }
-      }
-      setPendingAction(null);
-      setPinInput('');
-    } else {
-      setPinError(true);
-      if (pinInputRef.current) pinInputRef.current.focus();
+      const insObj = insegnanti.find(i => i.id === targetInsegnanteId);
+      const nomeDestinazione = targetIsGruppo ? 'Gruppo Studio' : (insObj ? `${insObj.nome}` : 'Docente');
+
+      richiediAutorizzazionePin(
+        { tipo: 'SPOSTAMENTO', lezioneId, payloadAggiornato },
+        `Lezione ID ${lezioneId} spostata alle ${targetOraStr} (${nomeDestinazione})`
+      );
+    } catch (err) {
+      console.error("Errore nel parsing del drag and drop", err);
     }
-  };
-
-  const handleOpenDetail = (lez) => {
-    setSelectedLezioneDetail(lez);
   };
 
   const sendWhatsAppConfirmation = (lez) => {
@@ -193,11 +211,17 @@ export default function PlanningCalendario({
     aggiungiLog(`Inviato promemoria WhatsApp per la lezione di ${nomeStudente}`);
   };
 
+  const logsFiltrati = logsAttivita.filter(l => 
+    l.azione.toLowerCase().includes(logSearchQuery.toLowerCase()) ||
+    l.operatore.toLowerCase().includes(logSearchQuery.toLowerCase()) ||
+    l.timestamp.toLowerCase().includes(logSearchQuery.toLowerCase())
+  );
+
   const gridTemplateColumns = `60px repeat(${insegnanti.length}, minmax(150px, 1fr)) 160px`;
 
   return (
     <div className="w-full h-full p-0 flex flex-col space-y-3 select-none">
-      {/* Header e comandi */}
+      {/* Header e comandi superiori */}
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl">
@@ -246,14 +270,7 @@ export default function PlanningCalendario({
             <span>Annullate ({lezioniAnnullateOggi.length})</span>
           </button>
 
-          <button
-            onClick={() => setShowLogModal(true)}
-            className="flex items-center space-x-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 rounded-xl text-xs font-bold border border-indigo-200 shadow-sm"
-          >
-            <History className="w-4 h-4 text-indigo-600"/>
-            <span>Registro Log</span>
-          </button>
-
+          {/* Pulsante Registro Log rimosso da qui e spostato in basso a sinistra come richiesto */}
           <button
             onClick={() => {
               onOpenModal();
@@ -267,144 +284,205 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* Griglia Calendario */}
-      <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
-        <div 
-          className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[850px]"
-          style={{ gridTemplateColumns }}
-        >
-          <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">ORA</div>
-
-          {insegnanti.map(ins => (
-            <div key={ins.id} className="p-3 text-center border-r border-gray-200 flex flex-col items-center justify-center">
-              <div style={{ backgroundColor: ins.colore || '#3b82f6' }} className="w-2.5 h-2.5 rounded-full mb-1 shadow-sm"/>
-              <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">{ins.nome}</span>
+      {/* Contenitore principale con Calendario e Widget LOG in basso a sinistra */}
+      <div className="flex flex-col lg:flex-row flex-1 gap-4 mx-4 mb-4">
+        
+        {/* WIDGET LOG IN BASSO A SINISTRA (Come da foto) */}
+        <div className="w-full lg:w-80 bg-white border border-gray-200 rounded-3xl p-4 shadow-sm flex flex-col justify-between shrink-0 max-h-[680px]">
+          <div className="space-y-3 flex flex-col h-full">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+              <div className="flex items-center space-x-2 text-indigo-900">
+                <History className="w-5 h-5"/>
+                <h3 className="font-black text-sm tracking-tight text-slate-900">Registro LOG Sicurezza</h3>
+              </div>
+              <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold">{logsAttivita.length}</span>
             </div>
-          ))}
 
-          <div
-            onClick={() => setGroupModalData({ fascia: 'Intero Giorno', lezioniGroup: lezioniGruppoOggi })}
-            className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 flex flex-col items-center justify-center cursor-pointer"
-          >
-            <Users className="w-4 h-4 text-amber-800 mb-0.5"/>
-            <span className="font-black text-xs text-amber-950 uppercase tracking-wider flex items-center">
-              GRUPPO <span className="ml-1 text-[10px] bg-amber-300 text-amber-950 px-1.5 rounded-full">{lezioniGruppoOggi.length}</span>
-            </span>
+            {/* Barra di ricerca nei log */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5"/>
+              <input
+                type="text"
+                placeholder="Cerca nei log passati..."
+                value={logSearchQuery}
+                onChange={(e) => setLogSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium focus:outline-none focus:border-indigo-500"
+              />
+            </div>
+
+            {/* Lista dei log scrollabile */}
+            <div className="space-y-2 overflow-y-auto flex-1 pr-1 min-h-[300px]">
+              {logsFiltrati.length === 0 ? (
+                <div className="text-center py-6 text-gray-400 text-xs font-medium">Nessun log trovato.</div>
+              ) : (
+                logsFiltrati.map(log => (
+                  <div key={log.id} className="bg-slate-50 border border-slate-100 p-2.5 rounded-xl space-y-1 text-xs">
+                    <div className="flex justify-between items-center text-[10px] text-gray-400">
+                      <span className="font-bold text-indigo-900">{log.operatore}</span>
+                      <span>{log.timestamp}</span>
+                    </div>
+                    <p className="text-slate-800 font-medium leading-snug">{log.azione}</p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <p className="text-[10px] text-gray-400 text-center pt-2 border-t border-gray-100">
+              🔒 Storico permanente protetto e non eliminabile
+            </p>
           </div>
         </div>
 
-        <div 
-          className="relative flex-1 grid w-full min-w-[850px]"
-          style={{ gridTemplateColumns }}
-        >
-          <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
-            {slots30.map((slot, i) => (
-              <div key={i} className="h-8 text-[10px] font-extrabold text-gray-400 pt-1">
-                {slot.oraStr.endsWith(':00') ? slot.oraStr : ''}
+        {/* Griglia Calendario */}
+        <div className="flex-1 bg-white border border-gray-200 rounded-3xl overflow-x-auto flex flex-col min-h-[680px] shadow-sm">
+          <div 
+            className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[750px] rounded-t-3xl"
+            style={{ gridTemplateColumns }}
+          >
+            <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">ORA</div>
+
+            {insegnanti.map(ins => (
+              <div key={ins.id} className="p-3 text-center border-r border-gray-200 flex flex-col items-center justify-center">
+                <div style={{ backgroundColor: ins.colore || '#3b82f6' }} className="w-2.5 h-2.5 rounded-full mb-1 shadow-sm"/>
+                <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">{ins.nome}</span>
               </div>
             ))}
+
+            <div
+              onClick={() => setGroupModalData({ fascia: 'Intero Giorno', lezioniGroup: lezioniGruppoOggi })}
+              className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 flex flex-col items-center justify-center cursor-pointer rounded-tr-3xl"
+            >
+              <Users className="w-4 h-4 text-amber-800 mb-0.5"/>
+              <span className="font-black text-xs text-amber-950 uppercase tracking-wider flex items-center">
+                GRUPPO <span className="ml-1 text-[10px] bg-amber-300 text-amber-950 px-1.5 rounded-full">{lezioniGruppoOggi.length}</span>
+              </span>
+            </div>
           </div>
 
-          {insegnanti.map(ins => {
-            const lezioniDocente = lezioniAttive.filter(l => l.insegnanteId === ins.id && !l.isGruppo);
+          <div 
+            className="relative flex-1 grid w-full min-w-[750px]"
+            style={{ gridTemplateColumns }}
+          >
+            <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
+              {slots30.map((slot, i) => (
+                <div key={i} className="h-8 text-[10px] font-extrabold text-gray-400 pt-1">
+                  {slot.oraStr.endsWith(':00') ? slot.oraStr : ''}
+                </div>
+              ))}
+            </div>
 
-            return (
-              <div key={ins.id} className="border-r border-gray-100 relative divide-y divide-gray-100/60 bg-white">
-                {slots30.map((slot, i) => (
-                  <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, ins.id, false, slot.oraStr)} className="h-8 hover:bg-slate-50/60"/>
-                ))}
-
-                {lezioniDocente.map(lez => {
-                  const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
-                  const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
-                  const topMins = hStart * 60 + mStart - startHourMins;
-                  const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
-
-                  const topPercent = (topMins / totalHoursMins) * 100;
-                  const heightPercent = (durationMins / totalHoursMins) * 100;
-
-                  return (
-                    <div
-                      key={lez.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, lez)}
-                      onClick={() => handleOpenDetail(lez)}
-                      style={{
-                        top: `${topPercent}%`,
-                        height: `${heightPercent}%`,
-                        backgroundColor: (ins.colore || '#3b82f6') + '20',
-                        borderColor: ins.colore || '#3b82f6'
-                      }}
-                      className="absolute left-1 right-1 border-l-4 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between cursor-grab active:cursor-grabbing hover:scale-[1.01] transition-all group"
-                    >
-                      <div>
-                        <div className="font-extrabold text-slate-900 truncate">{stdsNames(lez.studentiIds, studenti)}</div>
-                        <div className="text-[10px] font-bold text-gray-600 truncate">{lez.materia || 'Materia'}</div>
-                        <div className="text-[9px] font-extrabold text-gray-500 mt-0.5">{lez.oraInizio} - {lez.oraFine}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-
-          <div className="bg-amber-50/30 relative divide-y divide-amber-100/50">
-            {slots30.map((slot, i) => (
-              <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, '', true, slot.oraStr)} className="h-8 hover:bg-amber-100/30"/>
-            ))}
-
-            {gruppiFusiList.map((gf, idx) => {
-              const [hStart, mStart] = gf.oraInizio.split(':').map(Number);
-              const [hEnd, mEnd] = gf.oraFine.split(':').map(Number);
-              const topMins = hStart * 60 + mStart - startHourMins;
-              const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
-
-              const topPercent = (topMins / totalHoursMins) * 100;
-              const heightPercent = (durationMins / totalHoursMins) * 100;
-              const tuttiStudentiIds = gf.lezioni.flatMap(l => l.studentiIds || []);
+            {insegnanti.map(ins => {
+              const lezioniDocente = lezioniAttive.filter(l => l.insegnanteId === ins.id && !l.isGruppo);
 
               return (
-                <div
-                  key={idx}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, { isGruppoFuso: true, lezioni: gf.lezioni })}
-                  onClick={() => setGroupModalData({ fascia: `${gf.oraInizio} - ${gf.oraFine}`, lezioniGroup: gf.lezioni })}
-                  style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
-                  className="absolute left-1 right-1 bg-amber-300 border-l-4 border-amber-600 rounded-xl p-2.5 text-xs shadow-md overflow-hidden flex flex-col justify-between cursor-pointer hover:bg-amber-400 transition-all z-10"
-                >
-                  <div>
-                    <div className="font-black text-amber-950 flex items-center justify-between">
-                      <span className="truncate">👥 Gruppo Studio</span>
-                      <span className="bg-amber-950 text-amber-300 font-black text-[10px] px-2 py-0.5 rounded-full shrink-0">
-                        {tuttiStudentiIds.length} ragazzi
-                      </span>
-                    </div>
-                    <div className="text-[10px] font-extrabold text-amber-900 mt-1">🕒 {gf.oraInizio} - {gf.oraFine}</div>
-                  </div>
+                <div key={ins.id} className="border-r border-gray-100 relative divide-y divide-gray-100/60 bg-white">
+                  {slots30.map((slot, i) => (
+                    <div 
+                      key={i} 
+                      onDragOver={handleDragOver} 
+                      onDrop={(e) => handleDrop(e, ins.id, false, slot.oraStr)} 
+                      className="h-8 hover:bg-slate-50/60 transition-colors"
+                    />
+                  ))}
+
+                  {lezioniDocente.map(lez => {
+                    const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
+                    const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
+                    const topMins = hStart * 60 + mStart - startHourMins;
+                    const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
+
+                    const topPercent = (topMins / totalHoursMins) * 100;
+                    const heightPercent = (durationMins / totalHoursMins) * 100;
+
+                    return (
+                      <div
+                        key={lez.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, lez)}
+                        onClick={() => setSelectedLezioneDetail(lez)}
+                        style={{
+                          top: `${topPercent}%`,
+                          height: `${heightPercent}%`,
+                          backgroundColor: (ins.colore || '#3b82f6') + '20',
+                          borderColor: ins.colore || '#3b82f6'
+                        }}
+                        className="absolute left-1 right-1 border-l-4 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between cursor-grab active:cursor-grabbing hover:scale-[1.01] transition-all group z-10"
+                      >
+                        <div>
+                          <div className="font-extrabold text-slate-900 truncate">{stdsNames(lez.studentiIds, studenti)}</div>
+                          <div className="text-[10px] font-bold text-gray-600 truncate">{lez.materia || 'Materia'}</div>
+                          <div className="text-[9px] font-extrabold text-gray-500 mt-0.5">{lez.oraInizio} - {lez.oraFine}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
-          </div>
 
-          {isToday && redLineTop >= 0 && redLineTop <= 100 && (
-            <div style={{ top: `${redLineTop}%` }} className="absolute left-0 right-0 border-b-2 border-rose-500 z-30 pointer-events-none flex items-center">
-              <span className="bg-rose-500 text-white text-[9px] font-black px-1 rounded-r">ORA</span>
+            <div className="bg-amber-50/30 relative divide-y divide-amber-100/50">
+              {slots30.map((slot, i) => (
+                <div 
+                  key={i} 
+                  onDragOver={handleDragOver} 
+                  onDrop={(e) => handleDrop(e, '', true, slot.oraStr)} 
+                  className="h-8 hover:bg-amber-100/30 transition-colors"
+                />
+              ))}
+
+              {gruppiFusiList.map((gf, idx) => {
+                const [hStart, mStart] = gf.oraInizio.split(':').map(Number);
+                const [hEnd, mEnd] = gf.oraFine.split(':').map(Number);
+                const topMins = hStart * 60 + mStart - startHourMins;
+                const durationMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
+
+                const topPercent = (topMins / totalHoursMins) * 100;
+                const heightPercent = (durationMins / totalHoursMins) * 100;
+                const tuttiStudentiIds = gf.lezioni.flatMap(l => l.studentiIds || []);
+
+                return (
+                  <div
+                    key={idx}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, { isGruppoFuso: true, lezioni: gf.lezioni })}
+                    onClick={() => setGroupModalData({ fascia: `${gf.oraInizio} - ${gf.oraFine}`, lezioniGroup: gf.lezioni })}
+                    style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
+                    className="absolute left-1 right-1 bg-amber-300 border-l-4 border-amber-600 rounded-xl p-2.5 text-xs shadow-md overflow-hidden flex flex-col justify-between cursor-pointer hover:bg-amber-400 transition-all z-10"
+                  >
+                    <div>
+                      <div className="font-black text-amber-950 flex items-center justify-between">
+                        <span className="truncate">👥 Gruppo Studio</span>
+                        <span className="bg-amber-950 text-amber-300 font-black text-[10px] px-2 py-0.5 rounded-full shrink-0">
+                          {tuttiStudentiIds.length} ragazzi
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-extrabold text-amber-900 mt-1">🕒 {gf.oraInizio} - {gf.oraFine}</div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
+
+            {isToday && redLineTop >= 0 && redLineTop <= 100 && (
+              <div style={{ top: `${redLineTop}%` }} className="absolute left-0 right-0 border-b-2 border-rose-500 z-30 pointer-events-none flex items-center">
+                <span className="bg-rose-500 text-white text-[9px] font-black px-1 rounded-r">ORA</span>
+              </div>
+            )}
+          </div>
         </div>
+
       </div>
 
-      {/* MODALE RICHIESTA PIN DI SICUREZZA */}
-      {showPinModal && (
+      {/* MODALE UNIFICATO RICHIESTA PIN (Con auto-focus e zero click necessari) */}
+      {pinModalConfig.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 text-center">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 text-center animate-in fade-in zoom-in duration-200">
             <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-2xl mx-auto flex items-center justify-center">
               <Lock className="w-6 h-6"/>
             </div>
             <div>
-              <h3 className="font-black text-lg text-slate-900">Autorizzazione Richiesta</h3>
-              <p className="text-xs text-gray-500 mt-1">Inserisci il PIN amministrativo per autorizzare lo spostamento della lezione.</p>
+              <h3 className="font-black text-lg text-slate-900">Autorizzazione Sicurezza</h3>
+              <p className="text-xs text-gray-500 mt-1">{pinModalConfig.description}</p>
             </div>
 
             <div className="space-y-2">
@@ -418,74 +496,27 @@ export default function PlanningCalendario({
                   setPinInput(e.target.value);
                   setPinError(false);
                 }}
-                onKeyDown={(e) => { if (e.key === 'Enter') confermaAzioneConPin(); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') eseguiAzioneAutenticata(); }}
                 className={`w-full text-center text-2xl tracking-widest font-black py-3 rounded-2xl border bg-gray-50 focus:outline-none ${
                   pinError ? 'border-rose-500 text-rose-600 bg-rose-50' : 'border-gray-200 text-slate-900'
                 }`}
               />
-              {pinError && <p className="text-[11px] font-bold text-rose-600">PIN errato! Riprova (Suggerimento: 1234)</p>}
+              {pinError && <p className="text-[11px] font-bold text-rose-600">PIN errato! (Suggerimento: 1234)</p>}
             </div>
 
             <div className="flex space-x-2 pt-2">
               <button
-                onClick={() => {
-                  setShowPinModal(false);
-                  setPendingAction(null);
-                }}
+                onClick={() => setPinModalConfig({ isOpen: false, actionData: null, description: '' })}
                 className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs transition-all"
               >
                 Annulla
               </button>
               <button
-                onClick={confermaAzioneConPin}
+                onClick={eseguiAzioneAutenticata}
                 className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-sm transition-all"
               >
                 Conferma PIN
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODALE REGISTRO LOG ATTIVITÀ */}
-      {showLogModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2 text-indigo-900">
-                <History className="w-6 h-6"/>
-                <h3 className="font-extrabold text-lg text-slate-900">Registro Attività e Log</h3>
-              </div>
-              <button onClick={() => setShowLogModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
-            </div>
-
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-              {logsAttivita.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna attività registrata nella sessione odierna.</div>
-              ) : (
-                logsAttivita.map(log => (
-                  <div key={log.id} className="bg-slate-50 border border-slate-200 p-3 rounded-2xl flex items-start justify-between gap-3 text-xs">
-                    <div className="space-y-0.5">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-black text-indigo-900">{log.operatore}</span>
-                        <span className="text-[10px] text-gray-400">• {log.timestamp}</span>
-                      </div>
-                      <p className="text-slate-800 font-medium">{log.azione}</p>
-                    </div>
-                    <span className="bg-emerald-100 text-emerald-800 font-black text-[9px] px-2 py-0.5 rounded-full shrink-0">Registrato</span>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="pt-3 border-t border-gray-100 flex justify-between items-center">
-              <button
-                onClick={() => setLogsAttivita([])}
-                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold rounded-xl text-xs transition-all"
-              >
-                Pulisci Storico
-              </button>
-              <button onClick={() => setShowLogModal(false)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
             </div>
           </div>
         </div>
