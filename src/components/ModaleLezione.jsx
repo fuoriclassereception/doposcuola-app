@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, BookOpen, User, Users } from 'lucide-react';
+import { X, BookOpen, Search, UserCheck } from 'lucide-react';
 
 export default function ModaleLezione({
   isOpen,
@@ -21,7 +21,8 @@ export default function ModaleLezione({
     note: ''
   });
 
-  // Popola automaticamente i campi se arrivano dati dalla selezione su planning (drag o tasto destro)
+  const [searchStudente, setSearchStudente] = useState('');
+
   useEffect(() => {
     if (initialData) {
       setFormData(prev => ({
@@ -36,6 +37,13 @@ export default function ModaleLezione({
       setFormData(prev => ({ ...prev, insegnanteId: insegnanti[0].id }));
     }
   }, [initialData, isOpen, insegnanti]);
+
+  // Reset del filtro ricerca ogni volta che si apre il modale
+  useEffect(() => {
+    if (isOpen) {
+      setSearchStudente('');
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -58,6 +66,16 @@ export default function ModaleLezione({
       }
     });
   };
+
+  // Studenti attivi filtrati per la barra di ricerca
+  const studentiAttivi = studenti.filter(s => s.attivo !== false);
+  const studentiFiltrati = studentiAttivi.filter(s => {
+    const nomeCompleto = `${s.nome} ${s.cognome}`.toLowerCase();
+    return nomeCompleto.includes(searchStudente.toLowerCase().trim());
+  });
+
+  // Lista oggetti studenti attualmente selezionati
+  const studentiSelezionati = studenti.filter(s => formData.studentiIds.includes(s.id));
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -91,7 +109,7 @@ export default function ModaleLezione({
             </button>
           </div>
 
-          {/* Docente (disabilitato se gruppo) */}
+          {/* Docente Assegnato */}
           {!formData.isGruppo && (
             <div>
               <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Docente Assegnato</label>
@@ -143,30 +161,81 @@ export default function ModaleLezione({
             <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Materia / Argomento</label>
             <input
               type="text"
-              placeholder="es. Matematica, Aiuto compiti..."
+              placeholder="es. Matematica, Fisica..."
               value={formData.materia}
               onChange={(e) => setFormData(prev => ({ ...prev, materia: e.target.value }))}
               className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none focus:border-amber-400"
             />
           </div>
 
-          {/* Selezione Studenti */}
-          <div>
-            <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1.5">Seleziona Studente/i</label>
-            <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-2xl p-2 space-y-1 bg-gray-50/50">
-              {studenti.filter(s => s.attivo !== false).map(std => {
-                const isSelected = formData.studentiIds.includes(std.id);
-                return (
-                  <div
-                    key={std.id}
-                    onClick={() => handleToggleStudente(std.id)}
-                    className={`p-2 rounded-xl flex items-center justify-between cursor-pointer font-bold transition-colors ${isSelected ? 'bg-amber-100 text-slate-950 border border-amber-300' : 'bg-white hover:bg-gray-100 text-slate-700'}`}
+          {/* Sezione Studenti con Ricerca e Chip */}
+          <div className="space-y-2">
+            <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">
+              Seleziona Studente/i
+            </label>
+
+            {/* Chip degli studenti già selezionati */}
+            {studentiSelezionati.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 p-2 bg-amber-50/60 rounded-xl border border-amber-200">
+                {studentiSelezionati.map(s => (
+                  <span
+                    key={s.id}
+                    className="inline-flex items-center space-x-1 bg-amber-200/80 text-amber-950 font-bold px-2 py-1 rounded-lg text-[11px]"
                   >
-                    <span>{std.nome} {std.cognome}</span>
-                    <input type="checkbox" checked={isSelected} readOnly className="rounded text-amber-500 pointer-events-none"/>
-                  </div>
-                );
-              })}
+                    <UserCheck className="w-3 h-3 text-amber-800"/>
+                    <span>{s.nome} {s.cognome}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleStudente(s.id)}
+                      className="ml-1 hover:text-rose-600 rounded"
+                    >
+                      <X className="w-3 h-3"/>
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* Barra di Ricerca Dinamica */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5"/>
+              <input
+                type="text"
+                placeholder="Cerca studente per nome o cognome..."
+                value={searchStudente}
+                onChange={(e) => setSearchStudente(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-medium text-slate-900 focus:outline-none focus:border-amber-400"
+              />
+            </div>
+
+            {/* Lista a comparsa filtrata */}
+            <div className="max-h-36 overflow-y-auto border border-gray-200 rounded-2xl p-1.5 space-y-1 bg-white">
+              {studentiFiltrati.length === 0 ? (
+                <div className="text-center py-4 text-gray-400 font-medium">Nessuno studente trovato</div>
+              ) : (
+                studentiFiltrati.map(std => {
+                  const isSelected = formData.studentiIds.includes(std.id);
+                  return (
+                    <div
+                      key={std.id}
+                      onClick={() => handleToggleStudente(std.id)}
+                      className={`p-2 rounded-xl flex items-center justify-between cursor-pointer font-bold transition-all ${
+                        isSelected 
+                          ? 'bg-amber-100 text-slate-950 border border-amber-300' 
+                          : 'hover:bg-gray-50 text-slate-700'
+                      }`}
+                    >
+                      <span>{std.nome} {std.cognome}</span>
+                      <input 
+                        type="checkbox" 
+                        checked={isSelected} 
+                        readOnly 
+                        className="rounded text-amber-500 pointer-events-none"
+                      />
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
