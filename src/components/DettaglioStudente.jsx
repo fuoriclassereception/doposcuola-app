@@ -10,10 +10,9 @@ import {
   CreditCard, 
   Plus, 
   Wallet, 
-  AlertCircle, 
   CheckCircle2, 
-  Banknote, 
-  ArrowRight 
+  Banknote,
+  FileText
 } from 'lucide-react';
 
 export default function DettaglioStudente({
@@ -34,7 +33,6 @@ export default function DettaglioStudente({
 
   if (!studente) return null;
 
-  // Dati contabili studente (con valori di default se non ancora presenti)
   const oreAcquistate = Number(studente.oreAcquistate || 0);
   const oreSvolte = Number(studente.oreSvolte || 0);
   const oreResidue = Number((oreAcquistate - oreSvolte).toFixed(1));
@@ -43,7 +41,10 @@ export default function DettaglioStudente({
   const totalePagato = Number(studente.totalePagato || 0);
   const saldoDebito = Number((totaleDovuto - totalePagato).toFixed(2));
 
-  // Storico lezioni di questo studente
+  // Storico ricariche/pagamenti salvati sull'allievo
+  const storicoRicariche = studente.storicoRicariche || [];
+
+  // Storico lezioni
   const lezioniStudente = lezioni.filter(l => 
     (l.studentiIds || []).includes(studente.id)
   ).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
@@ -65,10 +66,18 @@ export default function DettaglioStudente({
         costoDaAggiungere: costo,
         pagatoDaAggiungere: pagato,
         metodoPagamento: ricaricaForm.metodoPagamento,
-        note: ricaricaForm.note
+        note: ricaricaForm.note,
+        data: new Date().toLocaleDateString('it-IT')
       });
     }
 
+    setRicaricaForm({
+      ore: 10,
+      costoTotale: 250,
+      importoPagato: 250,
+      metodoPagamento: 'Contanti',
+      note: ''
+    });
     setShowRicaricaModal(false);
   };
 
@@ -180,7 +189,38 @@ export default function DettaglioStudente({
             </div>
           </div>
 
-          {/* DATI ANAGRAFICI & GENITORE */}
+          {/* STORICO PAGAMENTI E NOTE RICEVUTE */}
+          <div className="space-y-3">
+            <h4 className="font-black text-slate-900 text-sm flex items-center gap-1.5">
+              <Banknote className="w-4 h-4 text-emerald-600"/>
+              <span>Storico Pagamenti & Note Reception ({storicoRicariche.length})</span>
+            </h4>
+            <div className="max-h-40 overflow-y-auto space-y-2 border border-gray-200 rounded-2xl p-2 bg-gray-50/50">
+              {storicoRicariche.length === 0 ? (
+                <div className="text-center py-4 text-gray-400 text-xs font-bold">Nessun pagamento registrato finora.</div>
+              ) : (
+                storicoRicariche.map((r, i) => (
+                  <div key={i} className="p-3 bg-white border border-gray-200 rounded-xl flex justify-between items-center text-xs">
+                    <div>
+                      <div className="font-extrabold text-slate-900">
+                        +{r.ore} Ore • <span className="text-emerald-700 font-black">{r.pagato} € versati</span> ({r.metodo})
+                      </div>
+                      <div className="text-[11px] text-gray-500 mt-0.5">
+                        Data: {r.data || 'Registrato'} {r.costo ? `• Valore pattuito: ${r.costo} €` : ''}
+                      </div>
+                      {r.note && (
+                        <div className="text-[11px] font-bold text-amber-900 mt-1 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block">
+                          Nota: {r.note}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* DATI ANAGRAFICI */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
             <div className="p-4 bg-white border border-gray-200 rounded-2xl space-y-2">
               <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider text-gray-400">Recapiti Studente</h4>
@@ -197,7 +237,7 @@ export default function DettaglioStudente({
             </div>
           </div>
 
-          {/* STORICO ULTIME LEZIONI */}
+          {/* STORICO LEZIONI */}
           <div className="space-y-3">
             <h4 className="font-black text-slate-900 text-sm">Registro Ultime Lezioni ({lezioniStudente.length})</h4>
             <div className="max-h-48 overflow-y-auto space-y-2 border border-gray-200 rounded-2xl p-2 bg-gray-50/50">
@@ -213,9 +253,9 @@ export default function DettaglioStudente({
                       </div>
                     </div>
                     <span className={`px-2.5 py-1 rounded-xl text-[10px] font-black uppercase ${
-                      l.stato === 'svolta' 
+                      (l.stato || '').toLowerCase() === 'svolta' 
                         ? 'bg-emerald-100 text-emerald-800' 
-                        : l.stato === 'annullata' 
+                        : (l.stato || '').toLowerCase() === 'annullata' 
                           ? 'bg-rose-100 text-rose-800' 
                           : 'bg-amber-100 text-amber-800'
                     }`}>
@@ -238,7 +278,7 @@ export default function DettaglioStudente({
 
       </div>
 
-      {/* MINI-MODALE RICARICA ORE & PAGAMENTO */}
+      {/* MINI-MODALE RICARICA */}
       {showRicaricaModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
