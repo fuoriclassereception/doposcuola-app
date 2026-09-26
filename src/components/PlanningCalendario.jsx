@@ -91,14 +91,12 @@ export default function PlanningCalendario({
   const computeOverlappingLayout = (items) => {
     if (!items || items.length === 0) return [];
     
-    // Converte orari in minuti
     const sorted = items.map(item => ({
       ...item,
       startMins: parseTimeToMins(item.oraInizio),
       endMins: parseTimeToMins(item.oraFine)
     })).sort((a, b) => a.startMins - b.startMins || (b.endMins - b.startMins) - (a.endMins - a.startMins));
 
-    // Raggruppa lezioni che collidono direttamente o indirettamente
     const clusters = [];
     let currentCluster = [];
     let clusterEnd = -1;
@@ -118,10 +116,9 @@ export default function PlanningCalendario({
     });
     if (currentCluster.length > 0) clusters.push(currentCluster);
 
-    // Assegna colonna interna (lane) a ciascuna lezione nel cluster
     const result = [];
     clusters.forEach(cluster => {
-      const lanes = []; // array contenente l'endMins di ciascuna corsia
+      const lanes = [];
       cluster.forEach(item => {
         let placed = false;
         for (let i = 0; i < lanes.length; i++) {
@@ -137,7 +134,6 @@ export default function PlanningCalendario({
           result.push({ ...item, laneIndex: lanes.length - 1, totalLanes: 0, clusterSize: cluster.length });
         }
       });
-      // Aggiorna totalLanes per tutti gli elementi del cluster
       const totalColumns = lanes.length;
       result.slice(-cluster.length).forEach(r => {
         r.totalLanes = totalColumns;
@@ -147,7 +143,6 @@ export default function PlanningCalendario({
     return result;
   };
 
-  // Gruppi studio
   const gruppiFusiMap = {};
   lezioniGruppoOggi.forEach(l => {
     const key = `${l.oraInizio}-${l.oraFine}`;
@@ -158,7 +153,6 @@ export default function PlanningCalendario({
   });
   const gruppiFusiList = Object.values(gruppiFusiMap);
 
-  // Drag & drop per spostare lezioni esistenti
   const handleDragStart = (e, payloadData) => {
     e.dataTransfer.setData('application/json', JSON.stringify(payloadData));
   };
@@ -167,6 +161,7 @@ export default function PlanningCalendario({
     e.preventDefault();
   };
 
+  // DROP CON CONTROLLO CONFLITTI STUDENTE
   const handleDrop = (e, targetInsegnanteId, targetIsGruppo = false, targetOraStr) => {
     e.preventDefault();
     const dataJson = e.dataTransfer.getData('application/json');
@@ -185,6 +180,35 @@ export default function PlanningCalendario({
 
       const endTotalMins = startMinsNew + (durataMins > 0 ? durataMins : 60);
       const oraFineNuova = formatMinsToStr(endTotalMins);
+
+      // CONTROLLO CONFLITTO: Verifichiamo se lo studente ha già una lezione attiva in questa fascia
+      const studentiIscritti = payload.studentiIds || [];
+      const conflitto = lezioniAttive.find(l => {
+        if (l.id === lezioneId) return false; // Ignora se stessa
+        
+        // Verifica se condivide almeno uno studente
+        const overlapStudenti = (l.studentiIds || []).some(sId => studentiIscritti.includes(sId));
+        if (!overlapStudenti) return false;
+
+        const lStart = parseTimeToMins(l.oraInizio);
+        const lEnd = parseTimeToMins(l.oraFine);
+
+        // Controllo sovrapposizione temporale: [startMinsNew, endTotalMins] collidere con [lStart, lEnd]
+        return startMinsNew < lEnd && endTotalMins > lStart;
+      });
+
+      if (conflitto) {
+        const nomiCollidenti = studentiIscritti
+          .filter(id => (conflitto.studentiIds || []).includes(id))
+          .map(id => {
+            const s = studenti.find(std => std.id === id);
+            return s ? `${s.nome} ${s.cognome}` : 'Studente';
+          })
+          .join(', ');
+
+        alert(`Impossibile spostare la lezione:\nLo studente ${nomiCollidenti} ha già un'altra lezione programmata dalle ${conflitto.oraInizio} alle ${conflitto.oraFine}!`);
+        return;
+      }
 
       const payloadAggiornato = {
         lezioneId: lezioneId,
@@ -212,7 +236,6 @@ export default function PlanningCalendario({
     }
   };
 
-  // Click destro
   const handleSlotContextMenu = (e, targetInsegnanteId, targetIsGruppo, oraStr) => {
     e.preventDefault();
     e.stopPropagation();
@@ -231,7 +254,6 @@ export default function PlanningCalendario({
     });
   };
 
-  // Click singolo slot
   const handleSlotClick = (targetInsegnanteId, targetIsGruppo, slotMins) => {
     if (isDraggingRef.current) return;
 
@@ -249,7 +271,6 @@ export default function PlanningCalendario({
     }
   };
 
-  // Drag selezione oraria
   const handleSlotMouseDown = (e, targetInsegnanteId, targetIsGruppo, slotMins) => {
     if (e.button !== 0) return;
     isDraggingRef.current = false;
@@ -301,7 +322,7 @@ export default function PlanningCalendario({
     const nomeStudente = std ? `${std.nome} ${std.cognome}` : 'Studente';
     const nomeDocente = ins ? `${ins.nome} ${ins.cognome}` : 'un nostro docente';
 
-    const testo = `Buongiorno, le confermo la prenotazione della lezione di ${lez.materia || 'doposcuola'} per ${nomeStudente} in data ${lez.data} dalle ${lez.oraInizio} alle ${lez.oraFine} con il docente ${nomeDocente}. Cordiali saluti - Fuori Classe Reception.`;
+    const testo = `Buongiorno, le confermo la prenotazione della lezione di ${lez.materia || 'doposcuola'} per ${nomeStudente} in data ${lez.data} dalle ${lez.oraInizio} alle ${lez.oraFine} con il docente ${nomeDocente}. Cordiali saluti - FuoriClasse Reception.`;
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`;
     window.open(url, '_blank');
     if (aggiungiLog) aggiungiLog(`Inviato promemoria WhatsApp a ${nomeStudente}`);
@@ -320,7 +341,7 @@ export default function PlanningCalendario({
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl"><CalendarIcon className="w-5 h-5"/></div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Lezioni contemporanee affiancate automaticamente</p>
+            <p className="text-xs text-gray-500">Lezioni contemporanee affiancate • Controllo collisione studenti attivo</p>
           </div>
         </div>
 
@@ -421,7 +442,6 @@ export default function PlanningCalendario({
                   const topPercent = ((lez.startMins - startHourMins) / totalHoursMins) * 100;
                   const heightPercent = ((lez.endMins - lez.startMins) / totalHoursMins) * 100;
 
-                  // Calcolo larghezza e posizionamento orizzontale affiancato
                   const totalCols = lez.totalLanes || 1;
                   const colWidthPercent = 100 / totalCols;
                   const leftPercent = lez.laneIndex * colWidthPercent;
@@ -530,7 +550,7 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* Menu tasto destro */}
+      {/* Menu rapido tasto destro */}
       {contextMenu && (
         <div 
           style={{ top: contextMenu.mouseY, left: contextMenu.mouseX }}
@@ -845,7 +865,7 @@ export default function PlanningCalendario({
                             studentiIds: lez.studentiIds || [],
                             insegnanteId: lez.insegnanteId || '',
                             isGruppo: Boolean(lez.isGruppo),
-                            oldLezioneId: lez.id, // ID per cancellazione atomica post-rischedulazione
+                            oldLezioneId: lez.id,
                             isRischedulazione: true
                           });
                         }
