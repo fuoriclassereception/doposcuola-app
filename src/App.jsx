@@ -51,7 +51,14 @@ export default function App() {
     });
 
     const unsubStudenti = onSnapshot(collection(db, 'studenti'), (snapshot) => {
-      setStudenti(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setStudenti(docs);
+      
+      // Mantieni aggiornato lo studente aperto nel drawer di dettaglio se cambia in realtime
+      setStudenteSelezionatoDettaglio(prev => {
+        if (!prev) return null;
+        return docs.find(s => s.id === prev.id) || null;
+      });
     });
 
     const unsubLezioni = onSnapshot(collection(db, 'lezioni'), (snapshot) => {
@@ -158,7 +165,14 @@ export default function App() {
         aggiungiLog(`Modificati dati studente: ${studenteForm.nome} ${studenteForm.cognome}`);
       } else {
         const newRef = doc(collection(db, 'studenti'));
-        await setDoc(newRef, { ...studenteForm, attivo: true });
+        await setDoc(newRef, { 
+          ...studenteForm, 
+          attivo: true,
+          oreAcquistate: 0,
+          oreSvolte: 0,
+          totaleDovuto: 0,
+          totalePagato: 0
+        });
         aggiungiLog(`Iscritto nuovo studente: ${studenteForm.nome} ${studenteForm.cognome}`);
       }
       setShowStudenteModal(false);
@@ -189,6 +203,28 @@ export default function App() {
     }
   };
 
+  // ---------- RICARICA PACCHETTO ORE STUDENTE ----------
+  const handleRicaricaPacchetto = async (studenteId, datiRicarica) => {
+    const std = studenti.find(s => s.id === studenteId);
+    if (!std) return;
+
+    const nuoveOreAcquistate = Number(((std.oreAcquistate || 0) + datiRicarica.oreDaAggiungere).toFixed(1));
+    const nuovoTotaleDovuto = Number(((std.totaleDovuto || 0) + datiRicarica.costoDaAggiungere).toFixed(2));
+    const nuovoTotalePagato = Number(((std.totalePagato || 0) + datiRicarica.pagatoDaAggiungere).toFixed(2));
+
+    try {
+      await updateDoc(doc(db, 'studenti', studenteId), {
+        oreAcquistate: nuoveOreAcquistate,
+        totaleDovuto: nuovoTotaleDovuto,
+        totalePagato: nuovoTotalePagato
+      });
+
+      aggiungiLog(`Ricarica Pacchetto Studente: ${std.nome} ${std.cognome} (+${datiRicarica.oreDaAggiungere}h, versati ${datiRicarica.pagatoDaAggiungere}€ via ${datiRicarica.metodoPagamento})`);
+    } catch (err) {
+      console.error("Errore ricarica pacchetto ore:", err);
+    }
+  };
+
   // ---------- GESTIONE LEZIONI E RISCHEDULAZIONE ----------
   const handleOpenLezioneModal = (presetData = null) => {
     setInitialLezioneData(presetData);
@@ -199,14 +235,12 @@ export default function App() {
     try {
       const { oldLezioneId, ...datiLezione } = formData;
 
-      // 1. Salvataggio della nuova lezione
       const newRef = doc(collection(db, 'lezioni'));
       await setDoc(newRef, {
         stato: 'attiva',
         ...datiLezione
       });
 
-      // 2. Se si tratta di una rischedulazione, elimina la vecchia lezione dalle annullate
       if (oldLezioneId) {
         await deleteDoc(doc(db, 'lezioni', oldLezioneId));
         aggiungiLog(`Rischedulata lezione: rimossa vecchia lezione ID ${oldLezioneId} e ricollocata al ${datiLezione.data} (${datiLezione.oraInizio}-${datiLezione.oraFine})`);
@@ -263,6 +297,68 @@ export default function App() {
       aggiungiLog(`Stato lezione ${id} cambiato in: ${nuovoStato} (${tipo})`);
     } catch (err) {
       console.error("Errore cambio stato lezione:", err);
+    }
+  };
+
+  // ---------- CASSA: CONFERMA PRESENZA CON SCALO ORE ----------
+  const handleConfermaPresenzaConScalo = async (lezione, durataOre, stato = 'svolta', motivo = '', tipo = 'gratuito') => {
+    try {
+      // 1. Aggiorna stato lezione
+      await updateDoc(doc(db, 'lezioni', lezione.id), {
+        stato,
+        motivoAnnullamento: motivo,
+        tipoAnnullamento: tipo,
+        oreScalate: durataOre
+      });
+
+      // 2. Scala le ore a ciascun studente iscritto (se la lezione è svolta o con addebito)
+      if (durataOre > 0 && (stato === 'svolta' || tipo === 'addebito')) {
+        for (const sId of (lezione.studentiIds || [])) {
+          const std = studenti.find(s => s.id === sId);
+          if (std) {
+            const nuoveOreSvolte = Number(((std.oreSvolte || 0) + durataOre).toFixed(1));
+            await updateDoc(doc(db, 'studenti', sId), {
+              oreSvolte: nuoveOreSvolte
+            });
+          }
+        }
+      }
+
+      aggiungiLog(`Cassa FuoriClasse: Registrata presenza (ID ${lezione.id}) - Scalate ${durataOre}h agli studenti`);
+    } catch (err) {
+      console.error("Errore conferma presenza e scalo ore:", err);
+    }
+  };
+
+  // ---------- CASSA: STORNO PRESENZA E RESTITUZIONE ORE ----------
+  const handleStornoPresenzaConRipristino = async (lezione, durataOre) => {
+    try {
+      const oreDaRestituire = lezione.oreScalate !== undefined ? Number(lezione.oreScalate) : durataOre;
+
+      // 1. Riporta lezione ad attiva
+      await updateDoc(doc(db, 'lezioni', lezione.id), {
+        stato: 'attiva',
+        motivoAnnullamento: '',
+        tipoAnnullamento: '',
+        oreScalate: 0
+      });
+
+      // 2. Restituisce le ore agli studenti
+      if (oreDaRestituire > 0) {
+        for (const sId of (lezione.studentiIds || [])) {
+          const std = studenti.find(s => s.id === sId);
+          if (std) {
+            const nuoveOreSvolte = Math.max(0, Number(((std.oreSvolte || 0) - oreDaRestituire).toFixed(1)));
+            await updateDoc(doc(db, 'studenti', sId), {
+              oreSvolte: nuoveOreSvolte
+            });
+          }
+        }
+      }
+
+      aggiungiLog(`Storno FuoriClasse: Ripristinata lezione ${lezione.id} e restituite ${oreDaRestituire}h agli studenti`);
+    } catch (err) {
+      console.error("Errore storno presenza:", err);
     }
   };
 
@@ -390,7 +486,8 @@ export default function App() {
             lezioni={lezioni}
             studenti={studenti}
             insegnanti={insegnanti}
-            onUpdateLezioneStatus={handleUpdateLezioneStatus}
+            onConfermaPresenzaConScalo={handleConfermaPresenzaConScalo}
+            onStornoPresenzaConRipristino={handleStornoPresenzaConRipristino}
             aggiungiLog={aggiungiLog}
           />
         )}
@@ -432,8 +529,8 @@ export default function App() {
           studente={studenteSelezionatoDettaglio}
           lezioni={lezioni}
           onClose={() => setStudenteSelezionatoDettaglio(null)}
-          onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
-          onUpdateLezioneStatus={handleUpdateLezioneStatus}
+          onRicaricaPacchetto={handleRicaricaPacchetto}
+          aggiungiLog={aggiungiLog}
         />
       )}
     </div>
