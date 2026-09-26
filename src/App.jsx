@@ -1,780 +1,437 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft } from 'lucide-react';
-import ModalePin from './ModalePin';
+import { db } from './services/firebase';
+import { 
+  collection, 
+  onSnapshot, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  addDoc 
+} from 'firebase/firestore';
 
-export default function PlanningCalendario({
-  insegnanti = [],
-  studenti = [],
-  lezioni = [],
-  aggiungiLog,
-  onDeleteLezione,
-  onOpenModal,
-  onSelectStudent,
-  onUpdateLezioneStatus,
-  onRestoreLezione,
-  onUpdateLezioneCompleta,
-  onEstraiStudenteDaGruppo,
-  onAcceptRichiesta,
-  onRejectRichiesta
-}) {
-  const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
-  const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
+import Sidebar from './components/Sidebar';
+import GestioneInsegnanti from './components/GestioneInsegnanti';
+import ModaleInsegnante from './components/ModaleInsegnante';
+import GestioneStudenti from './components/GestioneStudenti';
+import ModaleStudente from './components/ModaleStudente';
+import PlanningCalendario from './components/PlanningCalendario';
+import ModaleLezione from './components/ModaleLezione';
+import DettaglioStudente from './components/DettaglioStudente';
+import CassaPresenze from './components/CassaPresenze';
 
-  // Docenti attivi
-  const insegnantiAttivi = insegnanti.filter(i => i.attivo !== false);
+export default function App() {
+  const [activeTab, setActiveTab] = useState('planning');
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const [groupModalData, setGroupModalData] = useState(null);
-  const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
-  
-  const [showRichiesteModal, setShowRichiesteModal] = useState(false);
-  const [showAnnullateModal, setShowAnnullateModal] = useState(false);
-  
-  // PIN unificato
-  const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
+  // ---------- STATI COLLEGATI A FIREBASE ----------
+  const [insegnanti, setInsegnanti] = useState([]);
+  const [studenti, setStudenti] = useState([]);
+  const [lezioni, setLezioni] = useState([]);
+  const [logsAttivita, setLogsAttivita] = useState([]);
 
-  // Context Menu tasto destro
-  const [contextMenu, setContextMenu] = useState(null);
+  // Modali Insegnanti / Studenti / Lezioni
+  const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
+  const [editingInsegnante, setEditingInsegnante] = useState(null);
+  const [insegnanteForm, setInsegnanteForm] = useState({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' });
 
-  // Click & Drag selezione oraria su celle vuote
-  const [dragSelection, setDragSelection] = useState(null); 
+  const [showStudenteModal, setShowStudenteModal] = useState(false);
+  const [editingStudente, setEditingStudente] = useState(null);
+  const [studenteForm, setStudenteForm] = useState({ nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', isMinorenne: true, genitoreNome: '', genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' });
+  const [studenteSelezionatoDettaglio, setStudenteSelezionatoDettaglio] = useState(null);
 
-  const slots30 = [];
-  for (let h = 9; h < 20; h++) {
-    slots30.push({ oraStr: `${h.toString().padStart(2, '0')}:00`, totalMins: h * 60 });
-    slots30.push({ oraStr: `${h.toString().padStart(2, '0')}:30`, totalMins: h * 60 + 30 });
-  }
-  const startHourMins = 9 * 60;
-  const totalHoursMins = 11 * 60;
+  // Gestione apertura e precompilazione Modale Lezione
+  const [showLezioneModal, setShowLezioneModal] = useState(false);
+  const [initialLezioneData, setInitialLezioneData] = useState(null);
 
+  // ---------- ASCOLTO IN TEMPO REALE DA FIREBASE (onSnapshot) ----------
   useEffect(() => {
-    const updateCurrentTime = () => {
-      const now = new Date();
-      setCurrentTimeMinutes(now.getHours() * 60 + now.getMinutes());
+    // 1. Insegnanti
+    const unsubInsegnanti = onSnapshot(collection(db, 'insegnanti'), (snapshot) => {
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setInsegnanti(docs);
+    });
+
+    // 2. Studenti
+    const unsubStudenti = onSnapshot(collection(db, 'studenti'), (snapshot) => {
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setStudenti(docs);
+    });
+
+    // 3. Lezioni
+    const unsubLezioni = onSnapshot(collection(db, 'lezioni'), (snapshot) => {
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      setLezioni(docs);
+    });
+
+    // 4. Log di Sicurezza
+    const unsubLogs = onSnapshot(collection(db, 'logs'), (snapshot) => {
+      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setLogsAttivita(docs);
+    });
+
+    return () => {
+      unsubInsegnanti();
+      unsubStudenti();
+      unsubLezioni();
+      unsubLogs();
     };
-    updateCurrentTime();
-    const interval = setInterval(updateCurrentTime, 60000);
-    return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const handleClickOutside = () => setContextMenu(null);
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
-  }, []);
-
-  const lezioniAttive = lezioni.filter(l => l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
-  const lezioniRichiesteOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'richiesta');
-  const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
-  const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
-
-  const changeDate = (days) => {
-    const current = new Date(dataSelezionata);
-    current.setDate(current.getDate() + days);
-    setDataSelezionata(current.toISOString().split('T')[0]);
-  };
-
-  const isToday = dataSelezionata === new Date().toISOString().split('T')[0];
-  const redLineTop = ((currentTimeMinutes - startHourMins) / totalHoursMins) * 100;
-
-  // Unione gruppi studio per fascia
-  const gruppiFusiMap = {};
-  lezioniGruppoOggi.forEach(l => {
-    const key = `${l.oraInizio}-${l.oraFine}`;
-    if (!gruppiFusiMap[key]) {
-      gruppiFusiMap[key] = { oraInizio: l.oraInizio, oraFine: l.oraFine, lezioni: [] };
-    }
-    gruppiFusiMap[key].lezioni.push(l);
-  });
-  const gruppiFusiList = Object.values(gruppiFusiMap);
-
-  const formatMinsToStr = (mins) => {
-    const h = Math.floor(mins / 60).toString().padStart(2, '0');
-    const m = (mins % 60).toString().padStart(2, '0');
-    return `${h}:${m}`;
-  };
-
-  // Drag & drop per spostare lezioni esistenti
-  const handleDragStart = (e, payloadData) => {
-    e.dataTransfer.setData('application/json', JSON.stringify(payloadData));
-  };
-
-  const handleDragOver = (e) => {
-    e.preventDefault();
-  };
-
-  const handleDrop = (e, targetInsegnanteId, targetIsGruppo = false, targetOraStr) => {
-    e.preventDefault();
-    const dataJson = e.dataTransfer.getData('application/json');
-    if (!dataJson) return;
-
+  const aggiungiLog = async (azione, operatore = 'Admin') => {
     try {
-      const payload = JSON.parse(dataJson);
-      const lezioneId = payload.id;
-      if (!lezioneId) return;
-
-      const [tH, tM] = targetOraStr.split(':').map(Number);
-      const startMinsNew = tH * 60 + tM;
-      const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
-      const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
-      const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
-
-      const endTotalMins = startMinsNew + (durataMins > 0 ? durataMins : 60);
-      const oraFineNuova = formatMinsToStr(endTotalMins);
-
-      const payloadAggiornato = {
-        lezioneId: lezioneId,
-        data: dataSelezionata,
-        oraInizio: targetOraStr,
-        oraFine: oraFineNuova,
-        insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
-        isGruppo: Boolean(targetIsGruppo)
-      };
-
-      const docDest = targetIsGruppo ? 'Gruppo Studio' : (insegnanti.find(i => i.id === targetInsegnanteId)?.nome || 'Docente');
-
-      setPinConfig({
-        isOpen: true,
-        description: `Spostamento lezione alle ore ${targetOraStr} su ${docDest}`,
-        actionCallback: () => {
-          if (onUpdateLezioneCompleta) {
-            onUpdateLezioneCompleta(payloadAggiornato);
-            if (aggiungiLog) aggiungiLog(`Spostata lezione ID: ${lezioneId} alle ore ${targetOraStr} (${docDest})`);
-          }
-        }
+      await addDoc(collection(db, 'logs'), {
+        timestamp: new Date().toLocaleString(),
+        createdAt: Date.now(),
+        operatore,
+        azione
       });
-    } catch (err) {
-      console.error("Errore drag and drop", err);
+    } catch (e) {
+      console.error("Errore salvataggio log:", e);
     }
   };
 
-  // Context Menu con click destro
-  const handleSlotContextMenu = (e, targetInsegnanteId, targetIsGruppo, oraStr) => {
+  // ---------- GESTIONE INSEGNANTI ----------
+  const handleOpenInsegnanteModal = (ins = null) => {
+    if (ins) {
+      setEditingInsegnante(ins.id);
+      setInsegnanteForm({ ...ins });
+    } else {
+      setEditingInsegnante(null);
+      setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' });
+    }
+    setShowInsegnanteModal(true);
+  };
+
+  const handleSaveInsegnante = async (e) => {
     e.preventDefault();
-    e.stopPropagation();
-
-    const [h, m] = oraStr.split(':').map(Number);
-    const startMins = h * 60 + m;
-    const endStr = formatMinsToStr(startMins + 60);
-
-    setContextMenu({
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      insegnanteId: targetInsegnanteId,
-      isGruppo: targetIsGruppo,
-      oraInizio: oraStr,
-      oraFine: endStr
-    });
-  };
-
-  // Click & Drag selezione oraria su celle vuote
-  const handleSlotMouseDown = (targetInsegnanteId, targetIsGruppo, slotMins) => {
-    setDragSelection({
-      insegnanteId: targetInsegnanteId,
-      isGruppo: targetIsGruppo,
-      startMin: slotMins,
-      endMin: slotMins + 30
-    });
-  };
-
-  const handleSlotMouseEnter = (targetInsegnanteId, targetIsGruppo, slotMins) => {
-    if (!dragSelection) return;
-    if (dragSelection.insegnanteId !== targetInsegnanteId || dragSelection.isGruppo !== targetIsGruppo) return;
-
-    if (slotMins >= dragSelection.startMin) {
-      setDragSelection(prev => ({ ...prev, endMin: slotMins + 30 }));
+    if (!insegnanteForm.nome || !insegnanteForm.cognome) return;
+    try {
+      if (editingInsegnante) {
+        await updateDoc(doc(db, 'insegnanti', editingInsegnante), { ...insegnanteForm });
+        aggiungiLog(`Modificati dati insegnante: ${insegnanteForm.nome} ${insegnanteForm.cognome}`);
+      } else {
+        const newRef = doc(collection(db, 'insegnanti'));
+        await setDoc(newRef, { ...insegnanteForm, attivo: true });
+        aggiungiLog(`Creato nuovo insegnante: ${insegnanteForm.nome} ${insegnanteForm.cognome}`);
+      }
+      setShowInsegnanteModal(false);
+    } catch (err) {
+      console.error("Errore salvataggio insegnante:", err);
     }
   };
 
-  const handleSlotMouseUp = () => {
-    if (!dragSelection) return;
-    const { insegnanteId, isGruppo, startMin, endMin } = dragSelection;
-    const oraInizio = formatMinsToStr(startMin);
-    const oraFine = formatMinsToStr(endMin);
+  const handleToggleStatoInsegnante = async (id) => {
+    const ins = insegnanti.find(i => i.id === id);
+    if (!ins) return;
+    const nuovoStato = ins.attivo === false ? true : false;
+    try {
+      await updateDoc(doc(db, 'insegnanti', id), { attivo: nuovoStato });
+      aggiungiLog(`Docente ${ins.nome} ${ins.cognome} impostato su: ${nuovoStato ? 'Attivo' : 'Inattivo'}`);
+    } catch (err) {
+      console.error("Errore toggle stato insegnante:", err);
+    }
+  };
 
-    setDragSelection(null);
+  const handleDeleteInsegnante = async (id) => {
+    const ins = insegnanti.find(i => i.id === id);
+    try {
+      await deleteDoc(doc(db, 'insegnanti', id));
+      aggiungiLog(`Eliminato docente: ${ins ? `${ins.nome}${ins.cognome}` : id}`);
+    } catch (err) {
+      console.error("Errore eliminazione docente:", err);
+    }
+  };
 
-    if (onOpenModal) {
-      onOpenModal({
-        data: dataSelezionata,
-        insegnanteId: isGruppo ? '' : insegnanteId,
-        isGruppo: Boolean(isGruppo),
-        oraInizio,
-        oraFine
+  // ---------- GESTIONE STUDENTI ----------
+  const handleOpenStudenteModal = (std = null) => {
+    if (std) {
+      setEditingStudente(std.id);
+      setStudenteForm({ ...std });
+    } else {
+      setEditingStudente(null);
+      setStudenteForm({ nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', isMinorenne: true, genitoreNome: '', genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' });
+    }
+    setShowStudenteModal(true);
+  };
+
+  const handleSaveStudente = async (e) => {
+    e.preventDefault();
+    if (!studenteForm.nome || !studenteForm.cognome) return;
+    try {
+      if (editingStudente) {
+        await updateDoc(doc(db, 'studenti', editingStudente), { ...studenteForm });
+        aggiungiLog(`Modificati dati studente: ${studenteForm.nome} ${studenteForm.cognome}`);
+      } else {
+        const newRef = doc(collection(db, 'studenti'));
+        await setDoc(newRef, { ...studenteForm, attivo: true });
+        aggiungiLog(`Iscritto nuovo studente: ${studenteForm.nome} ${studenteForm.cognome}`);
+      }
+      setShowStudenteModal(false);
+    } catch (err) {
+      console.error("Errore salvataggio studente:", err);
+    }
+  };
+
+  const handleToggleStatoStudente = async (id) => {
+    const std = studenti.find(s => s.id === id);
+    if (!std) return;
+    const nuovoStato = std.attivo === false ? true : false;
+    try {
+      await updateDoc(doc(db, 'studenti', id), { attivo: nuovoStato });
+      aggiungiLog(`Studente ${std.nome} ${std.cognome} impostato su: ${nuovoStato ? 'Attivo' : 'Inattivo'}`);
+    } catch (err) {
+      console.error("Errore toggle studente:", err);
+    }
+  };
+
+  const handleDeleteStudente = async (id) => {
+    const std = studenti.find(s => s.id === id);
+    try {
+      await deleteDoc(doc(db, 'studenti', id));
+      aggiungiLog(`Eliminato studente: ${std ? `${std.nome}${std.cognome}` : id}`);
+    } catch (err) {
+      console.error("Errore eliminazione studente:", err);
+    }
+  };
+
+  // ---------- GESTIONE LEZIONI ----------
+  const handleOpenLezioneModal = (presetData = null) => {
+    setInitialLezioneData(presetData);
+    setShowLezioneModal(true);
+  };
+
+  const handleSaveLezione = async (formData) => {
+    try {
+      const newRef = doc(collection(db, 'lezioni'));
+      await setDoc(newRef, {
+        stato: 'attiva',
+        ...formData
       });
+      setShowLezioneModal(false);
+      setInitialLezioneData(null);
+      aggiungiLog(`Nuova lezione creata: ${formData.materia || 'Lezione'} (${formData.oraInizio}-${formData.oraFine})`);
+      return true;
+    } catch (err) {
+      console.error("Errore creazione lezione:", err);
+      return false;
     }
   };
 
-  const sendWhatsAppConfirmation = (lez) => {
-    const std = studenti.find(s => (lez.studentiIds || []).includes(s.id));
-    const ins = insegnanti.find(i => i.id === lez.insegnanteId);
-    const nomeStudente = std ? `${std.nome} ${std.cognome}` : 'Studente';
-    const nomeDocente = ins ? `${ins.nome} ${ins.cognome}` : 'un nostro docente';
-
-    const testo = `Buongiorno, le confermo la prenotazione della lezione di ${lez.materia || 'doposcuola'} per ${nomeStudente} in data ${lez.data} dalle ${lez.oraInizio} alle ${lez.oraFine} con il docente ${nomeDocente}. Cordiali saluti - Fuori Classe Reception.`;
-    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`;
-    window.open(url, '_blank');
-    if (aggiungiLog) aggiungiLog(`Inviato promemoria WhatsApp a ${nomeStudente}`);
+  const handleDeleteLezione = async (id) => {
+    try {
+      await deleteDoc(doc(db, 'lezioni', id));
+      aggiungiLog(`Eliminata definitivamente lezione ID: ${id}`);
+    } catch (err) {
+      console.error("Errore eliminazione lezione:", err);
+    }
   };
 
-  const gridTemplateColumns = `60px repeat(${insegnantiAttivi.length}, minmax(150px, 1fr)) 160px`;
+  const handleUpdateLezioneCompleta = async (moveData) => {
+    if (!moveData.lezioneId) return;
+    try {
+      const datiDaAggiornare = {
+        oraInizio: moveData.oraInizio,
+        oraFine: moveData.oraFine,
+        isGruppo: Boolean(moveData.isGruppo)
+      };
+      if (moveData.data) datiDaAggiornare.data = moveData.data;
+      if (moveData.isGruppo) {
+        datiDaAggiornare.insegnanteId = '';
+      } else if (moveData.insegnanteId) {
+        datiDaAggiornare.insegnanteId = moveData.insegnanteId;
+      }
+
+      await updateDoc(doc(db, 'lezioni', moveData.lezioneId), datiDaAggiornare);
+    } catch (err) {
+      console.error("Errore aggiornamento lezione:", err);
+    }
+  };
+
+  const handleUpdateLezioneStatus = async (id, nuovoStato, motivo = '', tipo = 'gratuito') => {
+    try {
+      await updateDoc(doc(db, 'lezioni', id), {
+        stato: nuovoStato,
+        motivoAnnullamento: motivo,
+        tipoAnnullamento: tipo
+      });
+      aggiungiLog(`Stato lezione ${id} cambiato in: ${nuovoStato} (${tipo})`);
+    } catch (err) {
+      console.error("Errore cambio stato lezione:", err);
+    }
+  };
+
+  const handleRestoreLezione = async (id) => {
+    try {
+      await updateDoc(doc(db, 'lezioni', id), {
+        stato: 'attiva',
+        motivoAnnullamento: '',
+        tipoAnnullamento: ''
+      });
+      aggiungiLog(`Ripristinata lezione ID: ${id}`);
+    } catch (err) {
+      console.error("Errore ripristino lezione:", err);
+    }
+  };
+
+  const handleAcceptRichiesta = async (lezioneId, nuovoDocenteId) => {
+    try {
+      await updateDoc(doc(db, 'lezioni', lezioneId), {
+        stato: 'attiva',
+        insegnanteId: nuovoDocenteId
+      });
+      aggiungiLog(`Approvata richiesta App (ID: ${lezioneId})`);
+    } catch (err) {
+      console.error("Errore accettazione richiesta:", err);
+    }
+  };
+
+  const handleRejectRichiesta = async (lezioneId, motivo) => {
+    try {
+      await updateDoc(doc(db, 'lezioni', lezioneId), {
+        stato: 'annullata',
+        motivoAnnullamento: motivo,
+        tipoAnnullamento: 'gratuito'
+      });
+      aggiungiLog(`Rifiutata richiesta App (ID: ${lezioneId}) - ${motivo}`);
+    } catch (err) {
+      console.error("Errore rifiuto richiesta:", err);
+    }
+  };
+
+  const handleEstraiStudenteDaGruppo = async (lezioneGruppoId, studenteId, nuovoInsegnanteId, oraInizio, oraFine, data) => {
+    try {
+      const lezGruppo = lezioni.find(l => l.id === lezioneGruppoId);
+      if (lezGruppo) {
+        const rimasti = (lezGruppo.studentiIds || []).filter(sId => sId !== studenteId);
+        if (rimasti.length === 0) {
+          await deleteDoc(doc(db, 'lezioni', lezioneGruppoId));
+        } else {
+          await updateDoc(doc(db, 'lezioni', lezioneGruppoId), { studentiIds: rimasti });
+        }
+      }
+
+      const newRef = doc(collection(db, 'lezioni'));
+      await setDoc(newRef, {
+        data: data || new Date().toISOString().split('T')[0],
+        insegnanteId: nuovoInsegnanteId,
+        isGruppo: false,
+        studentiIds: [studenteId],
+        materia: 'Lezione Individuale',
+        oraInizio,
+        oraFine,
+        stato: 'attiva'
+      });
+      aggiungiLog(`Studente estratto dal gruppo e assegnato a docente`);
+    } catch (err) {
+      console.error("Errore estrazione studente gruppo:", err);
+    }
+  };
 
   return (
-    <div 
-      className="w-full h-full p-0 flex flex-col space-y-3 select-none"
-      onMouseUp={handleSlotMouseUp}
-    >
-      {/* Intestazione */}
-      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
-        <div className="flex items-center space-x-3">
-          <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl"><CalendarIcon className="w-5 h-5"/></div>
-          <div>
-            <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Trascina per impostare l'orario o clicca col destro per opzioni rapide</p>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-2 bg-gray-100 p-1.5 rounded-2xl border border-gray-200">
-          <button onClick={() => changeDate(-1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700"><ChevronLeft className="w-4 h-4"/></button>
-          <input type="date" value={dataSelezionata} onChange={(e) => setDataSelezionata(e.target.value)} className="bg-transparent font-extrabold text-xs text-slate-900 focus:outline-none px-2" />
-          <button onClick={() => changeDate(1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700"><ChevronRight className="w-4 h-4"/></button>
-        </div>
-
-        <div className="flex items-center space-x-2 flex-wrap">
-          <button onClick={() => setShowRichiesteModal(true)} className={`relative flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${ lezioniRichiesteOggi.length > 0 ? 'bg-rose-500 text-white border-rose-600 shadow-md animate-pulse' : 'bg-sky-50 text-sky-900 border-sky-200 hover:bg-sky-100' }`}>
-            <Bell className="w-4 h-4"/>
-            <span>Richieste</span>
-            {lezioniRichiesteOggi.length > 0 && <span className="bg-white text-rose-600 px-1.5 py-0.2 rounded-full text-[10px] font-black">{lezioniRichiesteOggi.length}</span>}
-          </button>
-          
-          <button onClick={() => setShowAnnullateModal(true)} className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold border border-slate-200 shadow-sm">
-            <AlertOctagon className="w-4 h-4 text-slate-600"/>
-            <span>Annullate ({lezioniAnnullateOggi.length})</span>
-          </button>
-          
-          <button onClick={() => { onOpenModal(); if (aggiungiLog) aggiungiLog("Apertura finestra nuova lezione"); }} className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm">
-            <Plus className="w-4 h-4"/><span>+ Nuova</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Griglia Calendario */}
-      <div className="flex-1 bg-white border border-gray-200 rounded-3xl mx-4 mb-4 overflow-x-auto flex flex-col min-h-[650px] shadow-sm">
-        
-        {/* Colonne Header */}
-        <div className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[750px] rounded-t-3xl" style={{ gridTemplateColumns }}>
-          <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">ORA</div>
-          
-          {insegnantiAttivi.map(ins => (
-            <div key={ins.id} className="p-3 text-center border-r border-gray-200 flex flex-col items-center justify-center">
-              <div style={{ backgroundColor: ins.colore || '#3b82f6' }} className="w-2.5 h-2.5 rounded-full mb-1 shadow-sm"/>
-              <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">{ins.nome}</span>
-            </div>
-          ))}
-
-          <div 
-            onClick={() => setGroupModalData({ fascia: 'Tutto il giorno', lezioniGroup: lezioniGruppoOggi })}
-            className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 flex flex-col items-center justify-center cursor-pointer rounded-tr-3xl transition-colors"
-          >
-            <Users className="w-4 h-4 text-amber-800 mb-0.5"/>
-            <span className="font-black text-xs text-amber-950 uppercase tracking-wider flex items-center">
-              GRUPPO <span className="ml-1 text-[10px] bg-amber-300 text-amber-950 px-1.5 rounded-full">{lezioniGruppoOggi.length}</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Cella orari e slot */}
-        <div className="relative flex-1 grid w-full min-w-[750px]" style={{ gridTemplateColumns }}>
-          <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
-            {slots30.map((slot, i) => (
-              <div key={i} className="h-8 text-[10px] font-extrabold text-gray-400 pt-1">{slot.oraStr.endsWith(':00') ? slot.oraStr : ''}</div>
-            ))}
-          </div>
-
-          {/* Colonne Insegnanti */}
-          {insegnantiAttivi.map(ins => {
-            const lezioniDocente = lezioniAttive.filter(l => l.insegnanteId === ins.id && !l.isGruppo);
-
-            return (
-              <div key={ins.id} className="border-r border-gray-100 relative divide-y divide-gray-100/60 bg-white">
-                {slots30.map((slot, i) => (
-                  <div 
-                    key={i} 
-                    onDragOver={handleDragOver} 
-                    onDrop={(e) => handleDrop(e, ins.id, false, slot.oraStr)} 
-                    onContextMenu={(e) => handleSlotContextMenu(e, ins.id, false, slot.oraStr)}
-                    onMouseDown={() => handleSlotMouseDown(ins.id, false, slot.totalMins)}
-                    onMouseEnter={() => handleSlotMouseEnter(ins.id, false, slot.totalMins)}
-                    className="h-8 hover:bg-amber-50/40 transition-colors cursor-crosshair"
-                  />
-                ))}
-
-                {/* Evidenziatore drag selezione */}
-                {dragSelection && dragSelection.insegnanteId === ins.id && !dragSelection.isGruppo && (
-                  <div
-                    style={{
-                      top: `${((dragSelection.startMin - startHourMins) / totalHoursMins) * 100}%`,
-                      height: `${((dragSelection.endMin - dragSelection.startMin) / totalHoursMins) * 100}%`
-                    }}
-                    className="absolute left-1 right-1 bg-amber-400/40 border-2 border-dashed border-amber-600 rounded-xl z-20 pointer-events-none flex items-center justify-center"
-                  >
-                    <span className="text-[11px] font-black text-amber-950 bg-white/90 px-2 py-0.5 rounded shadow-sm">
-                      {formatMinsToStr(dragSelection.startMin)} - {formatMinsToStr(dragSelection.endMin)}
-                    </span>
-                  </div>
-                )}
-
-                {/* Schede Lezioni */}
-                {lezioniDocente.map(lez => {
-                  const [hStart, mStart] = lez.oraInizio.split(':').map(Number);
-                  const [hEnd, mEnd] = lez.oraFine.split(':').map(Number);
-                  const topPercent = ((hStart * 60 + mStart - startHourMins) / totalHoursMins) * 100;
-                  const heightPercent = (((hEnd * 60 + mEnd) - (hStart * 60 + mStart)) / totalHoursMins) * 100;
-
-                  return (
-                    <div 
-                      key={lez.id} 
-                      draggable 
-                      onDragStart={(e) => handleDragStart(e, lez)} 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedLezioneDetail(lez);
-                      }}
-                      style={{ 
-                        top: `${topPercent}%`, 
-                        height: `${heightPercent}%`, 
-                        backgroundColor: (ins.colore || '#3b82f6') + '20', 
-                        borderColor: ins.colore || '#3b82f6' 
-                      }}
-                      className="absolute left-1 right-1 border-l-4 rounded-xl p-2 text-xs shadow-sm overflow-hidden flex flex-col justify-between cursor-pointer hover:shadow-md hover:scale-[1.01] transition-all z-10"
-                    >
-                      <div>
-                        <div className="font-extrabold text-slate-900 truncate">{stdsNames(lez.studentiIds, studenti)}</div>
-                        <div className="text-[10px] font-bold text-gray-600 truncate">{lez.materia || 'Materia'}</div>
-                        <div className="text-[9px] font-extrabold text-gray-500 mt-0.5">{lez.oraInizio} - {lez.oraFine}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-
-          {/* Colonna Gruppo */}
-          <div className="bg-amber-50/30 relative divide-y divide-amber-100/50">
-            {slots30.map((slot, i) => (
-              <div 
-                key={i} 
-                onDragOver={handleDragOver} 
-                onDrop={(e) => handleDrop(e, '', true, slot.oraStr)} 
-                onContextMenu={(e) => handleSlotContextMenu(e, '', true, slot.oraStr)}
-                onMouseDown={() => handleSlotMouseDown('', true, slot.totalMins)}
-                onMouseEnter={() => handleSlotMouseEnter('', true, slot.totalMins)}
-                className="h-8 hover:bg-amber-100/40 transition-colors cursor-crosshair"
-              />
-            ))}
-
-            {dragSelection && dragSelection.isGruppo && (
-              <div
-                style={{
-                  top: `${((dragSelection.startMin - startHourMins) / totalHoursMins) * 100}%`,
-                  height: `${((dragSelection.endMin - dragSelection.startMin) / totalHoursMins) * 100}%`
-                }}
-                className="absolute left-1 right-1 bg-amber-400/40 border-2 border-dashed border-amber-600 rounded-xl z-20 pointer-events-none flex items-center justify-center"
-              >
-                <span className="text-[11px] font-black text-amber-950 bg-white/90 px-2 py-0.5 rounded shadow-sm">
-                  {formatMinsToStr(dragSelection.startMin)} - {formatMinsToStr(dragSelection.endMin)}
-                </span>
-              </div>
-            )}
-
-            {gruppiFusiList.map((gf, idx) => {
-              const [hStart, mStart] = gf.oraInizio.split(':').map(Number);
-              const [hEnd, mEnd] = gf.oraFine.split(':').map(Number);
-              const topPercent = ((hStart * 60 + mStart - startHourMins) / totalHoursMins) * 100;
-              const heightPercent = (((hEnd * 60 + mEnd) - (hStart * 60 + mStart)) / totalHoursMins) * 100;
-              const tuttiStudentiIds = gf.lezioni.flatMap(l => l.studentiIds || []);
-
-              return (
-                <div 
-                  key={idx} 
-                  draggable 
-                  onDragStart={(e) => handleDragStart(e, gf.lezioni[0])} 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setGroupModalData({ fascia: `${gf.oraInizio} - ${gf.oraFine}`, lezioniGroup: gf.lezioni });
-                  }}
-                  style={{ top: `${topPercent}%`, height: `${heightPercent}%` }}
-                  className="absolute left-1 right-1 bg-amber-300 border-l-4 border-amber-600 rounded-xl p-2.5 text-xs shadow-md flex flex-col justify-between cursor-pointer hover:bg-amber-400 transition-all z-10"
-                >
-                  <div>
-                    <div className="font-black text-amber-950 flex justify-between">
-                      <span className="truncate">👥 Gruppo Studio</span>
-                      <span className="bg-amber-950 text-amber-300 font-black text-[10px] px-2 rounded-full shrink-0">
-                        {tuttiStudentiIds.length} rag.
-                      </span>
-                    </div>
-                    <div className="text-[10px] font-extrabold text-amber-900 mt-1">🕒 {gf.oraInizio} - {gf.oraFine}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Linea orario corrente */}
-          {isToday && redLineTop >= 0 && redLineTop <= 100 && (
-            <div style={{ top: `${redLineTop}%` }} className="absolute left-0 right-0 border-b-2 border-rose-500 z-30 pointer-events-none flex items-center">
-              <span className="bg-rose-500 text-white text-[9px] font-black px-1 rounded-r">ORA</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Menu tasto destro */}
-      {contextMenu && (
-        <div 
-          style={{ top: contextMenu.mouseY, left: contextMenu.mouseX }}
-          className="fixed z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-1.5 min-w-[210px] space-y-1 animate-in fade-in duration-100"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-3 py-1.5 text-[11px] font-extrabold text-gray-400 border-b border-gray-100 flex items-center justify-between">
-            <span>🕒 {contextMenu.oraInizio} - {contextMenu.oraFine}</span>
-          </div>
-
-          <button
-            onClick={() => {
-              if (onOpenModal) {
-                onOpenModal({
-                  data: dataSelezionata,
-                  insegnanteId: contextMenu.isGruppo ? '' : contextMenu.insegnanteId,
-                  isGruppo: Boolean(contextMenu.isGruppo),
-                  oraInizio: contextMenu.oraInizio,
-                  oraFine: contextMenu.oraFine
-                });
-              }
-              setContextMenu(null);
-            }}
-            className="w-full text-left px-3 py-2 hover:bg-amber-50 rounded-xl text-xs font-bold text-slate-900 flex items-center space-x-2"
-          >
-            <Plus className="w-3.5 h-3.5 text-amber-600"/>
-            <span>Nuova Lezione (1 ora)</span>
-          </button>
-
-          <button
-            onClick={() => {
-              if (onOpenModal) {
-                onOpenModal({
-                  data: dataSelezionata,
-                  insegnanteId: '',
-                  isGruppo: true,
-                  oraInizio: contextMenu.oraInizio,
-                  oraFine: contextMenu.oraFine
-                });
-              }
-              setContextMenu(null);
-            }}
-            className="w-full text-left px-3 py-2 hover:bg-amber-50 rounded-xl text-xs font-bold text-amber-900 flex items-center space-x-2"
-          >
-            <Users className="w-3.5 h-3.5 text-amber-700"/>
-            <span>Inserisci in Gruppo Studio</span>
-          </button>
-        </div>
-      )}
-
-      {/* Dettaglio Lezione */}
-      {selectedLezioneDetail && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2">
-                <Info className="w-5 h-5 text-slate-900"/>
-                <h3 className="font-extrabold text-lg text-slate-900">Dettaglio Lezione</h3>
-              </div>
-              <button onClick={() => setSelectedLezioneDetail(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
-                <div className="font-black text-slate-900 text-sm">{selectedLezioneDetail.materia || 'Lezione'}</div>
-                <div className="text-gray-600 font-bold flex items-center gap-2">
-                  <span>📅 {selectedLezioneDetail.data}</span>
-                  <span>🕒 {selectedLezioneDetail.oraInizio} - {selectedLezioneDetail.oraFine}</span>
-                </div>
-                {selectedLezioneDetail.insegnanteId && (
-                  <p className="text-slate-800 font-bold">
-                    Docente: <span className="text-amber-700">{insegnanti.find(i => i.id === selectedLezioneDetail.insegnanteId)?.nome || 'N.D.'}</span>
-                  </p>
-                )}
-
-                <button
-                  onClick={() => sendWhatsAppConfirmation(selectedLezioneDetail)}
-                  className="w-full mt-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center space-x-2 shadow-sm"
-                >
-                  <MessageSquare className="w-3.5 h-3.5"/>
-                  <span>Invia Conferma WhatsApp</span>
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1.5">Studenti Iscritti (Clicca per aprire la scheda)</label>
-                <div className="space-y-1.5">
-                  {(selectedLezioneDetail.studentiIds || []).map(sId => {
-                    const std = studenti.find(s => s.id === sId);
-                    return (
-                      <button
-                        key={sId}
-                        onClick={() => {
-                          setSelectedLezioneDetail(null);
-                          if (onSelectStudent) onSelectStudent(sId);
-                        }}
-                        className="w-full bg-slate-100 hover:bg-amber-100/70 p-2.5 rounded-xl flex items-center justify-between font-extrabold text-slate-900 text-left text-xs transition-colors"
-                      >
-                        <div className="flex items-center space-x-2">
-                          <User className="w-4 h-4 text-slate-700"/>
-                          <span>{std ? `${std.nome} ${std.cognome}` : 'Studente'}</span>
-                        </div>
-                        <span className="text-[10px] bg-slate-900 text-white px-2.5 py-1 rounded-lg font-bold">Apri Scheda Studente ➔</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setSelectedLezioneDetail(null)} className="px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Chiudi</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Dettaglio Gruppo Studio */}
-      {groupModalData && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2 text-amber-900">
-                <Users className="w-5 h-5 text-amber-600"/>
-                <h3 className="font-extrabold text-base text-slate-900">Gestione Gruppo Studio ({groupModalData.fascia})</h3>
-              </div>
-              <button onClick={() => setGroupModalData(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
-            </div>
-
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-              <p className="text-xs text-gray-500 font-medium">Puoi aprire la scheda o riassegnare la lezione a un docente singolo:</p>
-              
-              {groupModalData.lezioniGroup.map(lez => (
-                <div key={lez.id} className="p-3 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <div>
-                      <span className="font-extrabold text-slate-900">{stdsNames(lez.studentiIds, studenti)}</span>
-                      <div className="text-[11px] text-gray-600">🕒 {lez.oraInizio} - {lez.oraFine} • {lez.materia || 'Doposcuola'}</div>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        setGroupModalData(null);
-                        if (onSelectStudent && lez.studentiIds?.[0]) onSelectStudent(lez.studentiIds[0]);
-                      }}
-                      className="px-2.5 py-1 bg-slate-900 text-white font-bold rounded-lg text-[10px]"
-                    >
-                      Scheda
-                    </button>
-                  </div>
-
-                  <div className="pt-2 border-t border-amber-200/80 flex items-center gap-2">
-                    <select id={`doc_dest_${lez.id}`} className="p-1 bg-white border border-amber-300 rounded-lg text-xs font-bold flex-1 text-slate-900">
-                      <option value="">Riassegna a un docente...</option>
-                      {insegnantiAttivi.map(i => (
-                        <option key={i.id} value={i.id}>{i.nome} {i.cognome}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => {
-                        const selDoc = document.getElementById(`doc_dest_${lez.id}`).value;
-                        if (!selDoc) {
-                          alert("Seleziona prima un docente a cui riassegnare la lezione.");
-                          return;
-                        }
-                        const nomeDoc = insegnanti.find(i => i.id === selDoc)?.nome || 'Docente';
-                        setPinConfig({
-                          isOpen: true,
-                          description: `Spostamento lezione dal gruppo al docente ${nomeDoc}`,
-                          actionCallback: () => {
-                            if (onUpdateLezioneCompleta) {
-                              onUpdateLezioneCompleta({
-                                lezioneId: lez.id,
-                                data: lez.data,
-                                oraInizio: lez.oraInizio,
-                                oraFine: lez.oraFine,
-                                insegnanteId: selDoc,
-                                isGruppo: false
-                              });
-                              if (aggiungiLog) aggiungiLog(`Estratta lezione dal gruppo e assegnata a ${nomeDoc}`);
-                            }
-                            setGroupModalData(null);
-                          }
-                        });
-                      }}
-                      className="px-3 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1"
-                    >
-                      <ArrowRightLeft className="w-3.5 h-3.5"/> Sposta
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="pt-2 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setGroupModalData(null)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Richieste App */}
-      {showRichiesteModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2 text-rose-600">
-                <Bell className="w-6 h-6 animate-bounce"/>
-                <h3 className="font-extrabold text-lg text-slate-900">Richieste App in Attesa ({lezioniRichiesteOggi.length})</h3>
-              </div>
-              <button onClick={() => setShowRichiesteModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
-            </div>
-
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-              {lezioniRichiesteOggi.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna nuova richiesta in attesa per oggi.</div>
-              ) : (
-                lezioniRichiesteOggi.map(req => {
-                  const insRichiesto = insegnanti.find(i => i.id === req.insegnanteId);
-                  return (
-                    <div key={req.id} className="bg-sky-50 border border-sky-200 p-4 rounded-2xl space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-black text-slate-900 text-sm">👤 {stdsNames(req.studentiIds, studenti)}</h4>
-                          <p className="text-xs text-sky-900 font-bold mt-0.5">Materia: {req.materia || 'Doposcuola'} • 🕒 {req.oraInizio} - {req.oraFine}</p>
-                          <p className="text-[11px] text-gray-600 mt-1">
-                            Docente: <strong className="text-amber-800">{insRichiesto ? `${insRichiesto.nome} ${insRichiesto.cognome}` : 'Nessuno'}</strong>
-                          </p>
-                        </div>
-                        <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">Da Approvare</span>
-                      </div>
-
-                      <div className="pt-2 border-t border-sky-200 flex items-center justify-between gap-2">
-                        <select defaultValue={req.insegnanteId || insegnantiAttivi[0]?.id} id={`sel_doc_${req.id}`} className="p-1.5 bg-white border border-sky-300 rounded-xl font-bold text-slate-900 text-xs flex-1">
-                          {insegnantiAttivi.map(ins => (
-                            <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
-                          ))}
-                        </select>
-
-                        <button
-                          onClick={() => {
-                            const selectedDocId = document.getElementById(`sel_doc_${req.id}`).value;
-                            if (onAcceptRichiesta) onAcceptRichiesta(req.id, selectedDocId);
-                            if (aggiungiLog) aggiungiLog(`Approvata richiesta app per ID ${req.id}`);
-                          }}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1 shadow-sm shrink-0"
-                        >
-                          <Check className="w-3.5 h-3.5"/> Accetta
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            if (onRejectRichiesta) onRejectRichiesta(req.id, 'Orario o docente non disponibile');
-                            if (aggiungiLog) aggiungiLog(`Rifiutata richiesta app per ID ${req.id}`);
-                          }}
-                          className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-xl text-xs flex items-center gap-1 shrink-0"
-                        >
-                          <X className="w-3.5 h-3.5"/> Rifiuta
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="pt-3 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setShowRichiesteModal(false)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Annullate */}
-      {showAnnullateModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-              <div className="flex items-center space-x-2 text-slate-800">
-                <AlertOctagon className="w-6 h-6"/>
-                <h3 className="font-extrabold text-lg text-slate-900">Lezioni Annullate Oggi ({lezioniAnnullateOggi.length})</h3>
-              </div>
-              <button onClick={() => setShowAnnullateModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
-            </div>
-
-            <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-              {lezioniAnnullateOggi.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna lezione annullata registrata per oggi.</div>
-              ) : (
-                lezioniAnnullateOggi.map(lez => (
-                  <div key={lez.id} className="bg-slate-50 border border-slate-200 p-3.5 rounded-2xl flex items-center justify-between gap-3">
-                    <div className="space-y-1 flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-black text-slate-900 line-through">{stdsNames(lez.studentiIds, studenti)}</span>
-                        <span className="text-[10px] bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded">
-                          {lez.tipoAnnullamento === 'addebito' ? 'Con Addebito' : 'Gratuita'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-600 font-medium">{lez.materia} • 🕒 {lez.oraInizio} - {lez.oraFine}</p>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setPinConfig({
-                          isOpen: true,
-                          description: `Ripristino lezione di ${stdsNames(lez.studentiIds, studenti)}`,
-                          actionCallback: () => {
-                            if (onRestoreLezione) onRestoreLezione(lez.id);
-                            if (aggiungiLog) aggiungiLog(`Ripristinata lezione ID: ${lez.id}`);
-                          }
-                        });
-                      }}
-                      className="px-3 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1 shadow-sm shrink-0 transition-all"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5"/> Ripristina
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="pt-3 border-t border-gray-100 flex justify-end">
-              <button onClick={() => setShowAnnullateModal(false)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modale PIN */}
-      <ModalePin
-        isOpen={pinConfig.isOpen}
-        descrizione={pinConfig.description}
-        onClose={() => setPinConfig({ isOpen: false, actionCallback: null, description: '' })}
-        onSuccess={() => {
-          if (pinConfig.actionCallback) pinConfig.actionCallback();
-          setPinConfig({ isOpen: false, actionCallback: null, description: '' });
-        }}
+    <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
+      <Sidebar 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        searchQuery={searchQuery} 
+        setSearchQuery={setSearchQuery} 
+        logs={logsAttivita}
       />
+
+      <main className="flex-1 overflow-auto bg-gray-50/50">
+        {activeTab === 'planning' && (
+          <PlanningCalendario
+            insegnanti={insegnanti}
+            studenti={studenti}
+            lezioni={lezioni}
+            aggiungiLog={aggiungiLog}
+            onDeleteLezione={handleDeleteLezione}
+            onOpenModal={handleOpenLezioneModal}
+            onSelectStudent={(stdId) => {
+              const std = studenti.find(s => s.id === stdId);
+              setStudenteSelezionatoDettaglio(std);
+            }}
+            onUpdateLezioneStatus={handleUpdateLezioneStatus}
+            onRestoreLezione={handleRestoreLezione}
+            onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
+            onEstraiStudenteDaGruppo={handleEstraiStudenteDaGruppo}
+            onAcceptRichiesta={handleAcceptRichiesta}
+            onRejectRichiesta={handleRejectRichiesta}
+          />
+        )}
+        
+        {activeTab === 'insegnanti' && (
+          <GestioneInsegnanti 
+            insegnanti={insegnanti} 
+            searchQuery={searchQuery} 
+            onOpenModal={handleOpenInsegnanteModal} 
+            onToggleStato={handleToggleStatoInsegnante} 
+            onDelete={handleDeleteInsegnante} 
+          />
+        )}
+
+        {activeTab === 'studenti' && (
+          <GestioneStudenti 
+            studenti={studenti} 
+            searchQuery={searchQuery} 
+            onOpenModal={handleOpenStudenteModal} 
+            onToggleStato={handleToggleStatoStudente} 
+            onDelete={handleDeleteStudente} 
+          />
+        )}
+
+        {activeTab === 'cassa' && (
+          <CassaPresenze
+            lezioni={lezioni}
+            studenti={studenti}
+            insegnanti={insegnanti}
+            onUpdateLezioneStatus={handleUpdateLezioneStatus}
+            aggiungiLog={aggiungiLog}
+          />
+        )}
+      </main>
+
+      <ModaleInsegnante 
+        isOpen={showInsegnanteModal} 
+        onClose={() => setShowInsegnanteModal(false)} 
+        onSave={handleSaveInsegnante} 
+        formData={insegnanteForm} 
+        setFormData={setInsegnanteForm} 
+        isEditing={Boolean(editingInsegnante)} 
+      />
+
+      <ModaleStudente 
+        isOpen={showStudenteModal} 
+        onClose={() => setShowStudenteModal(false)} 
+        onSave={handleSaveStudente} 
+        formData={studenteForm} 
+        setFormData={setStudenteForm} 
+        isEditing={Boolean(editingStudente)} 
+      />
+
+      <ModaleLezione 
+        isOpen={showLezioneModal} 
+        onClose={() => {
+          setShowLezioneModal(false);
+          setInitialLezioneData(null);
+        }} 
+        onSave={handleSaveLezione} 
+        insegnanti={insegnanti} 
+        studenti={studenti} 
+        lezioni={lezioni} 
+        initialData={initialLezioneData}
+      />
+
+      {studenteSelezionatoDettaglio && (
+        <DettaglioStudente
+          studente={studenteSelezionatoDettaglio}
+          lezioni={lezioni}
+          onClose={() => setStudenteSelezionatoDettaglio(null)}
+          onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
+          onUpdateLezioneStatus={handleUpdateLezioneStatus}
+        />
+      )}
     </div>
   );
-}
-
-function stdsNames(studentiIds = [], studenti = []) {
-  if (!studentiIds || studentiIds.length === 0) return 'Nessuno studente';
-  return studentiIds.map(id => { 
-    const s = studenti.find(std => std.id === id); 
-    return s ? `${s.nome} ${s.cognome[0]}.` : ''; 
-  }).filter(Boolean).join(', ');
 }
