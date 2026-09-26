@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, Bell, Check, MessageSquare } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, Trash2, X, User, CheckCircle, FileText, Info, AlertOctagon, RotateCcw, Clock, Lock, Bell, Check, MessageSquare, History } from 'lucide-react';
 
 export default function PlanningCalendario({
   insegnanti,
@@ -21,18 +21,22 @@ export default function PlanningCalendario({
   const [groupModalData, setGroupModalData] = useState(null);
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
   
-  // Modali dedicati per Richieste e Annullate spostate in alto
   const [showRichiesteModal, setShowRichiesteModal] = useState(false);
   const [showAnnullateModal, setShowAnnullateModal] = useState(false);
-  const [richiestaDaGestire, setRichiestaDaGestire] = useState(null);
-  const [nuovoDocenteRichiesta, setNuovoDocenteRichiesta] = useState('');
-
-  const [pendingMove, setPendingMove] = useState(null);
+  
+  // STATI PER GESTIONE PIN E LOG
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState(false);
-  const pinInputRef = useRef(null);
+  const PIN_SEGRETO = "1234"; // Puoi modificarlo a piacimento
 
-  // Rilevamento nuove richieste per suono e allerta
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [logsAttivita, setLogsAttivita] = useState([
+    { id: 1, timestamp: new Date().toLocaleString(), operatore: 'Admin', azione: 'Avvio sistema planning caricato correttamente' }
+  ]);
+
+  const pinInputRef = useRef(null);
   const prevRichiesteCountRef = useRef(0);
 
   const slots30 = [];
@@ -53,12 +57,21 @@ export default function PlanningCalendario({
     return () => clearInterval(interval);
   }, []);
 
+  const aggiungiLog = (descrizioneAzione) => {
+    const nuovoLog = {
+      id: Date.now(),
+      timestamp: new Date().toLocaleString(),
+      operatore: 'Segreteria / Admin',
+      azione: descrizioneAzione
+    };
+    setLogsAttivita(prev => [nuovoLog, ...prev]);
+  };
+
   const lezioniAttive = lezioni.filter(l => l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
   const lezioniRichiesteOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'richiesta');
   const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
 
-  // Effetto sonoro (Audio Beep nativo) e apertura automatica / alert visivo all'arrivo di nuove richieste
   useEffect(() => {
     if (lezioniRichiesteOggi.length > prevRichiesteCountRef.current) {
       playNotificationSound();
@@ -72,14 +85,14 @@ export default function PlanningCalendario({
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // Nota D5
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime);
       gain.gain.setValueAtTime(0.1, ctx.currentTime);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.3);
     } catch (e) {
-      console.log("Audio non supportato o bloccato dal browser");
+      console.log("Audio non supportato");
     }
   };
 
@@ -110,6 +123,7 @@ export default function PlanningCalendario({
     e.preventDefault();
   };
 
+  // Intercettazione del drop per richiedere il PIN prima di spostare la lezione
   const handleDrop = (e, targetInsegnanteId, targetIsGruppo = false, targetOraStr) => {
     e.preventDefault();
     const dataJson = e.dataTransfer.getData('application/json');
@@ -127,14 +141,40 @@ export default function PlanningCalendario({
     const endH = Math.floor(endTotalMins / 60).toString().padStart(2, '0');
     const endM = (endTotalMins % 60).toString().padStart(2, '0');
 
-    setPendingMove({
-      lezioneId: payload.id,
-      data: dataSelezionata,
-      oraInizio: targetOraStr,
-      oraFine: `${endH}:${endM}`,
-      insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
-      isGruppo: Boolean(targetIsGruppo)
+    setPendingAction({
+      tipo: 'SPOSTAMENTO_LEZIONE',
+      payload: {
+        lezioneId: payload.id,
+        data: dataSelezionata,
+        oraInizio: targetOraStr,
+        oraFine: `${endH}:${endM}`,
+        insegnanteId: targetIsGruppo ? '' : targetInsegnanteId,
+        isGruppo: Boolean(targetIsGruppo)
+      },
+      descrizione: `Spostamento lezione ID ${payload.id} alle ore ${targetOraStr}`
     });
+    setPinInput('');
+    setPinError(false);
+    setShowPinModal(true);
+  };
+
+  const confermaAzioneConPin = () => {
+    if (pinInput === PIN_SEGRETO) {
+      setShowPinModal(false);
+      if (pendingAction) {
+        if (pendingAction.tipo === 'SPOSTAMENTO_LEZIONE') {
+          if (onUpdateLezioneCompleta) {
+            onUpdateLezioneCompleta(pendingAction.payload.lezioneId, pendingAction.payload);
+          }
+          aggiungiLog(`Spostata lezione (ID: ${pendingAction.payload.lezioneId}) al nuovo orario: ${pendingAction.payload.oraInizio} - ${pendingAction.payload.oraFine}`);
+        }
+      }
+      setPendingAction(null);
+      setPinInput('');
+    } else {
+      setPinError(true);
+      if (pinInputRef.current) pinInputRef.current.focus();
+    }
   };
 
   const handleOpenDetail = (lez) => {
@@ -150,22 +190,22 @@ export default function PlanningCalendario({
     const testo = `Buongiorno, le confermo la prenotazione della lezione di ${lez.materia || 'doposcuola'} per ${nomeStudente} in data ${lez.data} dalle ${lez.oraInizio} alle ${lez.oraFine} con il docente ${nomeDocente}. Cordiali saluti - Fuori Classe Reception.`;
     const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`;
     window.open(url, '_blank');
+    aggiungiLog(`Inviato promemoria WhatsApp per la lezione di ${nomeStudente}`);
   };
 
-  // Dinamica colonne: Ora + Insegnanti + Gruppo
   const gridTemplateColumns = `60px repeat(${insegnanti.length}, minmax(150px, 1fr)) 160px`;
 
   return (
     <div className="w-full h-full p-0 flex flex-col space-y-3 select-none">
-      {/* Header, Data e Pulsanti di Notifica in Alto (Richieste & Annullate) */}
+      {/* Header e comandi */}
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl">
             <CalendarIcon className="w-5 h-5"/>
           </div>
           <div>
-            <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Gestione flussi e docenti</p>
+            <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni & Sicurezza</h2>
+            <p className="text-xs text-gray-500">Gestione flussi, docenti e log di controllo</p>
           </div>
         </div>
 
@@ -180,19 +220,17 @@ export default function PlanningCalendario({
           <button onClick={() => changeDate(1)} className="p-1.5 hover:bg-white rounded-xl text-gray-700"><ChevronRight className="w-4 h-4"/></button>
         </div>
 
-        {/* NOTIFICHE IN ALTO (RICHIESTE & ANNULLATE) + NUOVA LEZIONE */}
-        <div className="flex items-center space-x-2">
-          {/* Pulsante Richieste App */}
+        <div className="flex items-center space-x-2 flex-wrap">
           <button
             onClick={() => setShowRichiesteModal(true)}
-            className={`relative flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+            className={`relative flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
               lezioniRichiesteOggi.length > 0 
                 ? 'bg-rose-500 text-white border-rose-600 shadow-md animate-pulse' 
                 : 'bg-sky-50 text-sky-900 border-sky-200 hover:bg-sky-100'
             }`}
           >
             <Bell className="w-4 h-4"/>
-            <span>Richieste App</span>
+            <span>Richieste</span>
             {lezioniRichiesteOggi.length > 0 && (
               <span className="bg-white text-rose-600 px-1.5 py-0.2 rounded-full text-[10px] font-black">
                 {lezioniRichiesteOggi.length}
@@ -200,29 +238,37 @@ export default function PlanningCalendario({
             )}
           </button>
 
-          {/* Pulsante Annullate */}
           <button
             onClick={() => setShowAnnullateModal(true)}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold border border-slate-200 shadow-sm"
+            className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold border border-slate-200 shadow-sm"
           >
             <AlertOctagon className="w-4 h-4 text-slate-600"/>
             <span>Annullate ({lezioniAnnullateOggi.length})</span>
           </button>
 
-          {/* Pulsante Nuova Lezione */}
           <button
-            onClick={() => onOpenModal()}
-            className="flex items-center space-x-2 px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm"
+            onClick={() => setShowLogModal(true)}
+            className="flex items-center space-x-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-900 rounded-xl text-xs font-bold border border-indigo-200 shadow-sm"
+          >
+            <History className="w-4 h-4 text-indigo-600"/>
+            <span>Registro Log</span>
+          </button>
+
+          <button
+            onClick={() => {
+              onOpenModal();
+              aggiungiLog("Apertura modale inserimento nuova lezione");
+            }}
+            className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm"
           >
             <Plus className="w-4 h-4"/>
-            <span>+ Nuova Lezione</span>
+            <span>+ Nuova</span>
           </button>
         </div>
       </div>
 
-      {/* Griglia Calendario Pulita */}
+      {/* Griglia Calendario */}
       <div className="flex-1 bg-white border-t border-b border-gray-200 overflow-x-auto flex flex-col min-h-[650px] w-full">
-        {/* Intestazione Colonne */}
         <div 
           className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[850px]"
           style={{ gridTemplateColumns }}
@@ -236,7 +282,6 @@ export default function PlanningCalendario({
             </div>
           ))}
 
-          {/* Colonna Gruppo */}
           <div
             onClick={() => setGroupModalData({ fascia: 'Intero Giorno', lezioniGroup: lezioniGruppoOggi })}
             className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 flex flex-col items-center justify-center cursor-pointer"
@@ -248,7 +293,6 @@ export default function PlanningCalendario({
           </div>
         </div>
 
-        {/* Corpo della Griglia */}
         <div 
           className="relative flex-1 grid w-full min-w-[850px]"
           style={{ gridTemplateColumns }}
@@ -261,7 +305,6 @@ export default function PlanningCalendario({
             ))}
           </div>
 
-          {/* Colonne Insegnanti Singoli */}
           {insegnanti.map(ins => {
             const lezioniDocente = lezioniAttive.filter(l => l.insegnanteId === ins.id && !l.isGruppo);
 
@@ -306,7 +349,6 @@ export default function PlanningCalendario({
             );
           })}
 
-          {/* Colonna Gruppo */}
           <div className="bg-amber-50/30 relative divide-y divide-amber-100/50">
             {slots30.map((slot, i) => (
               <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, '', true, slot.oraStr)} className="h-8 hover:bg-amber-100/30"/>
@@ -345,7 +387,6 @@ export default function PlanningCalendario({
             })}
           </div>
 
-          {/* Linea Rossa ORA */}
           {isToday && redLineTop >= 0 && redLineTop <= 100 && (
             <div style={{ top: `${redLineTop}%` }} className="absolute left-0 right-0 border-b-2 border-rose-500 z-30 pointer-events-none flex items-center">
               <span className="bg-rose-500 text-white text-[9px] font-black px-1 rounded-r">ORA</span>
@@ -354,7 +395,103 @@ export default function PlanningCalendario({
         </div>
       </div>
 
-      {/* MODALE GESTIONE RICHIESTE APP */}
+      {/* MODALE RICHIESTA PIN DI SICUREZZA */}
+      {showPinModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4 text-center">
+            <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-2xl mx-auto flex items-center justify-center">
+              <Lock className="w-6 h-6"/>
+            </div>
+            <div>
+              <h3 className="font-black text-lg text-slate-900">Autorizzazione Richiesta</h3>
+              <p className="text-xs text-gray-500 mt-1">Inserisci il PIN amministrativo per autorizzare lo spostamento della lezione.</p>
+            </div>
+
+            <div className="space-y-2">
+              <input
+                ref={pinInputRef}
+                type="password"
+                maxLength={4}
+                placeholder="••••"
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value);
+                  setPinError(false);
+                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') confermaAzioneConPin(); }}
+                className={`w-full text-center text-2xl tracking-widest font-black py-3 rounded-2xl border bg-gray-50 focus:outline-none ${
+                  pinError ? 'border-rose-500 text-rose-600 bg-rose-50' : 'border-gray-200 text-slate-900'
+                }`}
+              />
+              {pinError && <p className="text-[11px] font-bold text-rose-600">PIN errato! Riprova (Suggerimento: 1234)</p>}
+            </div>
+
+            <div className="flex space-x-2 pt-2">
+              <button
+                onClick={() => {
+                  setShowPinModal(false);
+                  setPendingAction(null);
+                }}
+                className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl text-xs transition-all"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={confermaAzioneConPin}
+                className="flex-1 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs shadow-sm transition-all"
+              >
+                Conferma PIN
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODALE REGISTRO LOG ATTIVITÀ */}
+      {showLogModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-2 text-indigo-900">
+                <History className="w-6 h-6"/>
+                <h3 className="font-extrabold text-lg text-slate-900">Registro Attività e Log</h3>
+              </div>
+              <button onClick={() => setShowLogModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
+            </div>
+
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+              {logsAttivita.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna attività registrata nella sessione odierna.</div>
+              ) : (
+                logsAttivita.map(log => (
+                  <div key={log.id} className="bg-slate-50 border border-slate-200 p-3 rounded-2xl flex items-start justify-between gap-3 text-xs">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-black text-indigo-900">{log.operatore}</span>
+                        <span className="text-[10px] text-gray-400">• {log.timestamp}</span>
+                      </div>
+                      <p className="text-slate-800 font-medium">{log.azione}</p>
+                    </div>
+                    <span className="bg-emerald-100 text-emerald-800 font-black text-[9px] px-2 py-0.5 rounded-full shrink-0">Registrato</span>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-gray-100 flex justify-between items-center">
+              <button
+                onClick={() => setLogsAttivita([])}
+                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold rounded-xl text-xs transition-all"
+              >
+                Pulisci Storico
+              </button>
+              <button onClick={() => setShowLogModal(false)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODALE RICHIESTE APP */}
       {showRichiesteModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -400,6 +537,7 @@ export default function PlanningCalendario({
                           onClick={() => {
                             const selectedDocId = document.getElementById(`sel_doc_${req.id}`).value;
                             if (onAcceptRichiesta) onAcceptRichiesta(req.id, selectedDocId);
+                            aggiungiLog(`Approvata richiesta app per ID ${req.id}`);
                           }}
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1 shadow-sm shrink-0"
                         >
@@ -409,6 +547,7 @@ export default function PlanningCalendario({
                         <button
                           onClick={() => {
                             if (onRejectRichiesta) onRejectRichiesta(req.id, 'Orario o docente non disponibile');
+                            aggiungiLog(`Rifiutata richiesta app per ID ${req.id}`);
                           }}
                           className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-xl text-xs flex items-center gap-1 shrink-0"
                         >
@@ -459,15 +598,14 @@ export default function PlanningCalendario({
                       )}
                     </div>
 
-                    {/* Pulsante per Ripristinare la Lezione */}
                     <button
                       onClick={() => {
                         if (onRestoreLezione) {
                           onRestoreLezione(lez.id);
+                          aggiungiLog(`Ripristinata lezione annullata ID ${lez.id}`);
                         }
                       }}
                       className="px-3 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1 shadow-sm shrink-0 transition-all"
-                      title="Ripristina lezione"
                     >
                       <RotateCcw className="w-3.5 h-3.5"/> Ripristina
                     </button>
@@ -528,6 +666,7 @@ export default function PlanningCalendario({
                         onClick={() => {
                           setSelectedLezioneDetail(null);
                           if (onSelectStudent) onSelectStudent(sId);
+                          aggiungiLog(`Consultata scheda studente: ${std ? std.nome : sId}`);
                         }}
                         className="w-full bg-slate-100 hover:bg-slate-200 p-2.5 rounded-xl flex items-center justify-between font-extrabold text-slate-900 text-left text-xs"
                       >
