@@ -30,35 +30,33 @@ export const TARIFFE_STANDARD = {
   }
 };
 
-// Funzione helper per ottenere il prezzo effettivo applicato allo studente
+// Calcolo tariffa effettiva applicata
 export function getTariffaEffettiva(studente, isLezioneGruppo = false) {
-  if (!studente) return 20.00;
+  if (!studente) return 22.00;
 
-  // Se la lezione è di gruppo studio condiviso, si applica la tariffa gruppo (se non ha riserva specifica)
-  if (isLezioneGruppo && !studente.haTariffaRiservataGruppo) {
+  if (isLezioneGruppo) {
     return TARIFFE_STANDARD.gruppo.prezzoOrarioDefault;
   }
 
-  // Se lo studente ha una "Tariffa Riservata" (sconto/accordo dedicato)
   if (studente.haTariffaRiservata && Number(studente.tariffaRiservataValore) > 0) {
     return Number(studente.tariffaRiservataValore);
   }
 
-  // Altrimenti si prende la tariffa della sua categoria scolastica
   const cat = studente.categoriaTariffaria || 'medie';
   const tariffaObj = TARIFFE_STANDARD[cat] || TARIFFE_STANDARD.medie;
   return tariffaObj.prezzoOrarioDefault;
 }
 
-// Funzione helper per calcolare le metriche del credito didattico
+// Calcolo metriche borsellino economico
 export function getStatoBorsellino(studente) {
-  if (!studente) return { totaleVersato: 0, totaleConsumato: 0, creditoResiduo: 0, daSaldare: 0 };
+  if (!studente) {
+    return { totaleVersato: 0, totaleConsumato: 0, creditoResiduo: 0, daSaldare: 0, totalePattuito: 0 };
+  }
 
   const totaleVersato = Number(studente.totaleVersato || studente.totalePagato || 0);
   const totaleConsumato = Number(studente.totaleConsumato || 0);
   const creditoResiduo = Number((totaleVersato - totaleConsumato).toFixed(2));
   
-  // Se il concordato pattuito è superiore a quanto versato
   const totalePattuito = Number(studente.totalePattuito || studente.totaleDovuto || 0);
   const daSaldare = Math.max(0, Number((totalePattuito - totaleVersato).toFixed(2)));
 
