@@ -685,13 +685,14 @@ export default function PlanningCalendario({
   );
 }
 
-// Funzione protetta da studenti null/undefined
 function stdsNames(studentiIds = [], studenti = []) {
   if (!studentiIds || !Array.isArray(studentiIds) || studentiIds.length === 0) return 'Nessuno studente';
   return studentiIds
     .map(id => {
       const s = (studenti || []).find(std => std && std.id === id);
-      return s?.nome ? `${s.nome} ${s.cognome ? s.cognome[0] + '.' : ''}` : null;
+      if (!s) return null;
+      const inizialeCognome = s.cognome ? ` ${s.cognome[0]}.` : '';
+      return `${s.nome || 'Studente'}${inizialeCognome}`;
     })
     .filter(Boolean)
     .join(', ') || 'Studente non trovato';
