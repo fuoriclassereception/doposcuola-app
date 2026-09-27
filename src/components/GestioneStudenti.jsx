@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { Plus, Phone, Mail, Edit, Trash2, CheckCircle2, AlertCircle, UserCheck, Send, KeyRound, Euro, Clock } from 'lucide-react';
+import { Plus, Phone, Mail, Trash2, CheckCircle2, AlertCircle, UserCheck, Send, KeyRound, User } from 'lucide-react';
 
 export default function GestioneStudenti({
   studenti,
   searchQuery,
-  onOpenModal,
+  onOpenModal, // Lo usiamo SOLO per il pulsante "+ Nuovo Studente"
+  onSelectStudent, // NUOVO: Lo usiamo per aprire la Scheda Completa dello studente
   onToggleStato,
   onDelete
 }) {
@@ -36,7 +37,7 @@ export default function GestioneStudenti({
           <p className="text-xs text-gray-500 mt-1">Gestione allievi, recapiti e invio credenziali App</p>
         </div>
         <button
-          onClick={() => onOpenModal()}
+          onClick={() => onOpenModal()} // Apre la modale vuota per CREARE un nuovo studente
           className="flex items-center space-x-2 px-4 py-2.5 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm transition-all"
         >
           <Plus className="w-4 h-4"/>
@@ -55,7 +56,6 @@ export default function GestioneStudenti({
           {filteredStudenti.map((std) => {
             const isInvited = invitedIds[std.id] || std.invitoInviato;
             
-            // Calcolo saldi per la Mini-Dashboard
             const versato = Number(std.totaleVersato || 0);
             const consumato = Number(std.totaleConsumato || 0);
             const saldo = versato - consumato;
@@ -63,7 +63,6 @@ export default function GestioneStudenti({
             return (
               <div key={std.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
                 <div>
-                  {/* Intestazione Card Studente */}
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 rounded-xl bg-slate-900 text-amber-400 flex items-center justify-center font-black text-sm shadow-sm">
@@ -87,16 +86,14 @@ export default function GestioneStudenti({
                     <button
                       onClick={() => onToggleStato(std.id)}
                       className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
-                        std.attivo
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-gray-100 text-gray-400 border-gray-200'
+                        std.attivo ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-gray-100 text-gray-400 border-gray-200'
                       }`}
                     >
                       {std.attivo ? 'Iscritto' : 'Inattivo'}
                     </button>
                   </div>
 
-                  {/* MINI DASHBOARD FINANZIARIA (Nuova) */}
+                  {/* MINI DASHBOARD FINANZIARIA */}
                   <div className="grid grid-cols-3 gap-2 mb-4 bg-slate-50 p-2 rounded-xl border border-slate-100">
                     <div className="text-center border-r border-slate-200">
                       <p className="text-[9px] font-bold text-slate-400 uppercase">Plafond</p>
@@ -114,7 +111,6 @@ export default function GestioneStudenti({
                     </div>
                   </div>
 
-                  {/* Recapiti e Sezione Genitore */}
                   <div className="space-y-2 pt-3 border-t border-gray-100 text-xs text-gray-600">
                     {std.isMinorenne ? (
                       <div className="bg-amber-50/60 p-2.5 rounded-xl border border-amber-200/60 text-xs space-y-1">
@@ -143,7 +139,6 @@ export default function GestioneStudenti({
                       </div>
                     )}
 
-                    {/* Stato Invito App e GDPR */}
                     <div className="pt-2 flex flex-col space-y-1 text-[11px]">
                       <div className="flex items-center space-x-1.5">
                         {isInvited ? (
@@ -172,13 +167,12 @@ export default function GestioneStudenti({
                   </div>
                 </div>
 
-                {/* Tasti Modifica / Elimina / Invita */}
                 <div className="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between">
                   <button
                     onClick={() => handleSendInvite(std)}
                     className="p-1.5 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-bold px-2.5 border border-amber-300 flex items-center transition-all bg-amber-50"
                   >
-                    <Send className="w-3.5 h-3.5 mr-1.5"/> {isInvited ? 'Reinvia Invito' : 'Invia Invito App'}
+                    <Send className="w-3.5 h-3.5 mr-1.5"/> {isInvited ? 'Reinvia Invito' : 'Invia Invito'}
                   </button>
 
                   <div className="flex space-x-2">
@@ -188,11 +182,12 @@ export default function GestioneStudenti({
                     >
                       <Trash2 className="w-3.5 h-3.5 mr-1"/> Elimina
                     </button>
+                    {/* IL NUOVO TASTO CHE APRE LA SCHEDA COMPLETA */}
                     <button
-                      onClick={() => onOpenModal(std)}
-                      className="p-1.5 text-gray-700 hover:bg-gray-100 rounded-lg text-xs font-bold px-3 border border-gray-200 flex items-center"
+                      onClick={() => onSelectStudent && onSelectStudent(std.id)}
+                      className="p-1.5 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-xs font-bold px-3 flex items-center shadow-sm"
                     >
-                      <Edit className="w-3.5 h-3.5 mr-1"/> Modifica
+                      <User className="w-3.5 h-3.5 mr-1"/> Apri Scheda
                     </button>
                   </div>
                 </div>
