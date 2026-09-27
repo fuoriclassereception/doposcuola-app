@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, BookOpen, Search, UserCheck } from 'lucide-react';
+import { X, BookOpen, Search, UserCheck, Euro } from 'lucide-react';
+import { getTariffaEffettiva, TARIFFE_STANDARD } from '../utils/tariffeConfig';
 
 export default function ModaleLezione({
   isOpen,
@@ -18,6 +19,7 @@ export default function ModaleLezione({
     insegnanteId: '',
     studentiIds: [],
     isGruppo: false,
+    tariffaOrariaApplicata: 22,
     note: '',
     oldLezioneId: null
   });
@@ -26,6 +28,7 @@ export default function ModaleLezione({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // Calcolo automatico della tariffa suggerita in base agli studenti / gruppo
   useEffect(() => {
     if (initialData) {
       setFormData(prev => ({
@@ -38,19 +41,29 @@ export default function ModaleLezione({
         insegnanteId: initialData.insegnanteId !== undefined ? initialData.insegnanteId : prev.insegnanteId,
         studentiIds: initialData.studentiIds || prev.studentiIds,
         isGruppo: initialData.isGruppo !== undefined ? initialData.isGruppo : prev.isGruppo,
+        tariffaOrariaApplicata: initialData.tariffaOrariaApplicata !== undefined 
+          ? initialData.tariffaOrariaApplicata 
+          : (initialData.isGruppo ? TARIFFE_STANDARD.gruppo.prezzoOrarioDefault : 22),
         oldLezioneId: initialData.oldLezioneId || null
       }));
-    } else if (insegnanti.length > 0 && !formData.insegnanteId) {
-      setFormData(prev => ({ ...prev, insegnanteId: insegnanti[0].id, oldLezioneId: null }));
+    } else {
+      if (insegnanti.length > 0 && !formData.insegnanteId) {
+        setFormData(prev => ({ ...prev, insegnanteId: insegnanti[0].id }));
+      }
     }
   }, [initialData, isOpen, insegnanti]);
 
-  useEffect(() => {
-    if (isOpen) {
-      setSearchStudente('');
-      setIsDropdownOpen(false);
+  // Aggiornamento dinamico del prezzo suggerito quando cambia studente o tipo gruppo
+  const aggiornaTariffaSuggerita = (isGruppo, studentiIds) => {
+    if (isGruppo) {
+      return TARIFFE_STANDARD.gruppo.prezzoOrarioDefault;
     }
-  }, [isOpen]);
+    if (studentiIds.length === 1) {
+      const std = studenti.find(s => s.id === studentiIds[0]);
+      return getTariffaEffettiva(std, false);
+    }
+    return 22;
+  };
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -76,11 +89,16 @@ export default function ModaleLezione({
   const handleToggleStudente = (id) => {
     setFormData(prev => {
       const exists = prev.studentiIds.includes(id);
-      if (exists) {
-        return { ...prev, studentiIds: prev.studentiIds.filter(sId => sId !== id) };
-      } else {
-        return { ...prev, studentiIds: [...prev.studentiIds, id] };
-      }
+      const nuoviIds = exists 
+        ? prev.studentiIds.filter(sId => sId !== id) 
+        : [...prev.studentiIds, id];
+      
+      const tariffaCalcolata = aggiornaTariffaSuggerita(prev.isGruppo, nuoviIds);
+      return { 
+        ...prev, 
+        studentiIds: nuoviIds,
+        tariffaOrariaApplicata: tariffaCalcolata
+      };
     });
   };
 
@@ -94,12 +112,12 @@ export default function ModaleLezione({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4 max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center border-b border-gray-100 pb-3">
           <div className="flex items-center space-x-2">
             <BookOpen className="w-5 h-5 text-amber-500"/>
             <h3 className="font-extrabold text-lg text-slate-900">
-              {formData.oldLezioneId ? 'Rischedula Lezione' : 'Nuova Lezione'}
+              {formData.oldLezioneId ? 'Rischedula Lezione' : 'Nuova Lezione FuoriClasse'}
             </h3>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
@@ -112,14 +130,24 @@ export default function ModaleLezione({
           <div className="flex bg-gray-100 p-1 rounded-2xl">
             <button
               type="button"
-              onClick={() => setFormData(prev => ({ ...prev, isGruppo: false }))}
+              onClick={() => {
+                const nuovaTariffa = aggiornaTariffaSuggerita(false, formData.studentiIds);
+                setFormData(prev => ({ ...prev, isGruppo: false, tariffaOrariaApplicata: nuovaTariffa }));
+              }}
               className={`flex-1 py-2 font-black rounded-xl transition-all ${!formData.isGruppo ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}
             >
-              Docente Singolo
+              Docente Singolo / Individuale
             </button>
             <button
               type="button"
-              onClick={() => setFormData(prev => ({ ...prev, isGruppo: true, insegnanteId: '' }))}
+              onClick={() => {
+                setFormData(prev => ({ 
+                  ...prev, 
+                  isGruppo: true, 
+                  insegnanteId: '', 
+                  tariffaOrariaApplicata: TARIFFE_STANDARD.gruppo.prezzoOrarioDefault 
+                }));
+              }}
               className={`flex-1 py-2 font-black rounded-xl transition-all ${formData.isGruppo ? 'bg-amber-400 text-slate-950 shadow-sm' : 'text-gray-500'}`}
             >
               Gruppo Studio
@@ -173,25 +201,49 @@ export default function ModaleLezione({
             </div>
           </div>
 
-          {/* Materia */}
-          <div>
-            <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Materia / Argomento</label>
-            <input
-              type="text"
-              placeholder="es. Matematica, Fisica..."
-              value={formData.materia}
-              onChange={(e) => setFormData(prev => ({ ...prev, materia: e.target.value }))}
-              className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none focus:border-amber-400"
-            />
+          {/* Materia e PREZZO DELLA SINGOLA LEZIONE */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Materia / Argomento</label>
+              <input
+                type="text"
+                placeholder="es. Matematica..."
+                value={formData.materia}
+                onChange={(e) => setFormData(prev => ({ ...prev, materia: e.target.value }))}
+                className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none"
+              />
+            </div>
+
+            {/* PREZZO DINAMICO / FLESSIBILE PER QUESTA ORA */}
+            <div className="p-2 bg-emerald-50/70 border border-emerald-200 rounded-xl">
+              <label className="block text-[10px] font-black text-emerald-950 uppercase tracking-wider mb-1 flex items-center justify-between">
+                <span>Tariffa Oraria per Questa Lezione</span>
+                <Euro className="w-3.5 h-3.5 text-emerald-700"/>
+              </label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  required
+                  value={formData.tariffaOrariaApplicata}
+                  onChange={(e) => setFormData(prev => ({ ...prev, tariffaOrariaApplicata: parseFloat(e.target.value) || 0 }))}
+                  className="w-full p-2 bg-white border border-emerald-300 rounded-lg font-black text-sm text-slate-900 focus:outline-none"
+                />
+                <span className="font-bold text-emerald-900 text-xs">€/h</span>
+              </div>
+              <p className="text-[9px] text-emerald-800 font-medium mt-1">
+                Suggerita in automatico, ma modificabile a piacere per pacchetti o sconti.
+              </p>
+            </div>
           </div>
 
-          {/* Selezione Studenti con Dropdown Predittivo */}
+          {/* Selezione Studenti */}
           <div className="space-y-1.5 relative" ref={dropdownRef}>
             <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">
-              Studenti Assegnati
+              Studenti Iscritti alla Lezione
             </label>
 
-            {/* Chip degli studenti selezionati */}
             {studentiSelezionati.length > 0 && (
               <div className="flex flex-wrap gap-1.5 p-2 bg-amber-50/60 rounded-xl border border-amber-200 mb-2">
                 {studentiSelezionati.map(s => (
@@ -213,7 +265,6 @@ export default function ModaleLezione({
               </div>
             )}
 
-            {/* Input di ricerca */}
             <div className="relative">
               <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5"/>
               <input
@@ -229,7 +280,6 @@ export default function ModaleLezione({
               />
             </div>
 
-            {/* Tendina a comparsa */}
             {isDropdownOpen && searchStudente.trim().length > 0 && (
               <div className="absolute left-0 right-0 z-20 mt-1 max-h-44 overflow-y-auto border border-gray-200 rounded-2xl p-1.5 space-y-1 bg-white shadow-xl">
                 {studentiFiltrati.length === 0 ? (
@@ -259,15 +309,15 @@ export default function ModaleLezione({
             )}
           </div>
 
-          {/* Note storiche / Materiale didattico */}
+          {/* Note */}
           <div>
-            <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Note / Materiale Trattato</label>
+            <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Note Didattiche / Accordi</label>
             <textarea
               rows="2"
-              placeholder="Eventuali note su argomenti, compiti o richieste speciali..."
+              placeholder="es. Argomenti trattati, compito in classe, accordo speciale..."
               value={formData.note}
               onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))}
-              className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-medium text-slate-900 focus:outline-none focus:border-amber-400"
+              className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-medium text-slate-900 focus:outline-none"
             />
           </div>
 
