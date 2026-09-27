@@ -28,6 +28,10 @@ export default function ModaleLezione({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
+  // Lista sicura docenti e studenti (elimina undefined)
+  const insegnantiValidi = (insegnanti || []).filter(i => i && i.nome && i.attivo !== false);
+  const studentiValidi = (studenti || []).filter(s => s && s.nome && s.attivo !== false);
+
   const getDurataOre = (inizio, fine) => {
     if (!inizio || !fine) return 1;
     const [h1, m1] = inizio.split(':').map(Number);
@@ -36,25 +40,27 @@ export default function ModaleLezione({
     return mins > 0 ? mins / 60 : 1;
   };
 
+  // Calcolo automatico flessibile del costo
   const calcolaCosto = (isGruppo, studentiIds, inizio, fine, tipoTariffa, costoManuale) => {
     if (tipoTariffa === 'personalizzata') return Number(costoManuale || 0);
 
     const durata = getDurataOre(inizio, fine);
     if (isGruppo) return Number((durata * 12).toFixed(2));
 
-    const std = (studenti || []).find(s => studentiIds.includes(s.id));
+    const std = studentiValidi.find(s => (studentiIds || []).includes(s?.id));
     let tariffaBase = 22;
 
     if (std) {
-      if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) {
+      if (std?.haTariffaRiservata && Number(std?.tariffaRiservataValore) > 0) {
         tariffaBase = Number(std.tariffaRiservataValore);
-      } else if (std.categoriaTariffaria === 'elementari') {
+      } else if (std?.categoriaTariffaria === 'elementari') {
         tariffaBase = 18;
-      } else if (std.categoriaTariffaria === 'superiori') {
+      } else if (std?.categoriaTariffaria === 'superiori') {
         tariffaBase = 26;
       }
     }
 
+    // Se fa 2 o più ore consecutive: sconto blocco automatico (-2€/h)
     if (durata >= 2) {
       return Number((durata * (tariffaBase - 2)).toFixed(2));
     }
@@ -68,16 +74,24 @@ export default function ModaleLezione({
       const initStudenti = initialData?.studentiIds || [];
       const initInizio = initialData?.oraInizio || '15:00';
       const initFine = initialData?.oraFine || '16:00';
-      const initDocente = initialData?.insegnanteId || (insegnanti[0]?.id || '');
+      const defaultDocId = insegnantiValidi[0]?.id || '';
+      const initDocente = initGruppo ? '' : (initialData?.insegnanteId || defaultDocId);
       
-      const costoIniziale = calcolaCosto(initGruppo, initStudenti, initInizio, initFine, 'standard', initialData?.costoTotaleLezione);
+      const costoIniziale = calcolaCosto(
+        initGruppo, 
+        initStudenti, 
+        initInizio, 
+        initFine, 
+        'standard', 
+        initialData?.costoTotaleLezione
+      );
 
       setFormData({
         data: initialData?.data || new Date().toISOString().split('T')[0],
         oraInizio: initInizio,
         oraFine: initFine,
         materia: initialData?.materia || 'Matematica',
-        insegnanteId: initGruppo ? '' : initDocente,
+        insegnanteId: initDocente,
         studentiIds: initStudenti,
         isGruppo: initGruppo,
         tipoTariffa: 'standard',
@@ -127,13 +141,12 @@ export default function ModaleLezione({
     onSave(formData);
   };
 
-  const studentiAttivi = (studenti || []).filter(s => s && s.attivo !== false);
-  const studentiFiltrati = studentiAttivi.filter(s => {
-    const nome = `${s.nome || ''} ${s.cognome || ''}`.toLowerCase();
+  const studentiFiltrati = studentiValidi.filter(s => {
+    const nome = `${s?.nome || ''} ${s?.cognome || ''}`.toLowerCase();
     return nome.includes((searchStudente || '').toLowerCase().trim());
   });
 
-  const studentiSelezionati = (studenti || []).filter(s => s && formData.studentiIds.includes(s.id));
+  const studentiSelezionati = studentiValidi.filter(s => formData.studentiIds.includes(s?.id));
   const durataOre = getDurataOre(formData.oraInizio, formData.oraFine);
 
   return (
@@ -152,12 +165,13 @@ export default function ModaleLezione({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          {/* Tipo Lezione */}
           <div className="flex bg-gray-100 p-1 rounded-2xl">
             <button
               type="button"
               onClick={() => {
                 const costo = calcolaCosto(false, formData.studentiIds, formData.oraInizio, formData.oraFine, formData.tipoTariffa, formData.costoTotaleLezione);
-                setFormData(prev => ({ ...prev, isGruppo: false, costoTotaleLezione: costo }));
+                setFormData(prev => ({ ...prev, isGruppo: false, insegnanteId: insegnantiValidi[0]?.id || '', costoTotaleLezione: costo }));
               }}
               className={`flex-1 py-2 font-black rounded-xl transition-all ${!formData.isGruppo ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}
             >
@@ -175,6 +189,7 @@ export default function ModaleLezione({
             </button>
           </div>
 
+          {/* Docente Assegnato */}
           {!formData.isGruppo && (
             <div>
               <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Docente Assegnato</label>
@@ -183,13 +198,16 @@ export default function ModaleLezione({
                 onChange={(e) => setFormData(prev => ({ ...prev, insegnanteId: e.target.value }))}
                 className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none"
               >
-                {insegnanti.filter(i => i.attivo !== false).map(ins => (
-                  <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
+                {insegnantiValidi.map(ins => (
+                  <option key={ins.id} value={ins.id}>
+                    {ins?.nome || 'Docente'} {ins?.cognome || ''} ({ins?.materia || 'Generale'})
+                  </option>
                 ))}
               </select>
             </div>
           )}
 
+          {/* Orari */}
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Data</label>
@@ -231,6 +249,7 @@ export default function ModaleLezione({
             />
           </div>
 
+          {/* Selezione Studenti */}
           <div className="space-y-1.5 relative" ref={dropdownRef}>
             <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">
               Studenti Iscritti
@@ -244,7 +263,7 @@ export default function ModaleLezione({
                     className="inline-flex items-center space-x-1 bg-amber-200 text-amber-950 font-bold px-2 py-1 rounded-lg text-[11px]"
                   >
                     <UserCheck className="w-3 h-3 text-amber-800"/>
-                    <span>{s.nome} {s.cognome}</span>
+                    <span>{s?.nome || 'Studente'} {s?.cognome || ''}</span>
                     <button
                       type="button"
                       onClick={() => handleToggleStudente(s.id)}
@@ -291,7 +310,7 @@ export default function ModaleLezione({
                           isSelected ? 'bg-amber-100 text-slate-950' : 'hover:bg-gray-50 text-slate-700'
                         }`}
                       >
-                        <span>{std.nome} {std.cognome}</span>
+                        <span>{std?.nome || 'Studente'} {std?.cognome || ''}</span>
                         {isSelected && <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-black">Selezionato</span>}
                       </div>
                     );
@@ -301,7 +320,7 @@ export default function ModaleLezione({
             )}
           </div>
 
-          {/* GESTIONE PREZZO LEZIONE FLESSIBILE */}
+          {/* GESTIONE FLESSIBILE COSTO LEZIONE */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
             <div className="flex justify-between items-center">
               <span className="font-black text-slate-900 text-xs flex items-center gap-1">
