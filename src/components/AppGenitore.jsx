@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
-import { Calendar, Plus, UserPlus, Clock, BookOpen, CheckCircle, XCircle, ChevronLeft } from 'lucide-react';
 
 export default function AppGenitore({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard'); // 'dashboard' | 'nuovaRichiesta' | 'aggiungiFiglio'
@@ -39,7 +38,7 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [utente]);
 
-  // 3. Carica Lezioni Programmate (IL CALENDARIO DEL GENITORE)
+  // 3. Carica Lezioni Programmate
   useEffect(() => {
     if (iMieiFigli.length === 0) {
       setLezioniProgrammate([]);
@@ -53,11 +52,9 @@ export default function AppGenitore({ utente, onLogout }) {
         (lez.studentiIds || []).some(id => idsFigli.includes(id))
       );
 
-      // Filtra solo quelle da oggi in poi
       const oggi = new Date().toISOString().split('T')[0];
       const future = lezioniDeiFigli.filter(l => l.data >= oggi);
 
-      // Ordina per data e ora
       future.sort((a, b) => {
         if (a.data !== b.data) return a.data.localeCompare(b.data);
         return (a.oraInizio || '').localeCompare(b.oraInizio || '');
@@ -108,7 +105,6 @@ export default function AppGenitore({ utente, onLogout }) {
     }
   };
 
-  // Utility formatta data (es: 2026-09-28 -> 28/09/2026)
   const formatDataLezione = (dataStr) => {
     if(!dataStr) return '';
     const [y, m, d] = dataStr.split('-');
@@ -122,7 +118,7 @@ export default function AppGenitore({ utente, onLogout }) {
         <header className="bg-blue-600 text-white p-5 shadow-md shrink-0 flex flex-col gap-3 relative z-10">
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-black flex items-center gap-2">
-              <BookOpen className="w-6 h-6"/> FuoriClasse
+              📚 FuoriClasse
             </h1>
             <button onClick={onLogout} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 transition">
               Esci
@@ -135,11 +131,10 @@ export default function AppGenitore({ utente, onLogout }) {
 
           {vistaAttiva === 'dashboard' && (
             <>
-              {/* LEZIONI IN PROGRAMMA (Novità!) */}
               {lezioniProgrammate.length > 0 && (
                 <div className="mb-2">
                   <h2 className="text-sm font-black text-blue-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4"/> Lezioni in Programma
+                    🗓️ Lezioni in Programma
                   </h2>
                   <div className="space-y-3">
                     {lezioniProgrammate.map(lez => {
@@ -149,7 +144,6 @@ export default function AppGenitore({ utente, onLogout }) {
 
                       return (
                         <div key={lez.id} className="bg-gradient-to-r from-blue-600 to-blue-500 rounded-2xl p-4 text-white shadow-md relative overflow-hidden">
-                          <div className="absolute top-0 right-0 p-3 opacity-20"><Clock className="w-12 h-12"/></div>
                           <p className="font-black text-lg mb-1">{lez.materia}</p>
                           <p className="text-blue-100 font-bold text-sm mb-3">👤 {nomiStudenti || 'Studente'}</p>
                           
@@ -170,14 +164,13 @@ export default function AppGenitore({ utente, onLogout }) {
                 </div>
               )}
 
-              {/* SALDI E FIGLI */}
               <div>
                 <h2 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-3">Situazione Contabile</h2>
                 
                 {iMieiFigli.length === 0 ? (
                   <div className="bg-white p-6 rounded-2xl text-center border border-gray-200 shadow-sm space-y-4">
-                    <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto">
-                      <UserPlus className="w-8 h-8 text-blue-500"/>
+                    <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto text-3xl">
+                      👤
                     </div>
                     <div>
                       <h3 className="font-black text-slate-800 text-lg">Nessun figlio registrato</h3>
@@ -218,28 +211,25 @@ export default function AppGenitore({ utente, onLogout }) {
                       );
                     })}
 
-                    {/* BOTTONE GIGANTE AGGIUNGI ALTRO FIGLIO */}
                     <button 
                       onClick={() => setVistaAttiva('aggiungiFiglio')}
                       className="w-full flex items-center justify-center gap-2 py-3.5 bg-white border-2 border-blue-600 text-blue-600 rounded-2xl font-black hover:bg-blue-50 transition-colors shadow-sm"
                     >
-                      <UserPlus className="w-5 h-5"/> Aggiungi un altro Studente
+                      ➕ Aggiungi un altro Studente
                     </button>
                   </div>
                 )}
               </div>
 
-              {/* BOTTONE RICHIEDI ORE */}
               {iMieiFigli.length > 0 && (
                 <button
                   onClick={() => setVistaAttiva('nuovaRichiesta')}
                   className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-blue-700 transition flex justify-center items-center gap-2 mt-4"
                 >
-                  <Plus className="w-6 h-6"/> Richiedi Nuove Ore
+                  ➕ Richiedi Nuove Ore
                 </button>
               )}
 
-              {/* STORICO RICHIESTE */}
               <div className="pb-8">
                 <h2 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-3 mt-6">Storico Richieste</h2>
                 {richieste.length === 0 ? (
@@ -259,15 +249,11 @@ export default function AppGenitore({ utente, onLogout }) {
                             <span className="text-xs font-bold text-slate-500">{req.studente} • {req.ore}h</span>
                           </div>
                           
-                          {/* Etichetta di stato chiara */}
                           <span className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-wider ${
                             req.stato === 'Approvata' ? 'bg-green-100 text-green-700' :
                             req.stato === 'Rifiutata' ? 'bg-red-100 text-red-700' :
                             'bg-yellow-100 text-yellow-700'
                           }`}>
-                            {req.stato === 'Approvata' && <CheckCircle className="w-3 h-3"/>}
-                            {req.stato === 'Rifiutata' && <XCircle className="w-3 h-3"/>}
-                            {req.stato === 'In attesa' && <Clock className="w-3 h-3"/>}
                             {req.stato === 'Approvata' ? 'Fissata' : req.stato}
                           </span>
                         </div>
@@ -280,12 +266,10 @@ export default function AppGenitore({ utente, onLogout }) {
             </>
           )}
 
-          {/* VISTA: AGGIUNGI FIGLIO */}
           {vistaAttiva === 'aggiungiFiglio' && (
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-2 mb-6 cursor-pointer text-slate-500 hover:text-slate-800" onClick={() => setVistaAttiva('dashboard')}>
-                <ChevronLeft className="w-5 h-5"/>
-                <span className="text-sm font-bold">Indietro</span>
+                <span className="text-sm font-bold">⬅️ Indietro</span>
               </div>
 
               <h2 className="text-2xl font-black text-slate-800 mb-2">Registra Studente</h2>
@@ -311,12 +295,10 @@ export default function AppGenitore({ utente, onLogout }) {
             </div>
           )}
 
-          {/* VISTA: NUOVA RICHIESTA */}
           {vistaAttiva === 'nuovaRichiesta' && (
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-2 mb-6 cursor-pointer text-slate-500 hover:text-slate-800" onClick={() => setVistaAttiva('dashboard')}>
-                <ChevronLeft className="w-5 h-5"/>
-                <span className="text-sm font-bold">Indietro</span>
+                <span className="text-sm font-bold">⬅️ Indietro</span>
               </div>
 
               <h2 className="text-2xl font-black text-slate-800 mb-6">Nuova Richiesta Ore</h2>
