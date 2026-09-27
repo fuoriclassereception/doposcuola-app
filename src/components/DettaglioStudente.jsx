@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Mail, Phone, Calendar, CreditCard, Clock, CheckCircle, AlertCircle, Edit2, X, PlusCircle, History, Printer, Save, FileText } from 'lucide-react';
+import { User, Mail, Phone, Calendar, CreditCard, Clock, CheckCircle, AlertCircle, Edit2, X, PlusCircle, History, Printer, Save, FileText, Paperclip } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -165,9 +165,16 @@ export default function DettaglioStudente({
                 lezioniFuture.map(lez => (
                   <div key={lez.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl gap-4 hover:shadow-md transition-shadow">
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className="font-black text-slate-900 text-base">{lez.materia || 'Lezione'}</span>
                         <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-2 py-0.5 rounded uppercase">{lez.stato}</span>
+                        
+                        {/* --- ALLEGATO REINSERITO QUI --- */}
+                        {lez.allegatoUrl && (
+                          <a href={lez.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-blue-100 transition-colors" title="Vedi Appunti">
+                            <Paperclip className="w-3 h-3"/> Appunti
+                          </a>
+                        )}
                       </div>
                       
                       {editingLezioneId === lez.id ? (
@@ -320,7 +327,15 @@ export default function DettaglioStudente({
                     {lezioniPassate.length === 0 ? <p className="text-xs text-gray-400 italic">Nessuna lezione passata.</p> : lezioniPassate.map(lez => (
                       <div key={lez.id} className="flex justify-between items-center p-3 bg-white border border-slate-200 rounded-xl text-xs hover:border-blue-300 transition-colors">
                         <div>
-                          <span className="font-black text-slate-800 block">{lez.materia || 'Lezione'}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-slate-800 block">{lez.materia || 'Lezione'}</span>
+                            {/* --- ALLEGATO STORICO REINSERITO QUI --- */}
+                            {lez.allegatoUrl && (
+                              <a href={lez.allegatoUrl} target="_blank" rel="noreferrer" title="Vedi Appunti" className="text-blue-500 hover:text-blue-700">
+                                <Paperclip className="w-3.5 h-3.5"/>
+                              </a>
+                            )}
+                          </div>
                           <span className="text-slate-500 font-medium">{lez.data} • {lez.oraInizio}-{lez.oraFine}</span>
                         </div>
                         <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase ${lez.stato === 'svolta' ? 'bg-emerald-100 text-emerald-800' : lez.stato === 'annullata' ? 'bg-red-100 text-red-800' : 'bg-slate-200 text-slate-600'}`}>{lez.stato}</span>
