@@ -18,7 +18,7 @@ export default function ModaleLezione({
     insegnanteId: '',
     studentiIds: [],
     isGruppo: false,
-    tipoTariffa: 'standard', // 'standard', 'gruppo', 'due_ore', 'personalizzata'
+    tipoTariffa: 'standard',
     costoTotaleLezione: 22,
     note: '',
     oldLezioneId: null
@@ -28,7 +28,6 @@ export default function ModaleLezione({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Calcolo durata in ore
   const getDurataOre = (inizio, fine) => {
     if (!inizio || !fine) return 1;
     const [h1, m1] = inizio.split(':').map(Number);
@@ -37,21 +36,13 @@ export default function ModaleLezione({
     return mins > 0 ? mins / 60 : 1;
   };
 
-  // Calcolo automatico intelligente del costo
-  const calcolaCostoConsigliato = (isGruppo, studentiIds, inizio, fine, tipoTariffa, costoManuale) => {
-    if (tipoTariffa === 'personalizzata') {
-      return Number(costoManuale || 0);
-    }
+  const calcolaCosto = (isGruppo, studentiIds, inizio, fine, tipoTariffa, costoManuale) => {
+    if (tipoTariffa === 'personalizzata') return Number(costoManuale || 0);
 
     const durata = getDurataOre(inizio, fine);
+    if (isGruppo) return Number((durata * 12).toFixed(2));
 
-    // Se è gruppo
-    if (isGruppo) {
-      return Number((durata * 12).toFixed(2));
-    }
-
-    // Se c'è uno studente selezionato
-    const std = studenti.find(s => studentiIds.includes(s.id));
+    const std = (studenti || []).find(s => studentiIds.includes(s.id));
     let tariffaBase = 22;
 
     if (std) {
@@ -64,7 +55,6 @@ export default function ModaleLezione({
       }
     }
 
-    // Se fa 2 o più ore consecutive: sconto automatico pacchetto (es. 2€/h in meno)
     if (durata >= 2) {
       return Number((durata * (tariffaBase - 2)).toFixed(2));
     }
@@ -80,14 +70,7 @@ export default function ModaleLezione({
       const initFine = initialData?.oraFine || '16:00';
       const initDocente = initialData?.insegnanteId || (insegnanti[0]?.id || '');
       
-      const costoIniziale = calcolaCostoConsigliato(
-        initGruppo,
-        initStudenti,
-        initInizio,
-        initFine,
-        'standard',
-        initialData?.costoTotaleLezione
-      );
+      const costoIniziale = calcolaCosto(initGruppo, initStudenti, initInizio, initFine, 'standard', initialData?.costoTotaleLezione);
 
       setFormData({
         data: initialData?.data || new Date().toISOString().split('T')[0],
@@ -121,7 +104,7 @@ export default function ModaleLezione({
     setFormData(prev => {
       const exists = prev.studentiIds.includes(id);
       const nuovi = exists ? prev.studentiIds.filter(sId => sId !== id) : [...prev.studentiIds, id];
-      const costo = calcolaCostoConsigliato(prev.isGruppo, nuovi, prev.oraInizio, prev.oraFine, prev.tipoTariffa, prev.costoTotaleLezione);
+      const costo = calcolaCosto(prev.isGruppo, nuovi, prev.oraInizio, prev.oraFine, prev.tipoTariffa, prev.costoTotaleLezione);
       return { ...prev, studentiIds: nuovi, costoTotaleLezione: costo };
     });
   };
@@ -130,7 +113,7 @@ export default function ModaleLezione({
     setFormData(prev => {
       const nuovoInizio = campo === 'oraInizio' ? valore : prev.oraInizio;
       const nuovaFine = campo === 'oraFine' ? valore : prev.oraFine;
-      const costo = calcolaCostoConsigliato(prev.isGruppo, prev.studentiIds, nuovoInizio, nuovaFine, prev.tipoTariffa, prev.costoTotaleLezione);
+      const costo = calcolaCosto(prev.isGruppo, prev.studentiIds, nuovoInizio, nuovaFine, prev.tipoTariffa, prev.costoTotaleLezione);
       return { ...prev, [campo]: valore, costoTotaleLezione: costo };
     });
   };
@@ -169,12 +152,11 @@ export default function ModaleLezione({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          {/* Tipologia Lezione */}
           <div className="flex bg-gray-100 p-1 rounded-2xl">
             <button
               type="button"
               onClick={() => {
-                const costo = calcolaCostoConsigliato(false, formData.studentiIds, formData.oraInizio, formData.oraFine, formData.tipoTariffa, formData.costoTotaleLezione);
+                const costo = calcolaCosto(false, formData.studentiIds, formData.oraInizio, formData.oraFine, formData.tipoTariffa, formData.costoTotaleLezione);
                 setFormData(prev => ({ ...prev, isGruppo: false, costoTotaleLezione: costo }));
               }}
               className={`flex-1 py-2 font-black rounded-xl transition-all ${!formData.isGruppo ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}
@@ -184,7 +166,7 @@ export default function ModaleLezione({
             <button
               type="button"
               onClick={() => {
-                const costo = calcolaCostoConsigliato(true, formData.studentiIds, formData.oraInizio, formData.oraFine, formData.tipoTariffa, formData.costoTotaleLezione);
+                const costo = calcolaCosto(true, formData.studentiIds, formData.oraInizio, formData.oraFine, formData.tipoTariffa, formData.costoTotaleLezione);
                 setFormData(prev => ({ ...prev, isGruppo: true, insegnanteId: '', costoTotaleLezione: costo }));
               }}
               className={`flex-1 py-2 font-black rounded-xl transition-all ${formData.isGruppo ? 'bg-amber-400 text-slate-950 shadow-sm' : 'text-gray-500'}`}
@@ -193,7 +175,6 @@ export default function ModaleLezione({
             </button>
           </div>
 
-          {/* Docente */}
           {!formData.isGruppo && (
             <div>
               <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Docente Assegnato</label>
@@ -209,7 +190,6 @@ export default function ModaleLezione({
             </div>
           )}
 
-          {/* Data e Orari */}
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Data</label>
@@ -240,7 +220,6 @@ export default function ModaleLezione({
             </div>
           </div>
 
-          {/* Materia */}
           <div>
             <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Materia</label>
             <input
@@ -252,7 +231,6 @@ export default function ModaleLezione({
             />
           </div>
 
-          {/* Studenti Iscritti */}
           <div className="space-y-1.5 relative" ref={dropdownRef}>
             <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">
               Studenti Iscritti
@@ -323,7 +301,7 @@ export default function ModaleLezione({
             )}
           </div>
 
-          {/* GESTIONE FLESSIBILE PREZZO LEZIONE */}
+          {/* GESTIONE PREZZO LEZIONE FLESSIBILE */}
           <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
             <div className="flex justify-between items-center">
               <span className="font-black text-slate-900 text-xs flex items-center gap-1">
@@ -335,12 +313,12 @@ export default function ModaleLezione({
 
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Tipo Conteggio</label>
+                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Tipo Calcolo</label>
                 <select
                   value={formData.tipoTariffa}
                   onChange={(e) => {
                     const nuovoTipo = e.target.value;
-                    const costo = calcolaCostoConsigliato(formData.isGruppo, formData.studentiIds, formData.oraInizio, formData.oraFine, nuovoTipo, formData.costoTotaleLezione);
+                    const costo = calcolaCosto(formData.isGruppo, formData.studentiIds, formData.oraInizio, formData.oraFine, nuovoTipo, formData.costoTotaleLezione);
                     setFormData(prev => ({ ...prev, tipoTariffa: nuovoTipo, costoTotaleLezione: costo }));
                   }}
                   className="w-full p-2 bg-white border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none"
@@ -366,14 +344,8 @@ export default function ModaleLezione({
                 />
               </div>
             </div>
-            <p className="text-[10px] text-gray-500">
-              {formData.tipoTariffa === 'standard' 
-                ? '✓ Il prezzo si adatta da solo: se selezioni 2 ore applica lo sconto blocco, se è gruppo applica tariffa gruppo.' 
-                : '✍️ Modalità manuale attiva: puoi inserire qualsiasi cifra concordata con il genitore.'}
-            </p>
           </div>
 
-          {/* Note */}
           <div>
             <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Note (opzionale)</label>
             <input
