@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db, auth } from './services/firebase'; // Aggiunto auth
+import { db, auth } from './services/firebase'; 
 import { 
   collection, 
   onSnapshot, 
@@ -8,11 +8,10 @@ import {
   updateDoc, 
   deleteDoc, 
   addDoc,
-  getDoc // Aggiunto getDoc per leggere il ruolo
+  getDoc
 } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth'; // Funzioni di login/logout
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 
-// Import dei tuoi componenti standard
 import Sidebar from './components/Sidebar';
 import GestioneInsegnanti from './components/GestioneInsegnanti';
 import ModaleInsegnante from './components/ModaleInsegnante';
@@ -23,17 +22,14 @@ import ModaleLezione from './components/ModaleLezione';
 import DettaglioStudente from './components/DettaglioStudente';
 import CassaPresenze from './components/CassaPresenze';
 
-// Import delle nuove schermate create
 import Login from './components/Login';
 import AppGenitore from './components/AppGenitore';
 
 export default function App() {
-  // ---------- STATI DI AUTENTICAZIONE ----------
   const [user, setUser] = useState(null);
-  const [ruolo, setRuolo] = useState(null); // 'admin' o 'genitore'
+  const [ruolo, setRuolo] = useState(null); 
   const [authLoading, setAuthLoading] = useState(true);
 
-  // ---------- STATI DEL GESTIONALE ----------
   const [activeTab, setActiveTab] = useState('planning');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -42,7 +38,6 @@ export default function App() {
   const [lezioni, setLezioni] = useState([]);
   const [logsAttivita, setLogsAttivita] = useState([]);
 
-  // Modali
   const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
   const [editingInsegnante, setEditingInsegnante] = useState(null);
   const [insegnanteForm, setInsegnanteForm] = useState({ 
@@ -62,18 +57,16 @@ export default function App() {
   const [showLezioneModal, setShowLezioneModal] = useState(false);
   const [initialLezioneData, setInitialLezioneData] = useState(null);
 
-  // ---------- LISTENER AUTENTICAZIONE ----------
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
         try {
-          // Cerca il documento dell'utente nel database per capire chi è
           const userDoc = await getDoc(doc(db, 'utenti', currentUser.uid));
           if (userDoc.exists()) {
             setRuolo(userDoc.data().ruolo);
           } else {
-            setRuolo('genitore'); // Fallback di sicurezza
+            setRuolo('genitore'); 
           }
         } catch (error) {
           console.error("Errore recupero ruolo:", error);
@@ -85,46 +78,32 @@ export default function App() {
       }
       setAuthLoading(false);
     });
-
     return () => unsubscribeAuth();
   }, []);
 
-  // ---------- LISTENER DATABASE GESTIONALE ----------
   useEffect(() => {
-    // Non carichiamo i dati pesanti se non c'è un utente loggato
     if (!user) return;
 
     const unsubInsegnanti = onSnapshot(collection(db, 'insegnanti'), (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setInsegnanti(docs);
+      setInsegnanti(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
     const unsubStudenti = onSnapshot(collection(db, 'studenti'), (snapshot) => {
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setStudenti(docs);
-      setStudenteSelezionatoDettaglio(prev => {
-        if (!prev) return null;
-        return docs.find(s => s?.id === prev.id) || null;
-      });
+      setStudenteSelezionatoDettaglio(prev => prev ? docs.find(s => s?.id === prev.id) || null : null);
     });
 
     const unsubLezioni = onSnapshot(collection(db, 'lezioni'), (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setLezioni(docs);
+      setLezioni(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
     const unsubLogs = onSnapshot(collection(db, 'logs'), (snapshot) => {
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-      setLogsAttivita(docs);
+      setLogsAttivita(docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)));
     });
 
-    return () => {
-      unsubInsegnanti();
-      unsubStudenti();
-      unsubLezioni();
-      unsubLogs();
-    };
+    return () => { unsubInsegnanti(); unsubStudenti(); unsubLezioni(); unsubLogs(); };
   }, [user]);
 
   const aggiungiLog = async (azione, operatore = 'Admin FuoriClasse') => {
@@ -132,15 +111,12 @@ export default function App() {
       await addDoc(collection(db, 'logs'), {
         timestamp: new Date().toLocaleString('it-IT'),
         createdAt: Date.now(),
-        operatore: user?.email || operatore, // Aggiungiamo l'email di chi fa l'azione
+        operatore: user?.email || operatore, 
         azione: azione || 'Azione registrata'
       });
-    } catch (e) {
-      console.error("Errore salvataggio log:", e);
-    }
+    } catch (e) { console.error("Errore log:", e); }
   };
 
-  // ---------- GESTIONE INSEGNANTI ----------
   const handleOpenInsegnanteModal = (ins = null) => {
     if (ins) {
       setEditingInsegnante(ins.id);
@@ -163,39 +139,30 @@ export default function App() {
         await updateDoc(doc(db, 'insegnanti', editingInsegnante), { ...insegnanteForm });
         aggiungiLog(`Modificati dati insegnante: ${insegnanteForm.nome} ${insegnanteForm.cognome}`);
       } else {
-        const newRef = doc(collection(db, 'insegnanti'));
-        await setDoc(newRef, { ...insegnanteForm, attivo: true });
+        await setDoc(doc(collection(db, 'insegnanti')), { ...insegnanteForm, attivo: true });
         aggiungiLog(`Creato nuovo insegnante: ${insegnanteForm.nome} ${insegnanteForm.cognome}`);
       }
       setShowInsegnanteModal(false);
-    } catch (err) {
-      console.error("Errore salvataggio insegnante:", err);
-    }
+    } catch (err) { console.error("Errore salvataggio insegnante:", err); }
   };
 
   const handleToggleStatoInsegnante = async (id) => {
     const ins = insegnanti.find(i => i?.id === id);
     if (!ins) return;
-    const nuovoStato = ins.attivo === false ? true : false;
     try {
-      await updateDoc(doc(db, 'insegnanti', id), { attivo: nuovoStato });
-      aggiungiLog(`Docente ${ins.nome || ''} ${ins.cognome || ''} impostato su: ${nuovoStato ? 'Attivo' : 'Inattivo'}`);
-    } catch (err) {
-      console.error("Errore toggle stato insegnante:", err);
-    }
+      await updateDoc(doc(db, 'insegnanti', id), { attivo: !ins.attivo });
+      aggiungiLog(`Docente ${ins.nome || ''} impostato su: ${!ins.attivo ? 'Attivo' : 'Inattivo'}`);
+    } catch (err) { console.error("Errore toggle:", err); }
   };
 
   const handleDeleteInsegnante = async (id) => {
     const ins = insegnanti.find(i => i?.id === id);
     try {
       await deleteDoc(doc(db, 'insegnanti', id));
-      aggiungiLog(`Eliminato docente: ${ins?.nome ? `${ins.nome}${ins.cognome || ''}` : id}`);
-    } catch (err) {
-      console.error("Errore eliminazione docente:", err);
-    }
+      aggiungiLog(`Eliminato docente: ${ins?.nome || id}`);
+    } catch (err) { console.error("Errore eliminazione:", err); }
   };
 
-  // ---------- GESTIONE STUDENTI ----------
   const handleOpenStudenteModal = (std = null) => {
     if (std) {
       setEditingStudente(std.id);
@@ -203,13 +170,10 @@ export default function App() {
         nome: std.nome || '', cognome: std.cognome || '', dataNascita: std.dataNascita || '', 
         scuola: std.scuola || '', telefono: std.telefono || '', email: std.email || '', 
         isMinorenne: std.isMinorenne !== undefined ? std.isMinorenne : true, 
-        categoriaTariffaria: std.categoriaTariffaria || 'medie',
-        haTariffaRiservata: Boolean(std.haTariffaRiservata),
-        tariffaRiservataValore: std.tariffaRiservataValore || '',
-        tariffaRiservataMotivo: std.tariffaRiservataMotivo || '',
+        categoriaTariffaria: std.categoriaTariffaria || 'medie', haTariffaRiservata: Boolean(std.haTariffaRiservata),
+        tariffaRiservataValore: std.tariffaRiservataValore || '', tariffaRiservataMotivo: std.tariffaRiservataMotivo || '',
         genitoreNome: std.genitoreNome || '', genitoreTelefono: std.genitoreTelefono || '', 
-        genitoreEmail: std.genitoreEmail || '', genitoreCodiceFiscale: std.genitoreCodiceFiscale || '', 
-        note: std.note || '' 
+        genitoreEmail: std.genitoreEmail || '', genitoreCodiceFiscale: std.genitoreCodiceFiscale || '', note: std.note || '' 
       });
     } else {
       setEditingStudente(null);
@@ -229,80 +193,61 @@ export default function App() {
     try {
       if (editingStudente) {
         await updateDoc(doc(db, 'studenti', editingStudente), { ...studenteForm });
-        aggiungiLog(`Modificati dati studente: ${studenteForm.nome} ${studenteForm.cognome}`);
+        aggiungiLog(`Modificati dati studente: ${studenteForm.nome}`);
       } else {
-        const newRef = doc(collection(db, 'studenti'));
-        await setDoc(newRef, { 
-          ...studenteForm, 
-          attivo: true, totaleVersato: 0, totaleConsumato: 0, totalePattuito: 0, storicoRicariche: []
+        await setDoc(doc(collection(db, 'studenti')), { 
+          ...studenteForm, attivo: true, totaleVersato: 0, totaleConsumato: 0, totalePattuito: 0, storicoRicariche: []
         });
-        aggiungiLog(`Iscritto nuovo studente: ${studenteForm.nome} ${studenteForm.cognome}`);
+        aggiungiLog(`Iscritto nuovo studente: ${studenteForm.nome}`);
       }
       setShowStudenteModal(false);
-    } catch (err) {
-      console.error("Errore salvataggio studente:", err);
-    }
+    } catch (err) { console.error("Errore studente:", err); }
   };
 
   const handleToggleStatoStudente = async (id) => {
     const std = studenti.find(s => s?.id === id);
     if (!std) return;
-    const nuovoStato = std.attivo === false ? true : false;
     try {
-      await updateDoc(doc(db, 'studenti', id), { attivo: nuovoStato });
-      aggiungiLog(`Studente ${std.nome || ''} ${std.cognome || ''} impostato su: ${nuovoStato ? 'Attivo' : 'Inattivo'}`);
-    } catch (err) {
-      console.error("Errore toggle studente:", err);
-    }
+      await updateDoc(doc(db, 'studenti', id), { attivo: !std.attivo });
+      aggiungiLog(`Studente ${std.nome || ''} impostato su: ${!std.attivo ? 'Attivo' : 'Inattivo'}`);
+    } catch (err) { console.error("Errore toggle studente:", err); }
   };
 
   const handleDeleteStudente = async (id) => {
     const std = studenti.find(s => s?.id === id);
     try {
       await deleteDoc(doc(db, 'studenti', id));
-      aggiungiLog(`Eliminato studente: ${std?.nome ? `${std.nome}${std.cognome || ''}` : id}`);
-    } catch (err) {
-      console.error("Errore eliminazione studente:", err);
-    }
+      aggiungiLog(`Eliminato studente: ${std?.nome || id}`);
+    } catch (err) { console.error("Errore eliminazione studente:", err); }
   };
 
-  // ---------- RICARICA PLAFOND DIDATTICO ----------
   const handleRicaricaPacchetto = async (studenteId, datiRicarica) => {
     const std = studenti.find(s => s?.id === studenteId);
     if (!std) return;
 
     const costoNuovo = Number(datiRicarica.costoDaAggiungere || 0);
     const pagatoNuovo = Number(datiRicarica.pagatoDaAggiungere || 0);
-
-    const nuovoTotaleVersato = Number(((std.totaleVersato || std.totalePagato || 0) + pagatoNuovo).toFixed(2));
-    const nuovoTotalePattuito = Number(((std.totalePattuito || std.totaleDovuto || 0) + costoNuovo).toFixed(2));
+    const nuovoTotaleVersato = Number(((std.totaleVersato || 0) + pagatoNuovo).toFixed(2));
+    const nuovoTotalePattuito = Number(((std.totalePattuito || 0) + costoNuovo).toFixed(2));
 
     const nuovaRicaricaEntry = {
       numero: `${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
       data: datiRicarica.data || new Date().toLocaleDateString('it-IT'),
-      costoTotale: costoNuovo,
-      pagato: pagatoNuovo,
-      metodo: datiRicarica.metodoPagamento || 'Contanti',
-      note: datiRicarica.note || '',
+      costoTotale: costoNuovo, pagato: pagatoNuovo,
+      metodo: datiRicarica.metodoPagamento || 'Contanti', note: datiRicarica.note || '',
       tariffaApplicata: datiRicarica.tariffaApplicata || 22.00
     };
-
-    const storicoEsistente = std.storicoRicariche || [];
 
     try {
       await updateDoc(doc(db, 'studenti', studenteId), {
         totaleVersato: nuovoTotaleVersato, totalePagato: nuovoTotaleVersato,
         totalePattuito: nuovoTotalePattuito, totaleDovuto: nuovoTotalePattuito,
-        storicoRicariche: [nuovaRicaricaEntry, ...storicoEsistente]
+        storicoRicariche: [nuovaRicaricaEntry, ...(std.storicoRicariche || [])]
       });
-
-      aggiungiLog(`Ricarica Plafond: ${std.nome || ''} ${std.cognome || ''} (+${pagatoNuovo}€ via ${datiRicarica.metodoPagamento || 'Contanti'})`);
-    } catch (err) {
-      console.error("Errore ricarica plafond didattico:", err);
-    }
+      aggiungiLog(`Ricarica: ${std.nome} (+${pagatoNuovo}€ via ${datiRicarica.metodoPagamento})`);
+    } catch (err) { console.error("Errore ricarica:", err); }
   };
 
-  // ---------- GESTIONE LEZIONI E RISCHEDULAZIONE ----------
   const handleOpenLezioneModal = (presetData = null) => {
     setInitialLezioneData(presetData);
     setShowLezioneModal(true);
@@ -311,32 +256,22 @@ export default function App() {
   const handleSaveLezione = async (formData) => {
     try {
       const { oldLezioneId, ...datiLezione } = formData;
-      const newRef = doc(collection(db, 'lezioni'));
-      await setDoc(newRef, { stato: 'attiva', ...datiLezione });
-
       if (oldLezioneId) {
         await deleteDoc(doc(db, 'lezioni', oldLezioneId));
-        aggiungiLog(`Rischedulata lezione: rimossa vecchia ID ${oldLezioneId} e ricollocata al ${datiLezione.data} (${datiLezione.oraInizio}-${datiLezione.oraFine})`);
-      } else {
-        aggiungiLog(`Nuova lezione: ${datiLezione.materia || 'Lezione'} (${datiLezione.oraInizio}-${datiLezione.oraFine})`);
       }
-
+      await setDoc(doc(collection(db, 'lezioni')), { stato: 'attiva', ...datiLezione });
+      aggiungiLog(oldLezioneId ? `Rischedulata lezione ID ${oldLezioneId}` : `Nuova lezione: ${datiLezione.materia}`);
       setShowLezioneModal(false);
       setInitialLezioneData(null);
       return true;
-    } catch (err) {
-      console.error("Errore salvataggio lezione:", err);
-      return false;
-    }
+    } catch (err) { console.error("Errore lezione:", err); return false; }
   };
 
   const handleDeleteLezione = async (id) => {
     try {
       await deleteDoc(doc(db, 'lezioni', id));
-      aggiungiLog(`Eliminata definitivamente lezione ID: ${id}`);
-    } catch (err) {
-      console.error("Errore eliminazione lezione:", err);
-    }
+      aggiungiLog(`Eliminata lezione ID: ${id}`);
+    } catch (err) { console.error("Errore eliminazione lezione:", err); }
   };
 
   const handleUpdateLezioneCompleta = async (moveData) => {
@@ -344,41 +279,27 @@ export default function App() {
     try {
       const datiDaAggiornare = { oraInizio: moveData.oraInizio, oraFine: moveData.oraFine, isGruppo: Boolean(moveData.isGruppo) };
       if (moveData.data) datiDaAggiornare.data = moveData.data;
-      if (moveData.isGruppo) {
-        datiDaAggiornare.insegnanteId = '';
-      } else if (moveData.insegnanteId) {
-        datiDaAggiornare.insegnanteId = moveData.insegnanteId;
-      }
+      if (moveData.isGruppo) datiDaAggiornare.insegnanteId = '';
+      else if (moveData.insegnanteId) datiDaAggiornare.insegnanteId = moveData.insegnanteId;
       await updateDoc(doc(db, 'lezioni', moveData.lezioneId), datiDaAggiornare);
-    } catch (err) {
-      console.error("Errore aggiornamento lezione:", err);
-    }
+    } catch (err) { console.error("Errore aggiornamento:", err); }
   };
 
   const handleUpdateLezioneStatus = async (id, nuovoStato, motivo = '', tipo = 'gratuito') => {
     try {
-      await updateDoc(doc(db, 'lezioni', id), {
-        stato: nuovoStato, motivoAnnullamento: motivo, tipoAnnullamento: tipo
-      });
-      aggiungiLog(`Stato lezione ${id} cambiato in: ${nuovoStato} (${tipo})`);
-    } catch (err) {
-      console.error("Errore cambio stato lezione:", err);
-    }
+      await updateDoc(doc(db, 'lezioni', id), { stato: nuovoStato, motivoAnnullamento: motivo, tipoAnnullamento: tipo });
+      aggiungiLog(`Stato lezione ${id} cambiato in: ${nuovoStato}`);
+    } catch (err) { console.error("Errore stato lezione:", err); }
   };
 
-  // ---------- CASSA: CONFERMA E STORNO ----------
   const handleConfermaPresenzaConScalo = async (lezione, durataOre, stato = 'svolta', motivo = '', tipo = 'gratuito') => {
     try {
-      await updateDoc(doc(db, 'lezioni', lezione.id), {
-        stato, motivoAnnullamento: motivo, tipoAnnullamento: tipo, oreScalate: durataOre
-      });
-
+      await updateDoc(doc(db, 'lezioni', lezione.id), { stato, motivoAnnullamento: motivo, tipoAnnullamento: tipo, oreScalate: durataOre });
       if (durataOre > 0 && (stato === 'svolta' || tipo === 'addebito')) {
         for (const sId of (lezione.studentiIds || [])) {
           const std = studenti.find(s => s?.id === sId);
           if (std) {
             let tariffaDaApplicare = lezione.tariffaOrariaApplicata !== undefined ? Number(lezione.tariffaOrariaApplicata) : null;
-
             if (tariffaDaApplicare === null) {
               if (lezione.isGruppo) tariffaDaApplicare = 12.00;
               else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) tariffaDaApplicare = Number(std.tariffaRiservataValore);
@@ -386,28 +307,21 @@ export default function App() {
               else if (std.categoriaTariffaria === 'superiori') tariffaDaApplicare = 26.00;
               else tariffaDaApplicare = 22.00;
             }
-
             const costoLezione = Number((durataOre * tariffaDaApplicare).toFixed(2));
             const nuovoConsumato = Number(((std.totaleConsumato || 0) + costoLezione).toFixed(2));
-
             await updateDoc(doc(db, 'studenti', sId), { totaleConsumato: nuovoConsumato });
           }
         }
       }
-      aggiungiLog(`Cassa: Presenza confermata per lezione ${lezione.id} (${durataOre}h)`);
-    } catch (err) {
-      console.error("Errore conferma presenza:", err);
-    }
+      aggiungiLog(`Cassa: Presenza confermata per lezione ${lezione.id}`);
+    } catch (err) { console.error("Errore cassa:", err); }
   };
 
   const handleStornoPresenzaConRipristino = async (lezione, durataOre) => {
     try {
       const oreDaRestituire = lezione.oreScalate !== undefined ? Number(lezione.oreScalate) : durataOre;
-
-      await updateDoc(doc(db, 'lezioni', lezione.id), {
-        stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '', oreScalate: 0
-      });
-
+      await updateDoc(doc(db, 'lezioni', lezione.id), { stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '', oreScalate: 0 });
+      
       if (oreDaRestituire > 0) {
         for (const sId of (lezione.studentiIds || [])) {
           const std = studenti.find(s => s?.id === sId);
@@ -420,42 +334,33 @@ export default function App() {
 
             const costoDaStornare = Number((oreDaRestituire * tariffaStudente).toFixed(2));
             const nuovoConsumato = Math.max(0, Number(((std.totaleConsumato || 0) - costoDaStornare).toFixed(2)));
-
             await updateDoc(doc(db, 'studenti', sId), { totaleConsumato: nuovoConsumato });
           }
         }
       }
-      aggiungiLog(`Storno: Ripristinata lezione ${lezione.id} e stornato costo didattico`);
-    } catch (err) {
-      console.error("Errore storno presenza:", err);
-    }
+      aggiungiLog(`Storno: Ripristinata lezione ${lezione.id}`);
+    } catch (err) { console.error("Errore storno:", err); }
   };
 
   const handleRestoreLezione = async (id) => {
     try {
       await updateDoc(doc(db, 'lezioni', id), { stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '' });
       aggiungiLog(`Ripristinata lezione ID: ${id}`);
-    } catch (err) {
-      console.error("Errore ripristino lezione:", err);
-    }
+    } catch (err) { console.error("Errore ripristino:", err); }
   };
 
   const handleAcceptRichiesta = async (lezioneId, nuovoDocenteId) => {
     try {
       await updateDoc(doc(db, 'lezioni', lezioneId), { stato: 'attiva', insegnanteId: nuovoDocenteId });
-      aggiungiLog(`Approvata richiesta App FuoriClasse (ID: ${lezioneId})`);
-    } catch (err) {
-      console.error("Errore accettazione richiesta:", err);
-    }
+      aggiungiLog(`Approvata richiesta App (ID: ${lezioneId})`);
+    } catch (err) { console.error("Errore accetta:", err); }
   };
 
   const handleRejectRichiesta = async (lezioneId, motivo) => {
     try {
       await updateDoc(doc(db, 'lezioni', lezioneId), { stato: 'annullata', motivoAnnullamento: motivo, tipoAnnullamento: 'gratuito' });
-      aggiungiLog(`Rifiutata richiesta App FuoriClasse (ID: ${lezioneId}) - ${motivo}`);
-    } catch (err) {
-      console.error("Errore rifiuto richiesta:", err);
-    }
+      aggiungiLog(`Rifiutata richiesta App (ID: ${lezioneId})`);
+    } catch (err) { console.error("Errore rifiuto:", err); }
   };
 
   const handleEstraiStudenteDaGruppo = async (lezioneGruppoId, studenteId, nuovoInsegnanteId, oraInizio, oraFine, data) => {
@@ -463,68 +368,84 @@ export default function App() {
       const lezGruppo = lezioni.find(l => l?.id === lezioneGruppoId);
       if (lezGruppo) {
         const rimasti = (lezGruppo.studentiIds || []).filter(sId => sId !== studenteId);
-        if (rimasti.length === 0) {
-          await deleteDoc(doc(db, 'lezioni', lezioneGruppoId));
-        } else {
-          await updateDoc(doc(db, 'lezioni', lezioneGruppoId), { studentiIds: rimasti });
-        }
+        if (rimasti.length === 0) await deleteDoc(doc(db, 'lezioni', lezioneGruppoId));
+        else await updateDoc(doc(db, 'lezioni', lezioneGruppoId), { studentiIds: rimasti });
       }
-
-      const newRef = doc(collection(db, 'lezioni'));
-      await setDoc(newRef, {
-        data: data || new Date().toISOString().split('T')[0],
-        insegnanteId: nuovoInsegnanteId, isGruppo: false, studentiIds: [studenteId],
-        materia: 'Lezione Individuale', oraInizio, oraFine, stato: 'attiva'
+      await setDoc(doc(collection(db, 'lezioni')), {
+        data: data || new Date().toISOString().split('T')[0], insegnanteId: nuovoInsegnanteId, 
+        isGruppo: false, studentiIds: [studenteId], materia: 'Lezione Individuale', oraInizio, oraFine, stato: 'attiva'
       });
-      aggiungiLog(`Studente estratto dal gruppo studio e assegnato a docente`);
-    } catch (err) {
-      console.error("Errore estrazione studente gruppo:", err);
-    }
+      aggiungiLog(`Studente estratto dal gruppo`);
+    } catch (err) { console.error("Errore estrazione:", err); }
   };
 
   const insegnantiSicuri = (insegnanti || []).filter(Boolean);
   const studentiSicuri = (studenti || []).filter(Boolean);
   const lezioniSicure = (lezioni || []).filter(Boolean);
 
+  if (authLoading) return <div className="flex items-center justify-center h-screen bg-gray-100"><div className="text-2xl font-bold text-blue-600 animate-pulse">Caricamento FuoriClasse...</div></div>;
+  if (!user) return <Login />;
+  if (ruolo === 'genitore' || ruolo === 'studente') return <AppGenitore utente={user} onLogout={() => signOut(auth)} />;
 
-  // =======================================================================
-  // IL CERVELLO DELL'APP: CHI VEDE COSA?
-  // =======================================================================
-
-  // 1. Schermata di caricamento finché non capiamo chi è l'utente
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-100">
-        <div className="text-2xl font-bold text-blue-600 animate-pulse">Caricamento FuoriClasse...</div>
-      </div>
-    );
-  }
-
-  // 2. Se l'utente non è loggato, mostra la schermata di Login
-  if (!user) {
-    return <Login />;
-  }
-
-  // 3. Se l'utente è un genitore, mostra la sua App
-  if (ruolo === 'genitore') {
-    return <AppGenitore utente={user} onLogout={() => signOut(auth)} />;
-  }
-
- // 4. Se l'utente è ADMIN, mostra il gestionale completo
   return (
-    <div className="flex h-screen bg-gray-100 font-sans overflow-hidden relative">
+    <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
       
-      {/* Bottone Logout temporaneo per il Desk */}
-      <button 
-        onClick={() => signOut(auth)}
-        className="absolute top-4 right-4 z-50 bg-red-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow hover:bg-red-700 transition"
-      >
-        Esci (Admin)
-      </button>
-
       <Sidebar 
         activeTab={activeTab} setActiveTab={setActiveTab} 
         searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
         logs={logsAttivita}
+        onLogout={() => signOut(auth)} // Passato alla sidebar
       />
+
+      <main className="flex-1 overflow-auto bg-gray-50/50">
+        {activeTab === 'planning' && (
+          <PlanningCalendario
+            insegnanti={insegnantiSicuri} studenti={studentiSicuri} lezioni={lezioniSicure}
+            aggiungiLog={aggiungiLog} onDeleteLezione={handleDeleteLezione} onOpenModal={handleOpenLezioneModal}
+            onSelectStudent={(stdId) => {
+              const std = studentiSicuri.find(s => s?.id === stdId);
+              if (std) setStudenteSelezionatoDettaglio(std);
+            }}
+            onUpdateLezioneStatus={handleUpdateLezioneStatus} onRestoreLezione={handleRestoreLezione}
+            onUpdateLezioneCompleta={handleUpdateLezioneCompleta} onEstraiStudenteDaGruppo={handleEstraiStudenteDaGruppo}
+            onAcceptRichiesta={handleAcceptRichiesta} onRejectRichiesta={handleRejectRichiesta}
+          />
+        )}
+        
+        {activeTab === 'insegnanti' && (
+          <GestioneInsegnanti 
+            insegnanti={insegnantiSicuri} searchQuery={searchQuery} onOpenModal={handleOpenInsegnanteModal} 
+            onToggleStato={handleToggleStatoInsegnante} onDelete={handleDeleteInsegnante} 
+          />
+        )}
+
+        {activeTab === 'studenti' && (
+          <GestioneStudenti 
+            studenti={studentiSicuri} searchQuery={searchQuery} onOpenModal={handleOpenStudenteModal} 
+            onToggleStato={handleToggleStatoStudente} onDelete={handleDeleteStudente} 
+          />
+        )}
+
+        {activeTab === 'cassa' && (
+          <CassaPresenze
+            lezioni={lezioniSicure} studenti={studentiSicuri} insegnanti={insegnantiSicuri}
+            onConfermaPresenzaConScalo={handleConfermaPresenzaConScalo}
+            onStornoPresenzaConRipristino={handleStornoPresenzaConRipristino} aggiungiLog={aggiungiLog}
+          />
+        )}
+      </main>
+
+      <ModaleInsegnante isOpen={showInsegnanteModal} onClose={() => setShowInsegnanteModal(false)} onSave={handleSaveInsegnante} formData={insegnanteForm} setFormData={setInsegnanteForm} isEditing={Boolean(editingInsegnante)} />
+      <ModaleStudente isOpen={showStudenteModal} onClose={() => setShowStudenteModal(false)} onSave={handleSaveStudente} formData={studenteForm} setFormData={setStudenteForm} isEditing={Boolean(editingStudente)} />
+      <ModaleLezione isOpen={showLezioneModal} onClose={() => { setShowLezioneModal(false); setInitialLezioneData(null); }} onSave={handleSaveLezione} insegnanti={insegnantiSicuri} studenti={studentiSicuri} lezioni={lezioniSicure} initialData={initialLezioneData} />
+      
+      {studenteSelezionatoDettaglio && (
+        <DettaglioStudente
+          studente={studenteSelezionatoDettaglio} lezioni={lezioniSicure} onClose={() => setStudenteSelezionatoDettaglio(null)}
+          onUpdateLezioneCompleta={handleUpdateLezioneCompleta} onUpdateLezioneStatus={handleUpdateLezioneStatus}
+          onRicaricaPacchetto={handleRicaricaPacchetto} aggiungiLog={aggiungiLog}
+        />
+      )}
+    </div>
+  );
 }
