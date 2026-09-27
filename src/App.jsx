@@ -20,7 +20,13 @@ import ModaleLezione from './components/ModaleLezione';
 import DettaglioStudente from './components/DettaglioStudente';
 import CassaPresenze from './components/CassaPresenze';
 
+// NUOVO IMPORT - Componente App Genitore per i test
+import AppGenitore from './components/AppGenitore';
+
 export default function App() {
+  // NUOVO STATO: Gestisce lo switch tra gestionale e app genitore
+  const [vistaDebug, setVistaDebug] = useState('desk'); // 'desk' | 'genitore'
+
   const [activeTab, setActiveTab] = useState('planning');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -545,8 +551,34 @@ export default function App() {
   const studentiSicuri = (studenti || []).filter(Boolean);
   const lezioniSicure = (lezioni || []).filter(Boolean);
 
+  // ---------- NUOVA VISTA: SE VOGLIO VEDERE L'APP GENITORE ----------
+  if (vistaDebug === 'genitore') {
+    return (
+      <>
+        {/* Bottone galleggiante per chiudere l'app genitore e tornare al gestionale */}
+        <button
+          onClick={() => setVistaDebug('desk')}
+          className="fixed bottom-6 right-6 z-[9999] bg-black text-white px-6 py-3 rounded-full shadow-2xl font-bold border-2 border-white hover:scale-105 transition-transform"
+        >
+          X Torna al Gestionale
+        </button>
+        <AppGenitore />
+      </>
+    );
+  }
+
+  // ---------- VISTA NORMALE DEL DESK ----------
   return (
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
+      
+      {/* NUOVO BOTTONE: per switchare all'app genitore */}
+      <button
+        onClick={() => setVistaDebug('genitore')}
+        className="fixed bottom-6 right-6 z-[9999] bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl font-bold border-2 border-white hover:scale-105 transition-transform"
+      >
+        📱 Apri App Genitore (Test)
+      </button>
+
       <Sidebar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
