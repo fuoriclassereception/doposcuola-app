@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft, Paperclip, Edit2 } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
@@ -48,7 +48,6 @@ export default function PlanningCalendario({
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // ---------- ASCOLTO IN TEMPO REALE DELLE RICHIESTE GENITORI CON SUONO ----------
   const richiestePrecedenti = useRef(0);
 
   useEffect(() => {
@@ -81,17 +80,29 @@ export default function PlanningCalendario({
     }
   };
 
+  const formatDataLezione = (dataStr) => {
+    if(!dataStr) return '';
+    const [y, m, d] = dataStr.split('-');
+    return `${d}/${m}/${y}`;
+  };
+
   const handleAccettaRichiesta = async (req) => {
     try {
       await updateDoc(doc(db, 'richieste_genitori', req.id), { stato: 'Approvata' });
       setShowRichiesteModal(false);
       
+      // Costruiamo delle note complete da far apparire alla Reception
+      let noteComposte = `Richiesta da App per ${req.ore}h.\n`;
+      if (req.orarioPreferito) noteComposte += `Orario desiderato: ${req.orarioPreferito}\n`;
+      if (req.note) noteComposte += `Note genitore: ${req.note}`;
+
       if (onOpenModal) {
         onOpenModal({
-          data: dataSelezionata,
+          data: req.dataPreferita || dataSelezionata, // Pre-imposta il giorno richiesto, o oggi
           materia: req.materia,
           studentiIds: req.studenteId ? [req.studenteId] : [],
-          note: `Richiesta da App per ${req.ore}h. Note extra: ${req.note || 'Nessuna'}`,
+          note: noteComposte.trim(),
+          allegatoUrl: req.allegatoUrl || '' // Passiamo l'allegato alla modale
         });
       }
       if (aggiungiLog) aggiungiLog(`Iniziata pianificazione per richiesta App: ${req.studente}`);
@@ -396,12 +407,24 @@ export default function PlanningCalendario({
               <div className="flex items-center space-x-2"><Info className="w-5 h-5 text-slate-900"/><h3 className="font-extrabold text-lg text-slate-900">Dettaglio Lezione</h3></div>
               <button onClick={() => setSelectedLezioneDetail(null)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
             </div>
+            
             <div className="space-y-3 text-xs">
               <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
-                <div className="font-black text-slate-900 text-sm">{selectedLezioneDetail.materia || 'Lezione'}</div>
+                <div className="flex justify-between items-start">
+                  <div className="font-black text-slate-900 text-sm">{selectedLezioneDetail.materia || 'Lezione'}</div>
+                  {/* SE LA LEZIONE HA UN ALLEGATO, MOSTRA IL BOTTONE */}
+                  {selectedLezioneDetail.allegatoUrl && (
+                    <a href={selectedLezioneDetail.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-100 text-blue-700 px-2.5 py-1 rounded-lg font-bold hover:bg-blue-200 flex items-center gap-1 shadow-sm">
+                      <Paperclip className="w-3.5 h-3.5"/> Vedi Appunti
+                    </a>
+                  )}
+                </div>
+                
                 <div className="text-gray-600 font-bold flex items-center gap-2"><span>📅 {selectedLezioneDetail.data}</span><span>🕒 {selectedLezioneDetail.oraInizio} - {selectedLezioneDetail.oraFine}</span></div>
                 {selectedLezioneDetail.insegnanteId && <p className="text-slate-800 font-bold">Docente: <span className="text-amber-700">{(insegnanti || []).find(i => i?.id === selectedLezioneDetail.insegnanteId)?.nome || 'N.D.'}</span></p>}
+                {selectedLezioneDetail.note && <p className="text-slate-500 italic mt-2 border-l-2 border-slate-300 pl-2">Note: {selectedLezioneDetail.note}</p>}
               </div>
+
               <div>
                 <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1.5">Studenti Iscritti</label>
                 <div className="space-y-1.5">
@@ -417,11 +440,32 @@ export default function PlanningCalendario({
                 </div>
               </div>
             </div>
-            <div className="pt-3 border-t border-gray-100 flex justify-end"><button onClick={() => setSelectedLezioneDetail(null)} className="px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Chiudi</button></div>
+            
+            <div className="pt-3 border-t border-gray-100 flex justify-end gap-2">
+              <button 
+                onClick={() => {
+                  const lez = selectedLezioneDetail;
+                  setSelectedLezioneDetail(null);
+                  if (onOpenModal) {
+                    onOpenModal({
+                      data: lez.data, oraInizio: lez.oraInizio, oraFine: lez.oraFine, materia: lez.materia,
+                      note: lez.note || '', studentiIds: lez.studentiIds || [], insegnanteId: lez.insegnanteId || '',
+                      isGruppo: Boolean(lez.isGruppo), oldLezioneId: lez.id, isRischedulazione: true,
+                      allegatoUrl: lez.allegatoUrl || ''
+                    });
+                  }
+                }} 
+                className="px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm"
+              >
+                <Edit2 className="w-3.5 h-3.5"/> Modifica Giorno/Ora
+              </button>
+              <button onClick={() => setSelectedLezioneDetail(null)} className="px-4 py-2 bg-gray-100 text-gray-700 font-bold rounded-xl text-xs">Chiudi</button>
+            </div>
           </div>
         </div>
       )}
 
+      {/* Altre modali restano invariate */}
       {groupModalData && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -458,10 +502,31 @@ export default function PlanningCalendario({
                 richiesteInAttesa.map(req => (
                   <div key={req.id} className="bg-sky-50 border border-sky-200 p-4 rounded-2xl space-y-3">
                     <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="font-black text-slate-900 text-sm">👤 {req.studente}</h4>
-                        <p className="text-xs text-sky-900 font-bold mt-0.5">Materia: {req.materia || 'Doposcuola'} • Richieste: {req.ore}h</p>
-                        {req.note && <p className="text-xs text-slate-600 mt-1 italic">"{req.note}"</p>}
+                      <div className="w-full">
+                        <h4 className="font-black text-slate-900 text-sm flex items-center justify-between">
+                          <span>👤 {req.studente}</span>
+                          {/* BOTTONE VEDI ALLEGATO NELLA NOTIFICA */}
+                          {req.allegatoUrl && (
+                            <a href={req.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-200 flex items-center gap-1 shadow-sm">
+                              <Paperclip className="w-3 h-3"/> Vedi Allegato
+                            </a>
+                          )}
+                        </h4>
+                        
+                        <p className="text-xs text-sky-900 font-bold mt-1.5">Materia: {req.materia || 'Doposcuola'} • {req.ore} {req.ore === 1 ? 'ora' : 'ore'}</p>
+                        
+                        {/* MOSTRA PREFERENZE DI DATA E ORA */}
+                        {(req.dataPreferita || req.orarioPreferito) && (
+                          <div className="mt-2 bg-emerald-100/50 border border-emerald-200 p-2 rounded-lg inline-block">
+                            <p className="text-xs text-emerald-800 font-bold flex items-center gap-1">
+                              🗓️ Preferenza: 
+                              <span className="font-black">{req.dataPreferita ? formatDataLezione(req.dataPreferita) : 'Qualsiasi giorno'}</span> 
+                              {req.orarioPreferito ? ` (${req.orarioPreferito})` : ''}
+                            </p>
+                          </div>
+                        )}
+
+                        {req.note && <p className="text-xs text-slate-600 mt-2 italic border-l-2 border-sky-300 pl-2">"{req.note}"</p>}
                       </div>
                     </div>
                     <div className="flex gap-2 justify-end border-t border-sky-200/50 pt-3">
@@ -494,7 +559,7 @@ export default function PlanningCalendario({
                       <span className="font-black text-slate-900 line-through">{stdsNames(lez.studentiIds, studenti)}</span>
                       <p className="text-xs text-gray-600 font-medium">{lez.materia} • 🕒 {lez.oraInizio} - {lez.oraFine}</p>
                     </div>
-                    <button onClick={() => { setShowAnnullateModal(false); if (onOpenModal) { onOpenModal({ data: dataSelezionata, oraInizio: lez.oraInizio, oraFine: lez.oraFine, materia: lez.materia, note: lez.note || '', studentiIds: lez.studentiIds || [], insegnanteId: lez.insegnanteId || '', isGruppo: Boolean(lez.isGruppo), oldLezioneId: lez.id, isRischedulazione: true }); } }} className="px-3 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm"><RotateCcw className="w-3.5 h-3.5"/><span>Rischedula</span></button>
+                    <button onClick={() => { setShowAnnullateModal(false); if (onOpenModal) { onOpenModal({ data: dataSelezionata, oraInizio: lez.oraInizio, oraFine: lez.oraFine, materia: lez.materia, note: lez.note || '', studentiIds: lez.studentiIds || [], insegnanteId: lez.insegnanteId || '', isGruppo: Boolean(lez.isGruppo), oldLezioneId: lez.id, isRischedulazione: true, allegatoUrl: lez.allegatoUrl || '' }); } }} className="px-3 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm"><RotateCcw className="w-3.5 h-3.5"/><span>Rischedula</span></button>
                   </div>
                 ))
               )}
