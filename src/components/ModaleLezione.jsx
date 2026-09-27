@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, BookOpen, Search, UserCheck, Euro } from 'lucide-react';
+import { X, BookOpen, Search, UserCheck, Euro, Paperclip } from 'lucide-react'; // <-- Aggiunto Paperclip
 
 export default function ModaleLezione({
   isOpen,
@@ -21,6 +21,7 @@ export default function ModaleLezione({
     tipoTariffa: 'standard',
     costoTotaleLezione: 22,
     note: '',
+    allegatoUrl: '', // <-- AGGIUNTO CAMPO ALLEGATO
     oldLezioneId: null
   });
 
@@ -97,6 +98,7 @@ export default function ModaleLezione({
         tipoTariffa: 'standard',
         costoTotaleLezione: costoIniziale,
         note: initialData?.note || '',
+        allegatoUrl: initialData?.allegatoUrl || '', // <-- IMPOSPOSTA L'ALLEGATO RICEVUTO DALLA RICHIESTA
         oldLezioneId: initialData?.oldLezioneId || null
       });
     }
@@ -163,6 +165,24 @@ export default function ModaleLezione({
             <X className="w-5 h-5"/>
           </button>
         </div>
+
+        {/* SE C'È UN ALLEGATO DALLA RICHIESTA GENITORE, MOSTRALO IN CIMA ALLA MODALE */}
+        {formData.allegatoUrl && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex justify-between items-center">
+            <span className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
+              <Paperclip className="w-4 h-4 text-blue-500"/> 
+              Il genitore ha inviato un allegato per questa lezione
+            </span>
+            <a 
+              href={formData.allegatoUrl} 
+              target="_blank" 
+              rel="noreferrer" 
+              className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold transition-colors"
+            >
+              Vedi File
+            </a>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
           {/* Tipo Lezione */}
