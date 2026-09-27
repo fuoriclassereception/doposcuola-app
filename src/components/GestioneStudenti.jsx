@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Phone, Mail, Edit, Trash2, CheckCircle2, AlertCircle, UserCheck, Send, KeyRound } from 'lucide-react';
+import { Plus, Phone, Mail, Edit, Trash2, CheckCircle2, AlertCircle, UserCheck, Send, KeyRound, Euro, Clock } from 'lucide-react';
 
 export default function GestioneStudenti({
   studenti,
@@ -33,7 +33,7 @@ export default function GestioneStudenti({
       <div className="flex justify-between items-center bg-white p-6 rounded-3xl border border-gray-200 shadow-sm">
         <div>
           <h2 className="text-xl font-black text-gray-900 tracking-tight">Anagrafica Studenti & Genitori</h2>
-          <p className="text-xs text-gray-500 mt-1">Gestione allievi, recapiti dei genitori e invio credenziali App</p>
+          <p className="text-xs text-gray-500 mt-1">Gestione allievi, recapiti e invio credenziali App</p>
         </div>
         <button
           onClick={() => onOpenModal()}
@@ -54,6 +54,11 @@ export default function GestioneStudenti({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filteredStudenti.map((std) => {
             const isInvited = invitedIds[std.id] || std.invitoInviato;
+            
+            // Calcolo saldi per la Mini-Dashboard
+            const versato = Number(std.totaleVersato || 0);
+            const consumato = Number(std.totaleConsumato || 0);
+            const saldo = versato - consumato;
 
             return (
               <div key={std.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
@@ -91,12 +96,30 @@ export default function GestioneStudenti({
                     </button>
                   </div>
 
+                  {/* MINI DASHBOARD FINANZIARIA (Nuova) */}
+                  <div className="grid grid-cols-3 gap-2 mb-4 bg-slate-50 p-2 rounded-xl border border-slate-100">
+                    <div className="text-center border-r border-slate-200">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">Plafond</p>
+                      <p className="font-black text-slate-700 text-xs">€ {versato.toFixed(2)}</p>
+                    </div>
+                    <div className="text-center border-r border-slate-200">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">Consumato</p>
+                      <p className="font-black text-slate-700 text-xs">€ {consumato.toFixed(2)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-[9px] font-bold text-slate-400 uppercase">Saldo</p>
+                      <p className={`font-black text-xs ${saldo < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                        {saldo > 0 ? '+' : ''}€ {saldo.toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Recapiti e Sezione Genitore */}
                   <div className="space-y-2 pt-3 border-t border-gray-100 text-xs text-gray-600">
                     {std.isMinorenne ? (
                       <div className="bg-amber-50/60 p-2.5 rounded-xl border border-amber-200/60 text-xs space-y-1">
                         <p className="font-bold text-amber-900 flex items-center">
-                          <UserCheck className="w-3.5 h-3.5 mr-1 text-amber-700"/> Genitore: {std.genitoreNome}
+                          <UserCheck className="w-3.5 h-3.5 mr-1 text-amber-700"/> Genitore: {std.genitoreNome || 'Da specificare'}
                         </p>
                         <div className="flex items-center space-x-2 text-amber-800">
                           <Phone className="w-3 h-3 text-amber-600"/>
