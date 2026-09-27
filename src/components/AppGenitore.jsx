@@ -12,8 +12,11 @@ export default function AppGenitore({ utente, onLogout }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmittingFiglio, setIsSubmittingFiglio] = useState(false);
 
-  const [nuovaRichiesta, setNuovaRichiesta] = useState({ studenteId: '', materia: '', ore: 1, note: '' });
-  const [fileAllegato, setFileAllegato] = useState(null); // Stato per il file caricato
+  // Aggiunti dataPreferita e orarioPreferito
+  const [nuovaRichiesta, setNuovaRichiesta] = useState({ 
+    studenteId: '', materia: '', ore: 1, note: '', dataPreferita: '', orarioPreferito: '' 
+  });
+  const [fileAllegato, setFileAllegato] = useState(null); 
   
   const [nuovoFiglio, setNuovoFiglio] = useState({ 
     nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' 
@@ -67,7 +70,7 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [iMieiFigli]);
 
-  // INVIA RICHIESTA CON FILE ALLEGATO
+  // INVIA RICHIESTA
   const handleInviaRichiesta = async (e) => {
     e.preventDefault();
     if (!nuovaRichiesta.studenteId) return alert("Devi selezionare uno studente.");
@@ -77,27 +80,28 @@ export default function AppGenitore({ utente, onLogout }) {
       const figlio = iMieiFigli.find(f => f.id === nuovaRichiesta.studenteId);
       let allegatoUrl = '';
 
-      // Se l'utente ha selezionato un file, lo carichiamo su Firebase
       if (fileAllegato) {
         const estensione = fileAllegato.name.split('.').pop();
         const nomeFileUnico = `allegati/${Date.now()}_${figlio.nome}.${estensione}`;
         const storageRef = ref(storage, nomeFileUnico);
         
         await uploadBytes(storageRef, fileAllegato);
-        allegatoUrl = await getDownloadURL(storageRef); // Otteniamo il link pubblico
+        allegatoUrl = await getDownloadURL(storageRef);
       }
 
-      // Salviamo la richiesta nel database includendo il link al file
+      // Salviamo anche le preferenze di data e ora nel database
       await addDoc(collection(db, 'richieste_genitori'), {
         genitoreId: utente.uid, emailGenitore: utente.email, studenteId: figlio.id,
         studente: `${figlio.nome} ${figlio.cognome}`, materia: nuovaRichiesta.materia,
         ore: Number(nuovaRichiesta.ore), note: nuovaRichiesta.note, 
-        allegatoUrl: allegatoUrl, // Salvataggio del link!
+        dataPreferita: nuovaRichiesta.dataPreferita, // <-- SALVATO
+        orarioPreferito: nuovaRichiesta.orarioPreferito, // <-- SALVATO
+        allegatoUrl: allegatoUrl, 
         stato: 'In attesa',
         dataCreazione: serverTimestamp()
       });
       
-      setNuovaRichiesta(prev => ({ ...prev, materia: '', ore: 1, note: '' }));
+      setNuovaRichiesta(prev => ({ ...prev, materia: '', ore: 1, note: '', dataPreferita: '', orarioPreferito: '' }));
       setFileAllegato(null);
       setVistaAttiva('dashboard');
     } catch (error) {
@@ -255,7 +259,11 @@ export default function AppGenitore({ utente, onLogout }) {
                               {req.materia} 
                               {req.allegatoUrl && <Paperclip className="w-3.5 h-3.5 text-blue-500"/>}
                             </span>
-                            <span className="text-xs font-bold text-slate-500">{req.studente} • {req.ore}h</span>
+                            <span className="text-xs font-bold text-slate-500">
+                              {req.studente} • {req.ore}h 
+                              {req.dataPreferita && ` • 🗓️ ${formatDataLezione(req.dataPreferita)}`}
+                              {req.orarioPreferito && ` (${req.orarioPreferito})`}
+                            </span>
                           </div>
                           
                           <span className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-wider ${ req.stato === 'Approvata' ? 'bg-green-100 text-green-700' : req.stato === 'Rifiutata' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700' }`}>
@@ -306,14 +314,19 @@ export default function AppGenitore({ utente, onLogout }) {
               </div>
               <h2 className="text-2xl font-black text-slate-800 mb-6">Nuova Richiesta Ore</h2>
               <form onSubmit={handleInviaRichiesta} className="space-y-4">
-                <div><label className="block text-xs font-black text-slate-600 uppercase mb-1">Studente *</label><select required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-bold" value={nuovaRichiesta.studenteId} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, studenteId: e.target.value})}>{iMieiFigli.map(f => (<option key={f.id} value={f.id}>{f.nome} {f.cognome}</option>))}</select></div>
-                <div><label className="block text-xs font-black text-slate-600 uppercase mb-1">Materia *</label><input type="text" required placeholder="Es. Matematica" className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.materia} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, materia: e.target.value})} /></div>
-                <div><label className="block text-xs font-black text-slate-600 uppercase mb-1">Ore richieste *</label><input type="number" min="1" max="10" required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.ore} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, ore: e.target.value})} /></div>
+                <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Studente *</label><select required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-bold text-slate-800" value={nuovaRichiesta.studenteId} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, studenteId: e.target.value})}>{iMieiFigli.map(f => (<option key={f.id} value={f.id}>{f.nome} {f.cognome}</option>))}</select></div>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2"><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Materia *</label><input type="text" required placeholder="Es. Matematica" className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.materia} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, materia: e.target.value})} /></div>
+                  <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Giorno (Opzionale)</label><input type="date" className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovaRichiesta.dataPreferita} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, dataPreferita: e.target.value})} /></div>
+                  <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Orario (Opzionale)</label><input type="text" placeholder="Es. Dopo le 16, Indifferente..." className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovaRichiesta.orarioPreferito} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, orarioPreferito: e.target.value})} /></div>
+                  <div className="col-span-2"><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Ore richieste *</label><input type="number" min="1" max="10" required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.ore} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, ore: e.target.value})} /></div>
+                </div>
                 
                 {/* CAMPO FILE ALLEGATO */}
                 <div>
-                  <label className="block text-xs font-black text-slate-600 uppercase mb-1 flex items-center gap-2">
-                    <Paperclip className="w-3.5 h-3.5"/> Allega Foto / Esercizi (opzionale)
+                  <label className="block text-[10px] font-black text-slate-600 uppercase mb-1 flex items-center gap-2">
+                    <Paperclip className="w-3 h-3"/> Allega Foto / Esercizi (opzionale)
                   </label>
                   <div className="w-full p-2 border border-dashed border-blue-400 bg-blue-50/50 rounded-xl">
                     <input 
@@ -326,7 +339,7 @@ export default function AppGenitore({ utente, onLogout }) {
                   {fileAllegato && <p className="text-[10px] text-emerald-600 font-bold mt-1.5 flex items-center gap-1"><CheckCircle className="w-3 h-3"/> {fileAllegato.name}</p>}
                 </div>
 
-                <div><label className="block text-xs font-black text-slate-600 uppercase mb-1">Note (opzionale)</label><textarea rows="3" placeholder="Argomenti da trattare..." className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm resize-none" value={nuovaRichiesta.note} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, note: e.target.value})}></textarea></div>
+                <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Note (opzionale)</label><textarea rows="3" placeholder="Argomenti da trattare..." className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm resize-none" value={nuovaRichiesta.note} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, note: e.target.value})}></textarea></div>
                 <button type="submit" disabled={isSubmitting} className={`w-full font-black py-4 rounded-xl transition mt-2 text-sm ${isSubmitting ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'}`}>{isSubmitting ? 'Invio in corso...' : 'Invia Richiesta al Desk'}</button>
               </form>
             </div>
