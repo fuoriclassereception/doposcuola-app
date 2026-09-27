@@ -12,11 +12,9 @@ export default function DettaglioStudente({
 }) {
   if (!studente) return null;
 
-  // Stati per la Modifica Lezione
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [editFormData, setEditFormData] = useState({ oraInizio: '', oraFine: '', data: '' });
 
-  // Stati per Ricarica
   const [showRicarica, setShowRicarica] = useState(false);
   const [ricaricaData, setRicaricaData] = useState({
     costoDaAggiungere: '',
@@ -28,11 +26,8 @@ export default function DettaglioStudente({
 
   const lezioniStudente = lezioni.filter(l => l && (l.studentiIds || []).includes(studente.id));
   const lezioniFuture = lezioniStudente.filter(l => l.stato === 'attiva' || l.stato === 'richiesta');
-  const lezioniPassate = lezioniStudente.filter(l => l.stato !== 'attiva' && l.stato !== 'richiesta');
-
-  // Ordinamento
+  
   lezioniFuture.sort((a, b) => a.data.localeCompare(b.data) || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
-  lezioniPassate.sort((a, b) => b.data.localeCompare(a.data) || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
 
   const handleStartEdit = (lez) => {
     setEditingLezioneId(lez.id);
@@ -96,11 +91,11 @@ export default function DettaglioStudente({
         {/* Corpo Scrollabile */}
         <div className="p-6 space-y-6 overflow-y-auto">
           
-          {/* Sezione Lezioni Programmate (Le vere lezioni nel calendario) */}
+          {/* Sezione Lezioni Programmate */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
             <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Calendar className="w-4 h-4 text-amber-500"/>
-              Gestione Lezioni Programmate ({lezioniFuture.length})
+              Lezioni Programmate ({lezioniFuture.length})
             </h3>
             
             <div className="space-y-3">
@@ -152,10 +147,10 @@ export default function DettaglioStudente({
                           <button onClick={() => setEditingLezioneId(null)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50">Annulla</button>
                         </>
                       ) : (
-                        <>
-                          <button onClick={() => handleStartEdit(lez)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-amber-600 hover:border-amber-200 text-xs font-bold rounded-lg flex items-center gap-1 transition-colors"><Edit2 className="w-3.5 h-3.5"/> Modifica Orario/Data</button>
-                          <button onClick={() => onUpdateLezioneStatus && onUpdateLezioneStatus(lez.id, 'annullata', 'Annullata da scheda studente', 'gratuito')} className="px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-bold rounded-lg transition-colors">Annulla</button>
-                        </>
+                        <button onClick={() => handleStartEdit(lez)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-amber-600 hover:border-amber-200 text-xs font-bold rounded-lg flex items-center gap-1 transition-colors">
+                          <Edit2 className="w-3.5 h-3.5"/> Modifica Orario/Data
+                        </button>
+                        /* RIMOSSO IL TASTO "ANNULLA" RAPIDO. L'ANNULLAMENTO SI FA DAL CALENDARIO PRINCIPALE */
                       )}
                     </div>
                   </div>
@@ -212,7 +207,6 @@ export default function DettaglioStudente({
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-emerald-500"/> Plafond Didattico & Credito
                 </h3>
-                <p className="text-xs text-slate-500 mt-1">Credito aggiornato automaticamente ad ogni presenza</p>
               </div>
               <button onClick={() => setShowRicarica(!showRicarica)} className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-sm transition-colors flex items-center gap-2">
                 <PlusCircle className="w-4 h-4"/> + Ricarica Plafond
@@ -221,15 +215,15 @@ export default function DettaglioStudente({
 
             {showRicarica && (
               <form onSubmit={handleRicaricaSubmit} className="mb-6 bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                <h4 className="text-xs font-black text-slate-800 uppercase mb-4">Nuova Ricarica / Aggiunta Pacchetto</h4>
+                <h4 className="text-xs font-black text-slate-800 uppercase mb-4">Nuova Ricarica</h4>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo Totale (€) *</label>
-                    <input type="number" step="0.01" required className="w-full p-2 text-sm font-bold border border-slate-300 rounded-lg" value={ricaricaData.costoDaAggiungere} onChange={e => setRicaricaData({...ricaricaData, costoDaAggiungere: e.target.value})} placeholder="Es. 200"/>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo Totale (€)</label>
+                    <input type="number" step="0.01" required className="w-full p-2 text-sm font-bold border border-slate-300 rounded-lg" value={ricaricaData.costoDaAggiungere} onChange={e => setRicaricaData({...ricaricaData, costoDaAggiungere: e.target.value})}/>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Importo Pagato Ora (€) *</label>
-                    <input type="number" step="0.01" required className="w-full p-2 text-sm font-bold border border-slate-300 rounded-lg" value={ricaricaData.pagatoDaAggiungere} onChange={e => setRicaricaData({...ricaricaData, pagatoDaAggiungere: e.target.value})} placeholder="Es. 200"/>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Importo Pagato (€)</label>
+                    <input type="number" step="0.01" required className="w-full p-2 text-sm font-bold border border-slate-300 rounded-lg" value={ricaricaData.pagatoDaAggiungere} onChange={e => setRicaricaData({...ricaricaData, pagatoDaAggiungere: e.target.value})}/>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Metodo</label>
@@ -243,7 +237,7 @@ export default function DettaglioStudente({
                   </div>
                 </div>
                 <div className="flex gap-3">
-                  <input type="text" className="flex-1 p-2 text-sm border border-slate-300 rounded-lg" placeholder="Note ricarica (opzionale)" value={ricaricaData.note} onChange={e => setRicaricaData({...ricaricaData, note: e.target.value})}/>
+                  <input type="text" className="flex-1 p-2 text-sm border border-slate-300 rounded-lg" placeholder="Note (opzionale)" value={ricaricaData.note} onChange={e => setRicaricaData({...ricaricaData, note: e.target.value})}/>
                   <button type="submit" className="bg-slate-900 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-slate-800">Conferma Ricarica</button>
                 </div>
               </form>
@@ -251,73 +245,21 @@ export default function DettaglioStudente({
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className={`p-5 rounded-2xl border ${((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)) < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Credito Residuo Disponibile</p>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Credito Residuo</p>
                 <p className={`text-3xl font-black ${((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                   {((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)).toFixed(2)} €
-                </p>
-                <p className={`text-[10px] font-bold mt-2 flex items-center gap-1 ${((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)) < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                  {((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)) < 0 ? <><AlertCircle className="w-3 h-3"/> Ricarica Necessaria</> : <><CheckCircle className="w-3 h-3"/> Saldo coperto</>}
                 </p>
               </div>
               <div className="p-5 rounded-2xl border border-slate-100 bg-white shadow-sm">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Totale Versato</p>
                 <p className="text-xl font-black text-slate-800">{(studente.totaleVersato || 0).toFixed(2)} €</p>
-                <p className="text-[10px] text-slate-400 font-medium mt-1">Storico ricariche</p>
               </div>
               <div className="p-5 rounded-2xl border border-slate-100 bg-white shadow-sm">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Totale Consumato</p>
                 <p className="text-xl font-black text-slate-800">{(studente.totaleConsumato || 0).toFixed(2)} €</p>
-                <p className="text-[10px] text-slate-400 font-medium mt-1">Valore lezioni svolte</p>
               </div>
             </div>
-
-            {/* Lista Ricariche */}
-            {studente.storicoRicariche && studente.storicoRicariche.length > 0 && (
-              <div className="mt-6 border-t border-slate-100 pt-6">
-                <h4 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2">
-                  <Printer className="w-4 h-4"/> Ricevute & Note Reception ({studente.storicoRicariche.length})
-                </h4>
-                <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
-                  {studente.storicoRicariche.map((r, i) => (
-                    <div key={i} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs">
-                      <div>
-                        <p className="font-black text-slate-800">+{Number(r.pagato).toFixed(2)} € <span className="font-medium text-slate-500">via {r.metodo} • {r.data}</span></p>
-                        {r.note && <p className="text-[10px] text-slate-500 mt-1 font-bold">Nota: <span className="text-amber-600">{r.note}</span></p>}
-                      </div>
-                      <button className="px-3 py-1.5 bg-slate-900 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-800"><Printer className="w-3 h-3"/> Stampa Quietanza</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
-
-          {/* Storico Lezioni Passate */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-              <History className="w-4 h-4 text-blue-500"/>
-              Storico Lezioni Erogate ({lezioniPassate.length})
-            </h3>
-            
-            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
-              {lezioniPassate.length === 0 ? (
-                <p className="text-sm text-slate-400 italic">Nessuna lezione passata registrata.</p>
-              ) : (
-                lezioniPassate.map(lez => (
-                  <div key={lez.id} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs opacity-80 hover:opacity-100 transition-opacity">
-                    <div>
-                      <span className="font-black text-slate-800 mr-2">{lez.materia || 'Lezione'}</span>
-                      <span className="text-slate-500 font-bold">{lez.data} • {lez.oraInizio}-{lez.oraFine}</span>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${lez.stato === 'svolta' ? 'bg-emerald-100 text-emerald-700' : lez.stato === 'annullata' ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600'}`}>
-                      {lez.stato}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
         </div>
 
         {/* Footer */}
