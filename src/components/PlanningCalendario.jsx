@@ -903,9 +903,12 @@ export default function PlanningCalendario({
 }
 
 function stdsNames(studentiIds = [], studenti = []) {
-  if (!studentiIds || studentiIds.length === 0) return 'Nessuno studente';
-  return studentiIds.map(id => { 
-    const s = studenti.find(std => std.id === id); 
-    return s ? `${s.nome} ${s.cognome[0]}.` : ''; 
-  }).filter(Boolean).join(', ');
+  if (!studentiIds || !Array.isArray(studentiIds) || studentiIds.length === 0) return 'Nessuno studente';
+  return studentiIds
+    .map(id => {
+      const s = (studenti || []).find(std => std && std.id === id);
+      return s?.nome ? `${s.nome} ${s.cognome ? s.cognome[0] + '.' : ''}` : null;
+    })
+    .filter(Boolean)
+    .join(', ') || 'Studente non trovato';
 }
