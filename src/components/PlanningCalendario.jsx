@@ -91,18 +91,18 @@ export default function PlanningCalendario({
       await updateDoc(doc(db, 'richieste_genitori', req.id), { stato: 'Approvata' });
       setShowRichiesteModal(false);
       
-      // Costruiamo delle note complete da far apparire alla Reception
       let noteComposte = `Richiesta da App per ${req.ore}h.\n`;
       if (req.orarioPreferito) noteComposte += `Orario desiderato: ${req.orarioPreferito}\n`;
       if (req.note) noteComposte += `Note genitore: ${req.note}`;
 
       if (onOpenModal) {
         onOpenModal({
-          data: req.dataPreferita || dataSelezionata, // Pre-imposta il giorno richiesto, o oggi
+          data: req.dataPreferita || dataSelezionata, 
           materia: req.materia,
           studentiIds: req.studenteId ? [req.studenteId] : [],
           note: noteComposte.trim(),
-          allegatoUrl: req.allegatoUrl || '' // Passiamo l'allegato alla modale
+          allegatoUrl: req.allegatoUrl || '', 
+          oreRichieste: req.ore // <-- PASSIAMO IL VALORE DELLE ORE PER CALCOLARE LA FINE
         });
       }
       if (aggiungiLog) aggiungiLog(`Iniziata pianificazione per richiesta App: ${req.studente}`);
@@ -412,7 +412,6 @@ export default function PlanningCalendario({
               <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
                 <div className="flex justify-between items-start">
                   <div className="font-black text-slate-900 text-sm">{selectedLezioneDetail.materia || 'Lezione'}</div>
-                  {/* SE LA LEZIONE HA UN ALLEGATO, MOSTRA IL BOTTONE */}
                   {selectedLezioneDetail.allegatoUrl && (
                     <a href={selectedLezioneDetail.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-100 text-blue-700 px-2.5 py-1 rounded-lg font-bold hover:bg-blue-200 flex items-center gap-1 shadow-sm">
                       <Paperclip className="w-3.5 h-3.5"/> Vedi Appunti
@@ -465,7 +464,6 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* Altre modali restano invariate */}
       {groupModalData && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -505,7 +503,6 @@ export default function PlanningCalendario({
                       <div className="w-full">
                         <h4 className="font-black text-slate-900 text-sm flex items-center justify-between">
                           <span>👤 {req.studente}</span>
-                          {/* BOTTONE VEDI ALLEGATO NELLA NOTIFICA */}
                           {req.allegatoUrl && (
                             <a href={req.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-200 flex items-center gap-1 shadow-sm">
                               <Paperclip className="w-3 h-3"/> Vedi Allegato
@@ -515,7 +512,6 @@ export default function PlanningCalendario({
                         
                         <p className="text-xs text-sky-900 font-bold mt-1.5">Materia: {req.materia || 'Doposcuola'} • {req.ore} {req.ore === 1 ? 'ora' : 'ore'}</p>
                         
-                        {/* MOSTRA PREFERENZE DI DATA E ORA */}
                         {(req.dataPreferita || req.orarioPreferito) && (
                           <div className="mt-2 bg-emerald-100/50 border border-emerald-200 p-2 rounded-lg inline-block">
                             <p className="text-xs text-emerald-800 font-bold flex items-center gap-1">
