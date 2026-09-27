@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft } from 'lucide-react';
 import ModalePin from './ModalePin';
 
+// Aggiunti import per il collegamento diretto a Firebase per le richieste
+import { db } from '../services/firebase';
+import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+
 export default function PlanningCalendario({
   insegnanti = [],
   studenti = [],
@@ -13,9 +17,7 @@ export default function PlanningCalendario({
   onUpdateLezioneStatus,
   onRestoreLezione,
   onUpdateLezioneCompleta,
-  onEstraiStudenteDaGruppo,
-  onAcceptRichiesta,
-  onRejectRichiesta
+  onEstraiStudenteDaGruppo
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
@@ -29,6 +31,9 @@ export default function PlanningCalendario({
   const [showRichiesteModal, setShowRichiesteModal] = useState(false);
   const [showAnnullateModal, setShowAnnullateModal] = useState(false);
   
+  // STATO PER LE RICHIESTE DELL'APP GENITORI
+  const [richiesteInAttesa, setRichiesteInAttesa] = useState([]);
+
   const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
   const [contextMenu, setContextMenu] = useState(null);
   const [dragSelection, setDragSelection] = useState(null);
@@ -58,8 +63,55 @@ export default function PlanningCalendario({
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
 
+  // ---------- ASCOLTO IN TEMPO REALE DELLE RICHIESTE GENITORI ----------
+  useEffect(() => {
+    const q = query(collection(db, 'richieste_genitori'), where('stato', '==', 'In attesa'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Ordina per le più recenti
+      data.sort((a, b) => (b.dataCreazione?.toMillis?.() || 0) - (a.dataCreazione?.toMillis?.() || 0));
+      setRichiesteInAttesa(data);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Azioni sulle Richieste Genitori
+  const handleRifiutaRichiesta = async (id, nomeStudente) => {
+    if (window.confirm('Vuoi davvero rifiutare questa richiesta? Il genitore vedrà lo stato "Rifiutata".')) {
+      try {
+        await updateDoc(doc(db, 'richieste_genitori', id), { stato: 'Rifiutata' });
+        if (aggiungiLog) aggiungiLog(`Rifiutata richiesta App per lo studente: ${nomeStudente}`);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleAccettaRichiesta = async (req) => {
+    try {
+      // 1. Aggiorna lo stato della richiesta nel database a 'Approvata'
+      await updateDoc(doc(db, 'richieste_genitori', req.id), { stato: 'Approvata' });
+      
+      // 2. Chiudi la modale delle richieste
+      setShowRichiesteModal(false);
+      
+      // 3. Apri la Modale della Lezione pre-compilata con i dati della richiesta
+      if (onOpenModal) {
+        onOpenModal({
+          data: dataSelezionata, // Lo posiziona sul giorno che stai guardando
+          materia: req.materia,
+          note: `Richiesta da App: Studente indicato: ${req.studente} (${req.ore}h). Note extra: ${req.note || 'Nessuna'}`,
+        });
+      }
+      
+      if (aggiungiLog) aggiungiLog(`Iniziata pianificazione per richiesta App: ${req.studente}`);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+
   const lezioniAttive = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
-  const lezioniRichiesteOggi = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato === 'richiesta');
   const lezioniAnnullateOggi = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l && l.isGruppo);
 
@@ -176,7 +228,6 @@ export default function PlanningCalendario({
       const endTotalMins = startMinsNew + (durataMins > 0 ? durataMins : 60);
       const oraFineNuova = formatMinsToStr(endTotalMins);
 
-      // Controllo collisione
       const studentiIscritti = payload.studentiIds || [];
       const conflitto = lezioniAttive.find(l => {
         if (!l || l.id === lezioneId) return false;
@@ -296,10 +347,18 @@ export default function PlanningCalendario({
         </div>
 
         <div className="flex items-center space-x-2 flex-wrap">
-          <button onClick={() => setShowRichiesteModal(true)} className={`relative flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${ lezioniRichiesteOggi.length > 0 ? 'bg-rose-500 text-white border-rose-600 shadow-md animate-pulse' : 'bg-sky-50 text-sky-900 border-sky-200 hover:bg-sky-100' }`}>
+          {/* BOTTONE RICHIESTE AGGIORNATO */}
+          <button 
+            onClick={() => setShowRichiesteModal(true)} 
+            className={`relative flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${ richiesteInAttesa.length > 0 ? 'bg-rose-500 text-white border-rose-600 shadow-md animate-pulse' : 'bg-sky-50 text-sky-900 border-sky-200 hover:bg-sky-100' }`}
+          >
             <Bell className="w-4 h-4"/>
             <span>Richieste</span>
-            {lezioniRichiesteOggi.length > 0 && <span className="bg-white text-rose-600 px-1.5 py-0.2 rounded-full text-[10px] font-black">{lezioniRichiesteOggi.length}</span>}
+            {richiesteInAttesa.length > 0 && (
+              <span className="bg-white text-rose-600 px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                {richiesteInAttesa.length}
+              </span>
+            )}
           </button>
           
           <button onClick={() => setShowAnnullateModal(true)} className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold border border-slate-200 shadow-sm">
@@ -577,29 +636,48 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* Modale Richieste App */}
+      {/* NUOVA MODALE: Richieste App in Attesa */}
       {showRichiesteModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
             <div className="flex justify-between items-center border-b border-gray-100 pb-3">
               <div className="flex items-center space-x-2 text-rose-600">
                 <Bell className="w-6 h-6 animate-bounce"/>
-                <h3 className="font-extrabold text-lg text-slate-900">Richieste App in Attesa ({lezioniRichiesteOggi.length})</h3>
+                <h3 className="font-extrabold text-lg text-slate-900">Richieste App in Attesa ({richiesteInAttesa.length})</h3>
               </div>
               <button onClick={() => setShowRichiesteModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
             </div>
 
             <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-              {lezioniRichiesteOggi.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna nuova richiesta in attesa per oggi.</div>
+              {richiesteInAttesa.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 font-bold text-xs">
+                  Nessuna nuova richiesta in attesa per oggi.
+                </div>
               ) : (
-                lezioniRichiesteOggi.map(req => (
-                  <div key={req.id} className="bg-sky-50 border border-sky-200 p-4 rounded-2xl space-y-2">
+                richiesteInAttesa.map(req => (
+                  <div key={req.id} className="bg-sky-50 border border-sky-200 p-4 rounded-2xl space-y-3">
                     <div className="flex justify-between items-start">
                       <div>
-                        <h4 className="font-black text-slate-900 text-sm">👤 {stdsNames(req.studentiIds, studenti)}</h4>
-                        <p className="text-xs text-sky-900 font-bold mt-0.5">Materia: {req.materia || 'Doposcuola'} • 🕒 {req.oraInizio} - {req.oraFine}</p>
+                        <h4 className="font-black text-slate-900 text-sm">👤 {req.studente}</h4>
+                        <p className="text-xs text-sky-900 font-bold mt-0.5">
+                          Materia: {req.materia || 'Doposcuola'} • Richieste: {req.ore} {req.ore === 1 ? 'ora' : 'ore'}
+                        </p>
+                        {req.note && <p className="text-xs text-slate-600 mt-1 italic">"{req.note}"</p>}
                       </div>
+                    </div>
+                    <div className="flex gap-2 justify-end border-t border-sky-200/50 pt-3">
+                      <button 
+                        onClick={() => handleRifiutaRichiesta(req.id, req.studente)} 
+                        className="px-3 py-1.5 bg-white text-rose-600 hover:bg-rose-50 font-bold rounded-lg text-xs border border-rose-200 transition-colors"
+                      >
+                        Rifiuta
+                      </button>
+                      <button 
+                        onClick={() => handleAccettaRichiesta(req)} 
+                        className="px-4 py-1.5 bg-sky-600 text-white hover:bg-sky-700 font-bold rounded-lg text-xs shadow-sm transition-colors"
+                      >
+                        Organizza Lezione
+                      </button>
                     </div>
                   </div>
                 ))
