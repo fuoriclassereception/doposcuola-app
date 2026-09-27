@@ -12,7 +12,6 @@ export default function AppGenitore({ utente, onLogout }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmittingFiglio, setIsSubmittingFiglio] = useState(false);
 
-  // Aggiunti dataPreferita e orarioPreferito
   const [nuovaRichiesta, setNuovaRichiesta] = useState({ 
     studenteId: '', materia: '', ore: 1, note: '', dataPreferita: '', orarioPreferito: '' 
   });
@@ -22,7 +21,6 @@ export default function AppGenitore({ utente, onLogout }) {
     nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' 
   });
 
-  // 1. Carica i Profili
   useEffect(() => {
     if (!utente?.email) return;
     const unsub = onSnapshot(query(collection(db, 'studenti'), where('genitoreEmail', '==', utente.email)), (snapshot) => {
@@ -33,21 +31,27 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [utente]);
 
-  // 2. Carica storico richieste
   useEffect(() => {
     if (!utente?.uid) return;
     const unsub = onSnapshot(query(collection(db, 'richieste_genitori'), where('genitoreId', '==', utente.uid)), (snapshot) => {
-      let dati = snapshot.docs.map(doc => ({
-        id: doc.id, ...doc.data(),
-        dataFormattata: doc.data().dataCreazione?.toDate?.()?.toLocaleDateString('it-IT') || 'Oggi'
-      }));
+      let dati = snapshot.docs.map(doc => {
+        const dataCreazione = doc.data().dataCreazione?.toDate?.();
+        const dataFormattata = dataCreazione 
+          ? dataCreazione.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 
+          : 'Oggi';
+          
+        return {
+          id: doc.id, 
+          ...doc.data(),
+          dataFormattata
+        };
+      });
       dati.sort((a, b) => (b.dataCreazione?.toMillis?.() || 0) - (a.dataCreazione?.toMillis?.() || 0));
       setRichieste(dati);
     });
     return () => unsub();
   }, [utente]);
 
-  // 3. Carica Lezioni Programmate
   useEffect(() => {
     if (iMieiFigli.length === 0) {
       setLezioniProgrammate([]);
@@ -70,7 +74,6 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [iMieiFigli]);
 
-  // INVIA RICHIESTA
   const handleInviaRichiesta = async (e) => {
     e.preventDefault();
     if (!nuovaRichiesta.studenteId) return alert("Devi selezionare uno studente.");
@@ -89,13 +92,12 @@ export default function AppGenitore({ utente, onLogout }) {
         allegatoUrl = await getDownloadURL(storageRef);
       }
 
-      // Salviamo anche le preferenze di data e ora nel database
       await addDoc(collection(db, 'richieste_genitori'), {
         genitoreId: utente.uid, emailGenitore: utente.email, studenteId: figlio.id,
         studente: `${figlio.nome} ${figlio.cognome}`, materia: nuovaRichiesta.materia,
         ore: Number(nuovaRichiesta.ore), note: nuovaRichiesta.note, 
-        dataPreferita: nuovaRichiesta.dataPreferita, // <-- SALVATO
-        orarioPreferito: nuovaRichiesta.orarioPreferito, // <-- SALVATO
+        dataPreferita: nuovaRichiesta.dataPreferita, 
+        orarioPreferito: nuovaRichiesta.orarioPreferito,
         allegatoUrl: allegatoUrl, 
         stato: 'In attesa',
         dataCreazione: serverTimestamp()
@@ -320,10 +322,11 @@ export default function AppGenitore({ utente, onLogout }) {
                   <div className="col-span-2"><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Materia *</label><input type="text" required placeholder="Es. Matematica" className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.materia} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, materia: e.target.value})} /></div>
                   <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Giorno (Opzionale)</label><input type="date" className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovaRichiesta.dataPreferita} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, dataPreferita: e.target.value})} /></div>
                   <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Orario (Opzionale)</label><input type="text" placeholder="Es. Dopo le 16, Indifferente..." className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovaRichiesta.orarioPreferito} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, orarioPreferito: e.target.value})} /></div>
-                  <div className="col-span-2"><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Ore richieste *</label><input type="number" min="1" max="10" required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.ore} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, ore: e.target.value})} /></div>
+                  
+                  {/* RISOLTO BUG MEZZE ORE */}
+                  <div className="col-span-2"><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Ore richieste *</label><input type="number" step="0.5" min="0.5" max="10" required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.ore} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, ore: e.target.value})} /></div>
                 </div>
                 
-                {/* CAMPO FILE ALLEGATO */}
                 <div>
                   <label className="block text-[10px] font-black text-slate-600 uppercase mb-1 flex items-center gap-2">
                     <Paperclip className="w-3 h-3"/> Allega Foto / Esercizi (opzionale)
