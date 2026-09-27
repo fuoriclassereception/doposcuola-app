@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Mail, Phone, Calendar, CreditCard, Clock, FileText, CheckCircle, AlertCircle, Edit2, X, PlusCircle, History, Printer } from 'lucide-react';
+import ModalePin from './ModalePin'; // Importiamo il PIN per la sicurezza!
 
 export default function DettaglioStudente({ 
   studente, 
@@ -12,9 +13,15 @@ export default function DettaglioStudente({
 }) {
   if (!studente) return null;
 
+  // Stati per la Modifica Lezione
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [editFormData, setEditFormData] = useState({ oraInizio: '', oraFine: '', data: '' });
 
+  // Stati per Annullamento Sicuro
+  const [annullaConfig, setAnnullaConfig] = useState({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
+  const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
+
+  // Stati per Ricarica
   const [showRicarica, setShowRicarica] = useState(false);
   const [ricaricaData, setRicaricaData] = useState({
     costoDaAggiungere: '',
@@ -26,8 +33,11 @@ export default function DettaglioStudente({
 
   const lezioniStudente = lezioni.filter(l => l && (l.studentiIds || []).includes(studente.id));
   const lezioniFuture = lezioniStudente.filter(l => l.stato === 'attiva' || l.stato === 'richiesta');
-  
+  const lezioniPassate = lezioniStudente.filter(l => l.stato !== 'attiva' && l.stato !== 'richiesta');
+
+  // Ordinamento
   lezioniFuture.sort((a, b) => a.data.localeCompare(b.data) || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
+  lezioniPassate.sort((a, b) => b.data.localeCompare(a.data) || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
 
   const handleStartEdit = (lez) => {
     setEditingLezioneId(lez.id);
@@ -47,6 +57,21 @@ export default function DettaglioStudente({
     setEditingLezioneId(null);
   };
 
+  // Funzione per gestire l'annullamento con PIN e Penale
+  const avviaAnnullamento = () => {
+    setAnnullaConfig(prev => ({ ...prev, isOpen: false }));
+    setPinConfig({
+      isOpen: true,
+      description: `Annullamento ${annullaConfig.tipo === 'penale' ? 'CON PENALE' : 'GRATUITO'}`,
+      actionCallback: async () => {
+        if (onUpdateLezioneStatus) {
+          await onUpdateLezioneStatus(annullaConfig.lezioneId, 'annullata', annullaConfig.note, annullaConfig.tipo);
+          if (aggiungiLog) aggiungiLog(`Lezione annullata (${annullaConfig.tipo}) per ${studente.nome}. Motivo: ${annullaConfig.note}`);
+        }
+      }
+    });
+  };
+
   const handleRicaricaSubmit = async (e) => {
     e.preventDefault();
     if (onRicaricaPacchetto) {
@@ -60,7 +85,7 @@ export default function DettaglioStudente({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex justify-center items-start pt-10 pb-10 overflow-y-auto">
+    <div className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex justify-center items-start pt-10 pb-10 overflow-y-auto">
       <div className="bg-slate-50 w-full max-w-4xl rounded-3xl shadow-2xl relative flex flex-col border border-slate-200">
         
         {/* Header Anagrafica */}
@@ -95,7 +120,7 @@ export default function DettaglioStudente({
           <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
             <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Calendar className="w-4 h-4 text-amber-500"/>
-              Lezioni Programmate ({lezioniFuture.length})
+              Gestione Lezioni Programmate ({lezioniFuture.length})
             </h3>
             
             <div className="space-y-3">
@@ -147,10 +172,17 @@ export default function DettaglioStudente({
                           <button onClick={() => setEditingLezioneId(null)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50">Annulla</button>
                         </>
                       ) : (
-                        <button onClick={() => handleStartEdit(lez)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-amber-600 hover:border-amber-200 text-xs font-bold rounded-lg flex items-center gap-1 transition-colors">
-                          <Edit2 className="w-3.5 h-3.5"/> Modifica Orario/Data
-                        </button>
-                        /* RIMOSSO IL TASTO "ANNULLA" RAPIDO. L'ANNULLAMENTO SI FA DAL CALENDARIO PRINCIPALE */
+                        <>
+                          <button onClick={() => handleStartEdit(lez)} className="px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-amber-600 hover:border-amber-200 text-xs font-bold rounded-lg flex items-center gap-1 transition-colors"><Edit2 className="w-3.5 h-3.5"/> Modifica Orario/Data</button>
+                          
+                          {/* BOTTONE ANNULLA RIPRISTINATO E COLLEGATO AL FLUSSO SICURO */}
+                          <button 
+                            onClick={() => setAnnullaConfig({ isOpen: true, lezioneId: lez.id, tipo: 'gratuito', note: '' })} 
+                            className="px-3 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 text-xs font-bold rounded-lg transition-colors"
+                          >
+                            Annulla
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -207,6 +239,7 @@ export default function DettaglioStudente({
                 <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-emerald-500"/> Plafond Didattico & Credito
                 </h3>
+                <p className="text-xs text-slate-500 mt-1">Credito aggiornato automaticamente ad ogni presenza</p>
               </div>
               <button onClick={() => setShowRicarica(!showRicarica)} className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-sm transition-colors flex items-center gap-2">
                 <PlusCircle className="w-4 h-4"/> + Ricarica Plafond
@@ -215,15 +248,15 @@ export default function DettaglioStudente({
 
             {showRicarica && (
               <form onSubmit={handleRicaricaSubmit} className="mb-6 bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                <h4 className="text-xs font-black text-slate-800 uppercase mb-4">Nuova Ricarica</h4>
+                <h4 className="text-xs font-black text-slate-800 uppercase mb-4">Nuova Ricarica / Aggiunta Pacchetto</h4>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo Totale (€)</label>
-                    <input type="number" step="0.01" required className="w-full p-2 text-sm font-bold border border-slate-300 rounded-lg" value={ricaricaData.costoDaAggiungere} onChange={e => setRicaricaData({...ricaricaData, costoDaAggiungere: e.target.value})}/>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo Totale (€) *</label>
+                    <input type="number" step="0.01" required className="w-full p-2 text-sm font-bold border border-slate-300 rounded-lg" value={ricaricaData.costoDaAggiungere} onChange={e => setRicaricaData({...ricaricaData, costoDaAggiungere: e.target.value})} placeholder="Es. 200"/>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Importo Pagato (€)</label>
-                    <input type="number" step="0.01" required className="w-full p-2 text-sm font-bold border border-slate-300 rounded-lg" value={ricaricaData.pagatoDaAggiungere} onChange={e => setRicaricaData({...ricaricaData, pagatoDaAggiungere: e.target.value})}/>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Importo Pagato Ora (€) *</label>
+                    <input type="number" step="0.01" required className="w-full p-2 text-sm font-bold border border-slate-300 rounded-lg" value={ricaricaData.pagatoDaAggiungere} onChange={e => setRicaricaData({...ricaricaData, pagatoDaAggiungere: e.target.value})} placeholder="Es. 200"/>
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Metodo</label>
@@ -237,7 +270,7 @@ export default function DettaglioStudente({
                   </div>
                 </div>
                 <div className="flex gap-3">
-                  <input type="text" className="flex-1 p-2 text-sm border border-slate-300 rounded-lg" placeholder="Note (opzionale)" value={ricaricaData.note} onChange={e => setRicaricaData({...ricaricaData, note: e.target.value})}/>
+                  <input type="text" className="flex-1 p-2 text-sm border border-slate-300 rounded-lg" placeholder="Note ricarica (opzionale)" value={ricaricaData.note} onChange={e => setRicaricaData({...ricaricaData, note: e.target.value})}/>
                   <button type="submit" className="bg-slate-900 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-slate-800">Conferma Ricarica</button>
                 </div>
               </form>
@@ -245,21 +278,73 @@ export default function DettaglioStudente({
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className={`p-5 rounded-2xl border ${((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)) < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Credito Residuo</p>
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Credito Residuo Disponibile</p>
                 <p className={`text-3xl font-black ${((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                   {((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)).toFixed(2)} €
+                </p>
+                <p className={`text-[10px] font-bold mt-2 flex items-center gap-1 ${((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)) < 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                  {((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)) < 0 ? <><AlertCircle className="w-3 h-3"/> Ricarica Necessaria</> : <><CheckCircle className="w-3 h-3"/> Saldo coperto</>}
                 </p>
               </div>
               <div className="p-5 rounded-2xl border border-slate-100 bg-white shadow-sm">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Totale Versato</p>
                 <p className="text-xl font-black text-slate-800">{(studente.totaleVersato || 0).toFixed(2)} €</p>
+                <p className="text-[10px] text-slate-400 font-medium mt-1">Storico ricariche</p>
               </div>
               <div className="p-5 rounded-2xl border border-slate-100 bg-white shadow-sm">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Totale Consumato</p>
                 <p className="text-xl font-black text-slate-800">{(studente.totaleConsumato || 0).toFixed(2)} €</p>
+                <p className="text-[10px] text-slate-400 font-medium mt-1">Valore lezioni svolte</p>
               </div>
             </div>
+
+            {/* Lista Ricariche Ripristinata */}
+            {studente.storicoRicariche && studente.storicoRicariche.length > 0 && (
+              <div className="mt-6 border-t border-slate-100 pt-6">
+                <h4 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2">
+                  <Printer className="w-4 h-4"/> Ricevute & Note Reception ({studente.storicoRicariche.length})
+                </h4>
+                <div className="space-y-2 max-h-40 overflow-y-auto pr-2">
+                  {studente.storicoRicariche.map((r, i) => (
+                    <div key={i} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs">
+                      <div>
+                        <p className="font-black text-slate-800">+{Number(r.pagato).toFixed(2)} € <span className="font-medium text-slate-500">via {r.metodo} • {r.data}</span></p>
+                        {r.note && <p className="text-[10px] text-slate-500 mt-1 font-bold">Nota: <span className="text-amber-600">{r.note}</span></p>}
+                      </div>
+                      <button className="px-3 py-1.5 bg-slate-900 text-white rounded-lg font-bold text-[10px] flex items-center gap-1 hover:bg-slate-800"><Printer className="w-3 h-3"/> Stampa Quietanza</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Storico Lezioni Passate Ripristinato */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <History className="w-4 h-4 text-blue-500"/>
+              Storico Lezioni Erogate ({lezioniPassate.length})
+            </h3>
+            
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+              {lezioniPassate.length === 0 ? (
+                <p className="text-sm text-slate-400 italic">Nessuna lezione passata registrata.</p>
+              ) : (
+                lezioniPassate.map(lez => (
+                  <div key={lez.id} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-100 rounded-xl text-xs opacity-80 hover:opacity-100 transition-opacity">
+                    <div>
+                      <span className="font-black text-slate-800 mr-2">{lez.materia || 'Lezione'}</span>
+                      <span className="text-slate-500 font-bold">{lez.data} • {lez.oraInizio}-{lez.oraFine}</span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${lez.stato === 'svolta' ? 'bg-emerald-100 text-emerald-700' : lez.stato === 'annullata' ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600'}`}>
+                      {lez.stato}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
         </div>
 
         {/* Footer */}
@@ -267,6 +352,58 @@ export default function DettaglioStudente({
           <button onClick={onClose} className="px-6 py-2.5 bg-slate-900 text-white font-black text-sm rounded-xl hover:bg-slate-800 transition-colors shadow-lg">Chiudi Scheda</button>
         </div>
       </div>
+
+      {/* --- MODALE SCELTA ANNULLAMENTO --- */}
+      {annullaConfig.isOpen && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-rose-600"/> Annulla Lezione
+            </h3>
+            
+            <div className="space-y-3 text-sm">
+              <div>
+                <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Tipo di Annullamento</label>
+                <select 
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900"
+                  value={annullaConfig.tipo}
+                  onChange={(e) => setAnnullaConfig({...annullaConfig, tipo: e.target.value})}
+                >
+                  <option value="gratuito">Annullamento Gratuito</option>
+                  <option value="penale">Addebita Penale (100%)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Motivazione</label>
+                <input 
+                  type="text" 
+                  placeholder="Es. Malattia, assenza ingiustificata..."
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium"
+                  value={annullaConfig.note}
+                  onChange={(e) => setAnnullaConfig({...annullaConfig, note: e.target.value})}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+              <button onClick={() => setAnnullaConfig({...annullaConfig, isOpen: false})} className="px-4 py-2 bg-gray-100 font-bold rounded-xl text-xs">Indietro</button>
+              <button onClick={avviaAnnullamento} className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs">Procedi all'Annullamento</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODALE PIN (SI APRE DOPO AVER SCELTO PENALE/GRATUITO) --- */}
+      <ModalePin 
+        isOpen={pinConfig.isOpen} 
+        descrizione={pinConfig.description} 
+        onClose={() => setPinConfig({ isOpen: false, actionCallback: null, description: '' })} 
+        onSuccess={() => { 
+          if (pinConfig.actionCallback) pinConfig.actionCallback(); 
+          setPinConfig({ isOpen: false, actionCallback: null, description: '' }); 
+        }} 
+      />
     </div>
   );
 }
