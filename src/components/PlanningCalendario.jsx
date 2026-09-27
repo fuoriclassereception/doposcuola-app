@@ -20,7 +20,8 @@ export default function PlanningCalendario({
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
 
-  const insegnantiAttivi = insegnanti.filter(i => i.attivo !== false);
+  // Protezione anti-crash: esclude elementi non validi o senza nome
+  const insegnantiAttivi = (insegnanti || []).filter(i => i && i.nome && i.attivo !== false);
 
   const [groupModalData, setGroupModalData] = useState(null);
   const [selectedLezioneDetail, setSelectedLezioneDetail] = useState(null);
@@ -29,11 +30,7 @@ export default function PlanningCalendario({
   const [showAnnullateModal, setShowAnnullateModal] = useState(false);
   
   const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
-
-  // Context Menu
   const [contextMenu, setContextMenu] = useState(null);
-
-  // Selezione oraria
   const [dragSelection, setDragSelection] = useState(null);
   const isDraggingRef = useRef(false);
 
@@ -61,10 +58,10 @@ export default function PlanningCalendario({
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
 
-  const lezioniAttive = lezioni.filter(l => l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
-  const lezioniRichiesteOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'richiesta');
-  const lezioniAnnullateOggi = lezioni.filter(l => l.data === dataSelezionata && l.stato === 'annullata');
-  const lezioniGruppoOggi = lezioniAttive.filter(l => l.isGruppo);
+  const lezioniAttive = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
+  const lezioniRichiesteOggi = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato === 'richiesta');
+  const lezioniAnnullateOggi = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato === 'annullata');
+  const lezioniGruppoOggi = lezioniAttive.filter(l => l && l.isGruppo);
 
   const changeDate = (days) => {
     const current = new Date(dataSelezionata);
@@ -84,10 +81,9 @@ export default function PlanningCalendario({
   const parseTimeToMins = (timeStr) => {
     if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
-    return h * 60 + m;
+    return (h || 0) * 60 + (m || 0);
   };
 
-  // ALGORITMO DI AFFIANCAMENTO SOVRAPPOSIZIONI (Side-by-side)
   const computeOverlappingLayout = (items) => {
     if (!items || items.length === 0) return [];
     
@@ -161,7 +157,6 @@ export default function PlanningCalendario({
     e.preventDefault();
   };
 
-  // DROP CON CONTROLLO CONFLITTI STUDENTE
   const handleDrop = (e, targetInsegnanteId, targetIsGruppo = false, targetOraStr) => {
     e.preventDefault();
     const dataJson = e.dataTransfer.getData('application/json');
@@ -174,39 +169,27 @@ export default function PlanningCalendario({
 
       const [tH, tM] = targetOraStr.split(':').map(Number);
       const startMinsNew = tH * 60 + tM;
-      const [hStart, mStart] = payload.oraInizio.split(':').map(Number);
-      const [hEnd, mEnd] = payload.oraFine.split(':').map(Number);
+      const [hStart, mStart] = (payload.oraInizio || '15:00').split(':').map(Number);
+      const [hEnd, mEnd] = (payload.oraFine || '16:00').split(':').map(Number);
       const durataMins = (hEnd * 60 + mEnd) - (hStart * 60 + mStart);
 
       const endTotalMins = startMinsNew + (durataMins > 0 ? durataMins : 60);
       const oraFineNuova = formatMinsToStr(endTotalMins);
 
-      // CONTROLLO CONFLITTO: Verifichiamo se lo studente ha già una lezione attiva in questa fascia
+      // Controllo collisione
       const studentiIscritti = payload.studentiIds || [];
       const conflitto = lezioniAttive.find(l => {
-        if (l.id === lezioneId) return false; // Ignora se stessa
-        
-        // Verifica se condivide almeno uno studente
-        const overlapStudenti = (l.studentiIds || []).some(sId => studentiIscritti.includes(sId));
-        if (!overlapStudenti) return false;
+        if (!l || l.id === lezioneId) return false;
+        const overlap = (l.studentiIds || []).some(sId => studentiIscritti.includes(sId));
+        if (!overlap) return false;
 
         const lStart = parseTimeToMins(l.oraInizio);
         const lEnd = parseTimeToMins(l.oraFine);
-
-        // Controllo sovrapposizione temporale: [startMinsNew, endTotalMins] collidere con [lStart, lEnd]
         return startMinsNew < lEnd && endTotalMins > lStart;
       });
 
       if (conflitto) {
-        const nomiCollidenti = studentiIscritti
-          .filter(id => (conflitto.studentiIds || []).includes(id))
-          .map(id => {
-            const s = studenti.find(std => std.id === id);
-            return s ? `${s.nome} ${s.cognome}` : 'Studente';
-          })
-          .join(', ');
-
-        alert(`Impossibile spostare la lezione:\nLo studente ${nomiCollidenti} ha già un'altra lezione programmata dalle ${conflitto.oraInizio} alle ${conflitto.oraFine}!`);
+        alert(`Attenzione: uno o più studenti hanno già un'altra lezione tra le ${conflitto.oraInizio} e le ${conflitto.oraFine}!`);
         return;
       }
 
@@ -219,44 +202,26 @@ export default function PlanningCalendario({
         isGruppo: Boolean(targetIsGruppo)
       };
 
-      const docDest = targetIsGruppo ? 'Gruppo Studio' : (insegnanti.find(i => i.id === targetInsegnanteId)?.nome || 'Docente');
+      const targetDoc = (insegnanti || []).find(i => i?.id === targetInsegnanteId);
+      const docDest = targetIsGruppo ? 'Gruppo Studio' : (targetDoc?.nome || 'Docente');
 
       setPinConfig({
         isOpen: true,
-        description: `Spostamento lezione alle ore ${targetOraStr} su ${docDest}`,
+        description: `Spostamento lezione alle ore ${targetOraStr} (${docDest})`,
         actionCallback: () => {
           if (onUpdateLezioneCompleta) {
             onUpdateLezioneCompleta(payloadAggiornato);
-            if (aggiungiLog) aggiungiLog(`Spostata lezione ID: ${lezioneId} alle ore ${targetOraStr} (${docDest})`);
+            if (aggiungiLog) aggiungiLog(`Spostata lezione ID: ${lezioneId} alle ${targetOraStr}`);
           }
         }
       });
     } catch (err) {
-      console.error("Errore drag and drop", err);
+      console.error("Errore drag and drop:", err);
     }
-  };
-
-  const handleSlotContextMenu = (e, targetInsegnanteId, targetIsGruppo, oraStr) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const [h, m] = oraStr.split(':').map(Number);
-    const startMins = h * 60 + m;
-    const endStr = formatMinsToStr(startMins + 60);
-
-    setContextMenu({
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      insegnanteId: targetInsegnanteId,
-      isGruppo: targetIsGruppo,
-      oraInizio: oraStr,
-      oraFine: endStr
-    });
   };
 
   const handleSlotClick = (targetInsegnanteId, targetIsGruppo, slotMins) => {
     if (isDraggingRef.current) return;
-
     const oraInizio = formatMinsToStr(slotMins);
     const oraFine = formatMinsToStr(slotMins + 60);
 
@@ -274,7 +239,6 @@ export default function PlanningCalendario({
   const handleSlotMouseDown = (e, targetInsegnanteId, targetIsGruppo, slotMins) => {
     if (e.button !== 0) return;
     isDraggingRef.current = false;
-
     setDragSelection({
       insegnanteId: targetInsegnanteId,
       isGruppo: targetIsGruppo,
@@ -291,16 +255,11 @@ export default function PlanningCalendario({
     const minStart = Math.min(dragSelection.startMin, slotMins);
     const maxEnd = Math.max(dragSelection.startMin + 30, slotMins + 30);
 
-    setDragSelection(prev => ({
-      ...prev,
-      startMin: minStart,
-      endMin: maxEnd
-    }));
+    setDragSelection(prev => ({ ...prev, startMin: minStart, endMin: maxEnd }));
   };
 
   const handleGlobalMouseUp = () => {
     if (!dragSelection) return;
-
     const { insegnanteId, isGruppo, startMin, endMin } = dragSelection;
     const wasDragging = isDraggingRef.current;
     setDragSelection(null);
@@ -316,32 +275,17 @@ export default function PlanningCalendario({
     }
   };
 
-  const sendWhatsAppConfirmation = (lez) => {
-    const std = studenti.find(s => (lez.studentiIds || []).includes(s.id));
-    const ins = insegnanti.find(i => i.id === lez.insegnanteId);
-    const nomeStudente = std ? `${std.nome} ${std.cognome}` : 'Studente';
-    const nomeDocente = ins ? `${ins.nome} ${ins.cognome}` : 'un nostro docente';
-
-    const testo = `Buongiorno, le confermo la prenotazione della lezione di ${lez.materia || 'doposcuola'} per ${nomeStudente} in data ${lez.data} dalle ${lez.oraInizio} alle ${lez.oraFine} con il docente ${nomeDocente}. Cordiali saluti - FuoriClasse Reception.`;
-    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(testo)}`;
-    window.open(url, '_blank');
-    if (aggiungiLog) aggiungiLog(`Inviato promemoria WhatsApp a ${nomeStudente}`);
-  };
-
   const gridTemplateColumns = `60px repeat(${insegnantiAttivi.length}, minmax(170px, 1fr)) 170px`;
 
   return (
-    <div 
-      className="w-full h-full p-0 flex flex-col space-y-3 select-none"
-      onMouseUp={handleGlobalMouseUp}
-    >
+    <div className="w-full h-full p-0 flex flex-col space-y-3 select-none" onMouseUp={handleGlobalMouseUp}>
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl"><CalendarIcon className="w-5 h-5"/></div>
           <div>
             <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-            <p className="text-xs text-gray-500">Lezioni contemporanee affiancate • Controllo collisione studenti attivo</p>
+            <p className="text-xs text-gray-500">Lezioni contemporanee affiancate</p>
           </div>
         </div>
 
@@ -363,7 +307,7 @@ export default function PlanningCalendario({
             <span>Annullate ({lezioniAnnullateOggi.length})</span>
           </button>
           
-          <button onClick={() => { onOpenModal(); if (aggiungiLog) aggiungiLog("Apertura finestra nuova lezione"); }} className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm">
+          <button onClick={() => onOpenModal && onOpenModal()} className="flex items-center space-x-1.5 px-3.5 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm">
             <Plus className="w-4 h-4"/><span>+ Nuova</span>
           </button>
         </div>
@@ -379,7 +323,9 @@ export default function PlanningCalendario({
           {insegnantiAttivi.map(ins => (
             <div key={ins.id} className="p-3 text-center border-r border-gray-200 flex flex-col items-center justify-center">
               <div style={{ backgroundColor: ins.colore || '#3b82f6' }} className="w-2.5 h-2.5 rounded-full mb-1 shadow-sm"/>
-              <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">{ins.nome}</span>
+              <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">
+                {ins?.nome || 'Docente'}
+              </span>
             </div>
           ))}
 
@@ -402,9 +348,9 @@ export default function PlanningCalendario({
             ))}
           </div>
 
-          {/* Colonne Insegnanti con Side-by-Side Layout */}
+          {/* Colonne Insegnanti */}
           {insegnantiAttivi.map(ins => {
-            const rawLezioni = lezioniAttive.filter(l => l.insegnanteId === ins.id && !l.isGruppo);
+            const rawLezioni = lezioniAttive.filter(l => l && l.insegnanteId === ins.id && !l.isGruppo);
             const lezioniDocenteLayout = computeOverlappingLayout(rawLezioni);
 
             return (
@@ -414,7 +360,6 @@ export default function PlanningCalendario({
                     key={i} 
                     onDragOver={handleDragOver} 
                     onDrop={(e) => handleDrop(e, ins.id, false, slot.oraStr)} 
-                    onContextMenu={(e) => handleSlotContextMenu(e, ins.id, false, slot.oraStr)}
                     onMouseDown={(e) => handleSlotMouseDown(e, ins.id, false, slot.totalMins)}
                     onMouseEnter={() => handleSlotMouseEnter(ins.id, false, slot.totalMins)}
                     onClick={() => handleSlotClick(ins.id, false, slot.totalMins)}
@@ -422,7 +367,6 @@ export default function PlanningCalendario({
                   />
                 ))}
 
-                {/* Evidenziatore drag selezione */}
                 {dragSelection && dragSelection.insegnanteId === ins.id && !dragSelection.isGruppo && (
                   <div
                     style={{
@@ -437,7 +381,6 @@ export default function PlanningCalendario({
                   </div>
                 )}
 
-                {/* Schede Lezioni Affiancate */}
                 {lezioniDocenteLayout.map(lez => {
                   const topPercent = ((lez.startMins - startHourMins) / totalHoursMins) * 100;
                   const heightPercent = ((lez.endMins - lez.startMins) / totalHoursMins) * 100;
@@ -486,7 +429,6 @@ export default function PlanningCalendario({
                 key={i} 
                 onDragOver={handleDragOver} 
                 onDrop={(e) => handleDrop(e, '', true, slot.oraStr)} 
-                onContextMenu={(e) => handleSlotContextMenu(e, '', true, slot.oraStr)}
                 onMouseDown={(e) => handleSlotMouseDown(e, '', true, slot.totalMins)}
                 onMouseEnter={() => handleSlotMouseEnter('', true, slot.totalMins)}
                 onClick={() => handleSlotClick('', true, slot.totalMins)}
@@ -494,23 +436,9 @@ export default function PlanningCalendario({
               />
             ))}
 
-            {dragSelection && dragSelection.isGruppo && (
-              <div
-                style={{
-                  top: `${((dragSelection.startMin - startHourMins) / totalHoursMins) * 100}%`,
-                  height: `${((dragSelection.endMin - dragSelection.startMin) / totalHoursMins) * 100}%`
-                }}
-                className="absolute left-1 right-1 bg-amber-400/50 border-2 border-dashed border-amber-600 rounded-xl z-20 pointer-events-none flex items-center justify-center shadow-md"
-              >
-                <span className="text-[11px] font-black text-amber-950 bg-white/95 px-2 py-0.5 rounded shadow">
-                  {formatMinsToStr(dragSelection.startMin)} - {formatMinsToStr(dragSelection.endMin)}
-                </span>
-              </div>
-            )}
-
             {gruppiFusiList.map((gf, idx) => {
-              const [hStart, mStart] = gf.oraInizio.split(':').map(Number);
-              const [hEnd, mEnd] = gf.oraFine.split(':').map(Number);
+              const [hStart, mStart] = (gf.oraInizio || '15:00').split(':').map(Number);
+              const [hEnd, mEnd] = (gf.oraFine || '16:00').split(':').map(Number);
               const topPercent = ((hStart * 60 + mStart - startHourMins) / totalHoursMins) * 100;
               const heightPercent = (((hEnd * 60 + mEnd) - (hStart * 60 + mStart)) / totalHoursMins) * 100;
               const tuttiStudentiIds = gf.lezioni.flatMap(l => l.studentiIds || []);
@@ -541,7 +469,6 @@ export default function PlanningCalendario({
             })}
           </div>
 
-          {/* Linea ora corrente */}
           {isToday && redLineTop >= 0 && redLineTop <= 100 && (
             <div style={{ top: `${redLineTop}%` }} className="absolute left-0 right-0 border-b-2 border-rose-500 z-30 pointer-events-none flex items-center">
               <span className="bg-rose-500 text-white text-[9px] font-black px-1 rounded-r">ORA</span>
@@ -549,57 +476,6 @@ export default function PlanningCalendario({
           )}
         </div>
       </div>
-
-      {/* Menu rapido tasto destro */}
-      {contextMenu && (
-        <div 
-          style={{ top: contextMenu.mouseY, left: contextMenu.mouseX }}
-          className="fixed z-50 bg-white border border-gray-200 rounded-2xl shadow-xl p-1.5 min-w-[210px] space-y-1 animate-in fade-in duration-100"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-3 py-1.5 text-[11px] font-extrabold text-gray-400 border-b border-gray-100 flex items-center justify-between">
-            <span>🕒 {contextMenu.oraInizio} - {contextMenu.oraFine}</span>
-          </div>
-
-          <button
-            onClick={() => {
-              if (onOpenModal) {
-                onOpenModal({
-                  data: dataSelezionata,
-                  insegnanteId: contextMenu.isGruppo ? '' : contextMenu.insegnanteId,
-                  isGruppo: Boolean(contextMenu.isGruppo),
-                  oraInizio: contextMenu.oraInizio,
-                  oraFine: contextMenu.oraFine
-                });
-              }
-              setContextMenu(null);
-            }}
-            className="w-full text-left px-3 py-2 hover:bg-amber-50 rounded-xl text-xs font-bold text-slate-900 flex items-center space-x-2"
-          >
-            <Plus className="w-3.5 h-3.5 text-amber-600"/>
-            <span>Nuova Lezione (1 ora)</span>
-          </button>
-
-          <button
-            onClick={() => {
-              if (onOpenModal) {
-                onOpenModal({
-                  data: dataSelezionata,
-                  insegnanteId: '',
-                  isGruppo: true,
-                  oraInizio: contextMenu.oraInizio,
-                  oraFine: contextMenu.oraFine
-                });
-              }
-              setContextMenu(null);
-            }}
-            className="w-full text-left px-3 py-2 hover:bg-amber-50 rounded-xl text-xs font-bold text-amber-900 flex items-center space-x-2"
-          >
-            <Users className="w-3.5 h-3.5 text-amber-700"/>
-            <span>Inserisci in Gruppo Studio</span>
-          </button>
-        </div>
-      )}
 
       {/* Modale Dettaglio Lezione */}
       {selectedLezioneDetail && (
@@ -622,24 +498,16 @@ export default function PlanningCalendario({
                 </div>
                 {selectedLezioneDetail.insegnanteId && (
                   <p className="text-slate-800 font-bold">
-                    Docente: <span className="text-amber-700">{insegnanti.find(i => i.id === selectedLezioneDetail.insegnanteId)?.nome || 'N.D.'}</span>
+                    Docente: <span className="text-amber-700">{(insegnanti || []).find(i => i?.id === selectedLezioneDetail.insegnanteId)?.nome || 'N.D.'}</span>
                   </p>
                 )}
-
-                <button
-                  onClick={() => sendWhatsAppConfirmation(selectedLezioneDetail)}
-                  className="w-full mt-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center justify-center space-x-2 shadow-sm"
-                >
-                  <MessageSquare className="w-3.5 h-3.5"/>
-                  <span>Invia Conferma WhatsApp</span>
-                </button>
               </div>
 
               <div>
                 <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1.5">Studenti Iscritti</label>
                 <div className="space-y-1.5">
                   {(selectedLezioneDetail.studentiIds || []).map(sId => {
-                    const std = studenti.find(s => s.id === sId);
+                    const std = (studenti || []).find(s => s && s.id === sId);
                     return (
                       <button
                         key={sId}
@@ -651,7 +519,7 @@ export default function PlanningCalendario({
                       >
                         <div className="flex items-center space-x-2">
                           <User className="w-4 h-4 text-slate-700"/>
-                          <span>{std ? `${std.nome} ${std.cognome}` : 'Studente'}</span>
+                          <span>{std ? `${std.nome || ''} ${std.cognome || ''}` : 'Studente'}</span>
                         </div>
                         <span className="text-[10px] bg-slate-900 text-white px-2.5 py-1 rounded-lg font-bold">Apri Scheda ➔</span>
                       </button>
@@ -681,8 +549,6 @@ export default function PlanningCalendario({
             </div>
 
             <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-              <p className="text-xs text-gray-500 font-medium">Puoi aprire la scheda o riassegnare la lezione a un docente singolo:</p>
-              
               {groupModalData.lezioniGroup.map(lez => (
                 <div key={lez.id} className="p-3 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col space-y-2">
                   <div className="flex justify-between items-center text-xs">
@@ -698,46 +564,6 @@ export default function PlanningCalendario({
                       className="px-2.5 py-1 bg-slate-900 text-white font-bold rounded-lg text-[10px]"
                     >
                       Scheda
-                    </button>
-                  </div>
-
-                  <div className="pt-2 border-t border-amber-200/80 flex items-center gap-2">
-                    <select id={`doc_dest_${lez.id}`} className="p-1 bg-white border border-amber-300 rounded-lg text-xs font-bold flex-1 text-slate-900">
-                      <option value="">Riassegna a un docente...</option>
-                      {insegnantiAttivi.map(i => (
-                        <option key={i.id} value={i.id}>{i.nome} {i.cognome}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={() => {
-                        const selDoc = document.getElementById(`doc_dest_${lez.id}`).value;
-                        if (!selDoc) {
-                          alert("Seleziona prima un docente a cui riassegnare la lezione.");
-                          return;
-                        }
-                        const nomeDoc = insegnanti.find(i => i.id === selDoc)?.nome || 'Docente';
-                        setPinConfig({
-                          isOpen: true,
-                          description: `Spostamento lezione dal gruppo al docente ${nomeDoc}`,
-                          actionCallback: () => {
-                            if (onUpdateLezioneCompleta) {
-                              onUpdateLezioneCompleta({
-                                lezioneId: lez.id,
-                                data: lez.data,
-                                oraInizio: lez.oraInizio,
-                                oraFine: lez.oraFine,
-                                insegnanteId: selDoc,
-                                isGruppo: false
-                              });
-                              if (aggiungiLog) aggiungiLog(`Estratta lezione dal gruppo e assegnata a ${nomeDoc}`);
-                            }
-                            setGroupModalData(null);
-                          }
-                        });
-                      }}
-                      className="px-3 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1"
-                    >
-                      <ArrowRightLeft className="w-3.5 h-3.5"/> Sposta
                     </button>
                   </div>
                 </div>
@@ -767,52 +593,16 @@ export default function PlanningCalendario({
               {lezioniRichiesteOggi.length === 0 ? (
                 <div className="text-center py-8 text-gray-400 font-bold text-xs">Nessuna nuova richiesta in attesa per oggi.</div>
               ) : (
-                lezioniRichiesteOggi.map(req => {
-                  const insRichiesto = insegnanti.find(i => i.id === req.insegnanteId);
-                  return (
-                    <div key={req.id} className="bg-sky-50 border border-sky-200 p-4 rounded-2xl space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-black text-slate-900 text-sm">👤 {stdsNames(req.studentiIds, studenti)}</h4>
-                          <p className="text-xs text-sky-900 font-bold mt-0.5">Materia: {req.materia || 'Doposcuola'} • 🕒 {req.oraInizio} - {req.oraFine}</p>
-                          <p className="text-[11px] text-gray-600 mt-1">
-                            Docente: <strong className="text-amber-800">{insRichiesto ? `${insRichiesto.nome} ${insRichiesto.cognome}` : 'Nessuno'}</strong>
-                          </p>
-                        </div>
-                        <span className="bg-rose-500 text-white text-[10px] font-black px-2 py-0.5 rounded-full">Da Approvare</span>
-                      </div>
-
-                      <div className="pt-2 border-t border-sky-200 flex items-center justify-between gap-2">
-                        <select defaultValue={req.insegnanteId || insegnantiAttivi[0]?.id} id={`sel_doc_${req.id}`} className="p-1.5 bg-white border border-sky-300 rounded-xl font-bold text-slate-900 text-xs flex-1">
-                          {insegnantiAttivi.map(ins => (
-                            <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
-                          ))}
-                        </select>
-
-                        <button
-                          onClick={() => {
-                            const selectedDocId = document.getElementById(`sel_doc_${req.id}`).value;
-                            if (onAcceptRichiesta) onAcceptRichiesta(req.id, selectedDocId);
-                            if (aggiungiLog) aggiungiLog(`Approvata richiesta app per ID ${req.id}`);
-                          }}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1 shadow-sm shrink-0"
-                        >
-                          <Check className="w-3.5 h-3.5"/> Accetta
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            if (onRejectRichiesta) onRejectRichiesta(req.id, 'Orario o docente non disponibile');
-                            if (aggiungiLog) aggiungiLog(`Rifiutata richiesta app per ID ${req.id}`);
-                          }}
-                          className="px-3 py-1.5 bg-rose-100 hover:bg-rose-200 text-rose-800 font-bold rounded-xl text-xs flex items-center gap-1 shrink-0"
-                        >
-                          <X className="w-3.5 h-3.5"/> Rifiuta
-                        </button>
+                lezioniRichiesteOggi.map(req => (
+                  <div key={req.id} className="bg-sky-50 border border-sky-200 p-4 rounded-2xl space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-black text-slate-900 text-sm">👤 {stdsNames(req.studentiIds, studenti)}</h4>
+                        <p className="text-xs text-sky-900 font-bold mt-0.5">Materia: {req.materia || 'Doposcuola'} • 🕒 {req.oraInizio} - {req.oraFine}</p>
                       </div>
                     </div>
-                  );
-                })
+                  </div>
+                ))
               )}
             </div>
 
@@ -823,7 +613,7 @@ export default function PlanningCalendario({
         </div>
       )}
 
-      {/* Modale Annullate & Rischedula */}
+      {/* Modale Annullate */}
       {showAnnullateModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -842,14 +632,8 @@ export default function PlanningCalendario({
                 lezioniAnnullateOggi.map(lez => (
                   <div key={lez.id} className="bg-slate-50 border border-slate-200 p-3.5 rounded-2xl flex items-center justify-between gap-3">
                     <div className="space-y-1 flex-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-black text-slate-900 line-through">{stdsNames(lez.studentiIds, studenti)}</span>
-                        <span className="text-[10px] bg-slate-200 text-slate-800 font-bold px-2 py-0.5 rounded">
-                          {lez.tipoAnnullamento === 'addebito' ? 'Con Addebito' : 'Gratuita'}
-                        </span>
-                      </div>
+                      <span className="font-black text-slate-900 line-through">{stdsNames(lez.studentiIds, studenti)}</span>
                       <p className="text-xs text-gray-600 font-medium">{lez.materia} • 🕒 {lez.oraInizio} - {lez.oraFine}</p>
-                      {lez.note && <p className="text-[10px] text-gray-500 italic">Note: {lez.note}</p>}
                     </div>
 
                     <button
@@ -869,9 +653,8 @@ export default function PlanningCalendario({
                             isRischedulazione: true
                           });
                         }
-                        if (aggiungiLog) aggiungiLog(`Avviata procedura rischedulazione per lezione ID: ${lez.id}`);
                       }}
-                      className="px-3 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm shrink-0 transition-all"
+                      className="px-3 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm"
                     >
                       <RotateCcw className="w-3.5 h-3.5"/>
                       <span>Rischedula</span>
@@ -902,6 +685,7 @@ export default function PlanningCalendario({
   );
 }
 
+// Funzione protetta da studenti null/undefined
 function stdsNames(studentiIds = [], studenti = []) {
   if (!studentiIds || !Array.isArray(studentiIds) || studentiIds.length === 0) return 'Nessuno studente';
   return studentiIds
