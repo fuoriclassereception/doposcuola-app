@@ -510,7 +510,7 @@ export default function App() {
     return <AppGenitore utente={user} onLogout={() => signOut(auth)} />;
   }
 
-  // 4. Se l'utente è ADMIN, mostra il gestionale completo
+ // 4. Se l'utente è ADMIN, mostra il gestionale completo
   return (
     <div className="flex h-screen bg-gray-100 font-sans overflow-hidden relative">
       
@@ -527,56 +527,4 @@ export default function App() {
         searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
         logs={logsAttivita}
       />
-
-      <main className="flex-1 overflow-auto bg-gray-50/50">
-        {activeTab === 'planning' && (
-          <PlanningCalendario
-            insegnanti={insegnantiSicuri} studenti={studentiSicuri} lezioni={lezioniSicure}
-            aggiungiLog={aggiungiLog} onDeleteLezione={handleDeleteLezione} onOpenModal={handleOpenLezioneModal}
-            onSelectStudent={(stdId) => {
-              const std = studentiSicuri.find(s => s?.id === stdId);
-              if (std) setStudenteSelezionatoDettaglio(std);
-            }}
-            onUpdateLezioneStatus={handleUpdateLezioneStatus} onRestoreLezione={handleRestoreLezione}
-            onUpdateLezioneCompleta={handleUpdateLezioneCompleta} onEstraiStudenteDaGruppo={handleEstraiStudenteDaGruppo}
-            onAcceptRichiesta={handleAcceptRichiesta} onRejectRichiesta={handleRejectRichiesta}
-          />
-        )}
-        
-        {activeTab === 'insegnanti' && (
-          <GestioneInsegnanti 
-            insegnanti={insegnantiSicuri} searchQuery={searchQuery} onOpenModal={handleOpenInsegnanteModal} 
-            onToggleStato={handleToggleStatoInsegnante} onDelete={handleDeleteInsegnante} 
-          />
-        )}
-
-        {activeTab === 'studenti' && (
-          <GestioneStudenti 
-            studenti={studentiSicuri} searchQuery={searchQuery} onOpenModal={handleOpenStudenteModal} 
-            onToggleStato={handleToggleStatoStudente} onDelete={handleDeleteStudente} 
-          />
-        )}
-
-        {activeTab === 'cassa' && (
-          <CassaPresenze
-            lezioni={lezioniSicure} studenti={studentiSicuri} insegnanti={insegnantiSicuri}
-            onConfermaPresenzaConScalo={handleConfermaPresenzaConScalo}
-            onStornoPresenzaConRipristino={handleStornoPresenzaConRipristino} aggiungiLog={aggiungiLog}
-          />
-        )}
-      </main>
-
-      <ModaleInsegnante isOpen={showInsegnanteModal} onClose={() => setShowInsegnanteModal(false)} onSave={handleSaveInsegnante} formData={insegnanteForm} setFormData={setInsegnanteForm} isEditing={Boolean(editingInsegnante)} />
-      <ModaleStudente isOpen={showStudenteModal} onClose={() => setShowStudenteModal(false)} onSave={handleSaveStudente} formData={studenteForm} setFormData={setStudenteForm} isEditing={Boolean(editingStudente)} />
-      <ModaleLezione isOpen={showLezioneModal} onClose={() => { setShowLezioneModal(false); setInitialLezioneData(null); }} onSave={handleSaveLezione} insegnanti={insegnantiSicuri} studenti={studentiSicuri} lezioni={lezioniSicure} initialData={initialLezioneData} />
-      
-      {studenteSelezionatoDettaglio && (
-        <DettaglioStudente
-          studente={studenteSelezionatoDettaglio} lezioni={lezioniSicure} onClose={() => setStudenteSelezionatoDettaglio(null)}
-          onUpdateLezioneCompleta={handleUpdateLezioneCompleta} onUpdateLezioneStatus={handleUpdateLezioneStatus}
-          onRicaricaPacchetto={handleRicaricaPacchetto} aggiungiLog={aggiungiLog}
-        />
-      )}
-    </div>
-  );
 }
