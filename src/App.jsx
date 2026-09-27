@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { db } from './services/firebase';
+import { db, auth } from './services/firebase'; // Aggiunto auth
 import { 
   collection, 
   onSnapshot, 
@@ -7,9 +7,12 @@ import {
   setDoc, 
   updateDoc, 
   deleteDoc, 
-  addDoc 
+  addDoc,
+  getDoc // Aggiunto getDoc per leggere il ruolo
 } from 'firebase/firestore';
+import { onAuthStateChanged, signOut } from 'firebase/auth'; // Funzioni di login/logout
 
+// Import dei tuoi componenti standard
 import Sidebar from './components/Sidebar';
 import GestioneInsegnanti from './components/GestioneInsegnanti';
 import ModaleInsegnante from './components/ModaleInsegnante';
@@ -20,62 +23,77 @@ import ModaleLezione from './components/ModaleLezione';
 import DettaglioStudente from './components/DettaglioStudente';
 import CassaPresenze from './components/CassaPresenze';
 
-// NUOVO IMPORT - Componente App Genitore per i test
+// Import delle nuove schermate create
+import Login from './components/Login';
 import AppGenitore from './components/AppGenitore';
 
 export default function App() {
-  // NUOVO STATO: Gestisce lo switch tra gestionale e app genitore
-  const [vistaDebug, setVistaDebug] = useState('desk'); // 'desk' | 'genitore'
+  // ---------- STATI DI AUTENTICAZIONE ----------
+  const [user, setUser] = useState(null);
+  const [ruolo, setRuolo] = useState(null); // 'admin' o 'genitore'
+  const [authLoading, setAuthLoading] = useState(true);
 
+  // ---------- STATI DEL GESTIONALE ----------
   const [activeTab, setActiveTab] = useState('planning');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // ---------- STATI FIREBASE ----------
   const [insegnanti, setInsegnanti] = useState([]);
   const [studenti, setStudenti] = useState([]);
   const [lezioni, setLezioni] = useState([]);
   const [logsAttivita, setLogsAttivita] = useState([]);
 
-  // Modali Insegnanti / Studenti
+  // Modali
   const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
   const [editingInsegnante, setEditingInsegnante] = useState(null);
   const [insegnanteForm, setInsegnanteForm] = useState({ 
-    nome: '', 
-    cognome: '', 
-    telefono: '', 
-    email: '', 
-    materia: '', 
-    colore: '#3b82f6' 
+    nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' 
   });
 
   const [showStudenteModal, setShowStudenteModal] = useState(false);
   const [editingStudente, setEditingStudente] = useState(null);
   const [studenteForm, setStudenteForm] = useState({ 
-    nome: '', 
-    cognome: '', 
-    dataNascita: '', 
-    scuola: '', 
-    telefono: '', 
-    email: '', 
-    isMinorenne: true, 
-    categoriaTariffaria: 'medie',
-    haTariffaRiservata: false,
-    tariffaRiservataValore: '',
-    tariffaRiservataMotivo: '',
-    genitoreNome: '', 
-    genitoreTelefono: '', 
-    genitoreEmail: '', 
-    genitoreCodiceFiscale: '', 
-    note: '' 
+    nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', 
+    isMinorenne: true, categoriaTariffaria: 'medie', haTariffaRiservata: false,
+    tariffaRiservataValore: '', tariffaRiservataMotivo: '', genitoreNome: '', 
+    genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' 
   });
   const [studenteSelezionatoDettaglio, setStudenteSelezionatoDettaglio] = useState(null);
 
-  // Modale Lezione & Rischedulazione
   const [showLezioneModal, setShowLezioneModal] = useState(false);
   const [initialLezioneData, setInitialLezioneData] = useState(null);
 
-  // ---------- ASCOLTO REALTIME DA FIREBASE ----------
+  // ---------- LISTENER AUTENTICAZIONE ----------
   useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        try {
+          // Cerca il documento dell'utente nel database per capire chi è
+          const userDoc = await getDoc(doc(db, 'utenti', currentUser.uid));
+          if (userDoc.exists()) {
+            setRuolo(userDoc.data().ruolo);
+          } else {
+            setRuolo('genitore'); // Fallback di sicurezza
+          }
+        } catch (error) {
+          console.error("Errore recupero ruolo:", error);
+          setRuolo('genitore');
+        }
+      } else {
+        setUser(null);
+        setRuolo(null);
+      }
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
+
+  // ---------- LISTENER DATABASE GESTIONALE ----------
+  useEffect(() => {
+    // Non carichiamo i dati pesanti se non c'è un utente loggato
+    if (!user) return;
+
     const unsubInsegnanti = onSnapshot(collection(db, 'insegnanti'), (snapshot) => {
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setInsegnanti(docs);
@@ -84,7 +102,6 @@ export default function App() {
     const unsubStudenti = onSnapshot(collection(db, 'studenti'), (snapshot) => {
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setStudenti(docs);
-      
       setStudenteSelezionatoDettaglio(prev => {
         if (!prev) return null;
         return docs.find(s => s?.id === prev.id) || null;
@@ -108,14 +125,14 @@ export default function App() {
       unsubLezioni();
       unsubLogs();
     };
-  }, []);
+  }, [user]);
 
   const aggiungiLog = async (azione, operatore = 'Admin FuoriClasse') => {
     try {
       await addDoc(collection(db, 'logs'), {
         timestamp: new Date().toLocaleString('it-IT'),
         createdAt: Date.now(),
-        operatore,
+        operatore: user?.email || operatore, // Aggiungiamo l'email di chi fa l'azione
         azione: azione || 'Azione registrata'
       });
     } catch (e) {
@@ -128,12 +145,8 @@ export default function App() {
     if (ins) {
       setEditingInsegnante(ins.id);
       setInsegnanteForm({ 
-        nome: ins.nome || '', 
-        cognome: ins.cognome || '', 
-        telefono: ins.telefono || '', 
-        email: ins.email || '', 
-        materia: ins.materia || '', 
-        colore: ins.colore || '#3b82f6' 
+        nome: ins.nome || '', cognome: ins.cognome || '', telefono: ins.telefono || '', 
+        email: ins.email || '', materia: ins.materia || '', colore: ins.colore || '#3b82f6' 
       });
     } else {
       setEditingInsegnante(null);
@@ -187,42 +200,24 @@ export default function App() {
     if (std) {
       setEditingStudente(std.id);
       setStudenteForm({ 
-        nome: std.nome || '', 
-        cognome: std.cognome || '', 
-        dataNascita: std.dataNascita || '', 
-        scuola: std.scuola || '', 
-        telefono: std.telefono || '', 
-        email: std.email || '', 
+        nome: std.nome || '', cognome: std.cognome || '', dataNascita: std.dataNascita || '', 
+        scuola: std.scuola || '', telefono: std.telefono || '', email: std.email || '', 
         isMinorenne: std.isMinorenne !== undefined ? std.isMinorenne : true, 
         categoriaTariffaria: std.categoriaTariffaria || 'medie',
         haTariffaRiservata: Boolean(std.haTariffaRiservata),
         tariffaRiservataValore: std.tariffaRiservataValore || '',
         tariffaRiservataMotivo: std.tariffaRiservataMotivo || '',
-        genitoreNome: std.genitoreNome || '', 
-        genitoreTelefono: std.genitoreTelefono || '', 
-        genitoreEmail: std.genitoreEmail || '', 
-        genitoreCodiceFiscale: std.genitoreCodiceFiscale || '', 
+        genitoreNome: std.genitoreNome || '', genitoreTelefono: std.genitoreTelefono || '', 
+        genitoreEmail: std.genitoreEmail || '', genitoreCodiceFiscale: std.genitoreCodiceFiscale || '', 
         note: std.note || '' 
       });
     } else {
       setEditingStudente(null);
       setStudenteForm({ 
-        nome: '', 
-        cognome: '', 
-        dataNascita: '', 
-        scuola: '', 
-        telefono: '', 
-        email: '', 
-        isMinorenne: true, 
-        categoriaTariffaria: 'medie',
-        haTariffaRiservata: false,
-        tariffaRiservataValore: '',
-        tariffaRiservataMotivo: '',
-        genitoreNome: '', 
-        genitoreTelefono: '', 
-        genitoreEmail: '', 
-        genitoreCodiceFiscale: '', 
-        note: '' 
+        nome: '', cognome: '', dataNascita: '', scuola: '', telefono: '', email: '', 
+        isMinorenne: true, categoriaTariffaria: 'medie', haTariffaRiservata: false,
+        tariffaRiservataValore: '', tariffaRiservataMotivo: '', genitoreNome: '', 
+        genitoreTelefono: '', genitoreEmail: '', genitoreCodiceFiscale: '', note: '' 
       });
     }
     setShowStudenteModal(true);
@@ -239,11 +234,7 @@ export default function App() {
         const newRef = doc(collection(db, 'studenti'));
         await setDoc(newRef, { 
           ...studenteForm, 
-          attivo: true,
-          totaleVersato: 0,
-          totaleConsumato: 0,
-          totalePattuito: 0,
-          storicoRicariche: []
+          attivo: true, totaleVersato: 0, totaleConsumato: 0, totalePattuito: 0, storicoRicariche: []
         });
         aggiungiLog(`Iscritto nuovo studente: ${studenteForm.nome} ${studenteForm.cognome}`);
       }
@@ -300,10 +291,8 @@ export default function App() {
 
     try {
       await updateDoc(doc(db, 'studenti', studenteId), {
-        totaleVersato: nuovoTotaleVersato,
-        totalePagato: nuovoTotaleVersato,
-        totalePattuito: nuovoTotalePattuito,
-        totaleDovuto: nuovoTotalePattuito,
+        totaleVersato: nuovoTotaleVersato, totalePagato: nuovoTotaleVersato,
+        totalePattuito: nuovoTotalePattuito, totaleDovuto: nuovoTotalePattuito,
         storicoRicariche: [nuovaRicaricaEntry, ...storicoEsistente]
       });
 
@@ -322,12 +311,8 @@ export default function App() {
   const handleSaveLezione = async (formData) => {
     try {
       const { oldLezioneId, ...datiLezione } = formData;
-
       const newRef = doc(collection(db, 'lezioni'));
-      await setDoc(newRef, {
-        stato: 'attiva',
-        ...datiLezione
-      });
+      await setDoc(newRef, { stato: 'attiva', ...datiLezione });
 
       if (oldLezioneId) {
         await deleteDoc(doc(db, 'lezioni', oldLezioneId));
@@ -357,18 +342,13 @@ export default function App() {
   const handleUpdateLezioneCompleta = async (moveData) => {
     if (!moveData.lezioneId) return;
     try {
-      const datiDaAggiornare = {
-        oraInizio: moveData.oraInizio,
-        oraFine: moveData.oraFine,
-        isGruppo: Boolean(moveData.isGruppo)
-      };
+      const datiDaAggiornare = { oraInizio: moveData.oraInizio, oraFine: moveData.oraFine, isGruppo: Boolean(moveData.isGruppo) };
       if (moveData.data) datiDaAggiornare.data = moveData.data;
       if (moveData.isGruppo) {
         datiDaAggiornare.insegnanteId = '';
       } else if (moveData.insegnanteId) {
         datiDaAggiornare.insegnanteId = moveData.insegnanteId;
       }
-
       await updateDoc(doc(db, 'lezioni', moveData.lezioneId), datiDaAggiornare);
     } catch (err) {
       console.error("Errore aggiornamento lezione:", err);
@@ -378,9 +358,7 @@ export default function App() {
   const handleUpdateLezioneStatus = async (id, nuovoStato, motivo = '', tipo = 'gratuito') => {
     try {
       await updateDoc(doc(db, 'lezioni', id), {
-        stato: nuovoStato,
-        motivoAnnullamento: motivo,
-        tipoAnnullamento: tipo
+        stato: nuovoStato, motivoAnnullamento: motivo, tipoAnnullamento: tipo
       });
       aggiungiLog(`Stato lezione ${id} cambiato in: ${nuovoStato} (${tipo})`);
     } catch (err) {
@@ -388,64 +366,46 @@ export default function App() {
     }
   };
 
-  // ---------- CASSA: CONFERMA PRESENZA CON CONSUMO FLESSIBILE ----------
+  // ---------- CASSA: CONFERMA E STORNO ----------
   const handleConfermaPresenzaConScalo = async (lezione, durataOre, stato = 'svolta', motivo = '', tipo = 'gratuito') => {
     try {
       await updateDoc(doc(db, 'lezioni', lezione.id), {
-        stato,
-        motivoAnnullamento: motivo,
-        tipoAnnullamento: tipo,
-        oreScalate: durataOre
+        stato, motivoAnnullamento: motivo, tipoAnnullamento: tipo, oreScalate: durataOre
       });
 
       if (durataOre > 0 && (stato === 'svolta' || tipo === 'addebito')) {
         for (const sId of (lezione.studentiIds || [])) {
           const std = studenti.find(s => s?.id === sId);
           if (std) {
-            let tariffaDaApplicare = lezione.tariffaOrariaApplicata !== undefined 
-              ? Number(lezione.tariffaOrariaApplicata) 
-              : null;
+            let tariffaDaApplicare = lezione.tariffaOrariaApplicata !== undefined ? Number(lezione.tariffaOrariaApplicata) : null;
 
             if (tariffaDaApplicare === null) {
-              if (lezione.isGruppo) {
-                tariffaDaApplicare = 12.00;
-              } else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) {
-                tariffaDaApplicare = Number(std.tariffaRiservataValore);
-              } else if (std.categoriaTariffaria === 'elementari') {
-                tariffaDaApplicare = 18.00;
-              } else if (std.categoriaTariffaria === 'superiori') {
-                tariffaDaApplicare = 26.00;
-              } else {
-                tariffaDaApplicare = 22.00;
-              }
+              if (lezione.isGruppo) tariffaDaApplicare = 12.00;
+              else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) tariffaDaApplicare = Number(std.tariffaRiservataValore);
+              else if (std.categoriaTariffaria === 'elementari') tariffaDaApplicare = 18.00;
+              else if (std.categoriaTariffaria === 'superiori') tariffaDaApplicare = 26.00;
+              else tariffaDaApplicare = 22.00;
             }
 
             const costoLezione = Number((durataOre * tariffaDaApplicare).toFixed(2));
             const nuovoConsumato = Number(((std.totaleConsumato || 0) + costoLezione).toFixed(2));
 
-            await updateDoc(doc(db, 'studenti', sId), {
-              totaleConsumato: nuovoConsumato
-            });
+            await updateDoc(doc(db, 'studenti', sId), { totaleConsumato: nuovoConsumato });
           }
         }
       }
-
-      aggiungiLog(`Cassa FuoriClasse: Presenza confermata per lezione ${lezione.id} (${durataOre}h)`);
+      aggiungiLog(`Cassa: Presenza confermata per lezione ${lezione.id} (${durataOre}h)`);
     } catch (err) {
       console.error("Errore conferma presenza:", err);
     }
   };
 
-  // ---------- CASSA: STORNO PRESENZA E RIPRISTINO PLAFOND ----------
   const handleStornoPresenzaConRipristino = async (lezione, durataOre) => {
     try {
       const oreDaRestituire = lezione.oreScalate !== undefined ? Number(lezione.oreScalate) : durataOre;
 
       await updateDoc(doc(db, 'lezioni', lezione.id), {
-        stato: 'attiva',
-        motivoAnnullamento: '',
-        tipoAnnullamento: '',
-        oreScalate: 0
+        stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '', oreScalate: 0
       });
 
       if (oreDaRestituire > 0) {
@@ -453,27 +413,19 @@ export default function App() {
           const std = studenti.find(s => s?.id === sId);
           if (std) {
             let tariffaStudente = 22.00;
-            if (lezione.isGruppo) {
-              tariffaStudente = 12.00;
-            } else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) {
-              tariffaStudente = Number(std.tariffaRiservataValore);
-            } else if (std.categoriaTariffaria === 'elementari') {
-              tariffaStudente = 18.00;
-            } else if (std.categoriaTariffaria === 'superiori') {
-              tariffaStudente = 26.00;
-            }
+            if (lezione.isGruppo) tariffaStudente = 12.00;
+            else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) tariffaStudente = Number(std.tariffaRiservataValore);
+            else if (std.categoriaTariffaria === 'elementari') tariffaStudente = 18.00;
+            else if (std.categoriaTariffaria === 'superiori') tariffaStudente = 26.00;
 
             const costoDaStornare = Number((oreDaRestituire * tariffaStudente).toFixed(2));
             const nuovoConsumato = Math.max(0, Number(((std.totaleConsumato || 0) - costoDaStornare).toFixed(2)));
 
-            await updateDoc(doc(db, 'studenti', sId), {
-              totaleConsumato: nuovoConsumato
-            });
+            await updateDoc(doc(db, 'studenti', sId), { totaleConsumato: nuovoConsumato });
           }
         }
       }
-
-      aggiungiLog(`Storno FuoriClasse: Ripristinata lezione ${lezione.id} e stornato costo didattico`);
+      aggiungiLog(`Storno: Ripristinata lezione ${lezione.id} e stornato costo didattico`);
     } catch (err) {
       console.error("Errore storno presenza:", err);
     }
@@ -481,11 +433,7 @@ export default function App() {
 
   const handleRestoreLezione = async (id) => {
     try {
-      await updateDoc(doc(db, 'lezioni', id), {
-        stato: 'attiva',
-        motivoAnnullamento: '',
-        tipoAnnullamento: ''
-      });
+      await updateDoc(doc(db, 'lezioni', id), { stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '' });
       aggiungiLog(`Ripristinata lezione ID: ${id}`);
     } catch (err) {
       console.error("Errore ripristino lezione:", err);
@@ -494,10 +442,7 @@ export default function App() {
 
   const handleAcceptRichiesta = async (lezioneId, nuovoDocenteId) => {
     try {
-      await updateDoc(doc(db, 'lezioni', lezioneId), {
-        stato: 'attiva',
-        insegnanteId: nuovoDocenteId
-      });
+      await updateDoc(doc(db, 'lezioni', lezioneId), { stato: 'attiva', insegnanteId: nuovoDocenteId });
       aggiungiLog(`Approvata richiesta App FuoriClasse (ID: ${lezioneId})`);
     } catch (err) {
       console.error("Errore accettazione richiesta:", err);
@@ -506,11 +451,7 @@ export default function App() {
 
   const handleRejectRichiesta = async (lezioneId, motivo) => {
     try {
-      await updateDoc(doc(db, 'lezioni', lezioneId), {
-        stato: 'annullata',
-        motivoAnnullamento: motivo,
-        tipoAnnullamento: 'gratuito'
-      });
+      await updateDoc(doc(db, 'lezioni', lezioneId), { stato: 'annullata', motivoAnnullamento: motivo, tipoAnnullamento: 'gratuito' });
       aggiungiLog(`Rifiutata richiesta App FuoriClasse (ID: ${lezioneId}) - ${motivo}`);
     } catch (err) {
       console.error("Errore rifiuto richiesta:", err);
@@ -532,13 +473,8 @@ export default function App() {
       const newRef = doc(collection(db, 'lezioni'));
       await setDoc(newRef, {
         data: data || new Date().toISOString().split('T')[0],
-        insegnanteId: nuovoInsegnanteId,
-        isGruppo: false,
-        studentiIds: [studenteId],
-        materia: 'Lezione Individuale',
-        oraInizio,
-        oraFine,
-        stato: 'attiva'
+        insegnanteId: nuovoInsegnanteId, isGruppo: false, studentiIds: [studenteId],
+        materia: 'Lezione Individuale', oraInizio, oraFine, stato: 'attiva'
       });
       aggiungiLog(`Studente estratto dal gruppo studio e assegnato a docente`);
     } catch (err) {
@@ -546,141 +482,99 @@ export default function App() {
     }
   };
 
-  // Liste sanificate passate ai figli per evitare crash da elementi vuoti
   const insegnantiSicuri = (insegnanti || []).filter(Boolean);
   const studentiSicuri = (studenti || []).filter(Boolean);
   const lezioniSicure = (lezioni || []).filter(Boolean);
 
-  // ---------- NUOVA VISTA: SE VOGLIO VEDERE L'APP GENITORE ----------
-  if (vistaDebug === 'genitore') {
+
+  // =======================================================================
+  // IL CERVELLO DELL'APP: CHI VEDE COSA?
+  // =======================================================================
+
+  // 1. Schermata di caricamento finché non capiamo chi è l'utente
+  if (authLoading) {
     return (
-      <>
-        {/* Bottone galleggiante per chiudere l'app genitore e tornare al gestionale */}
-        <button
-          onClick={() => setVistaDebug('desk')}
-          className="fixed bottom-6 right-6 z-[9999] bg-black text-white px-6 py-3 rounded-full shadow-2xl font-bold border-2 border-white hover:scale-105 transition-transform"
-        >
-          X Torna al Gestionale
-        </button>
-        <AppGenitore />
-      </>
+      <div className="flex items-center justify-center h-screen bg-gray-100">
+        <div className="text-2xl font-bold text-blue-600 animate-pulse">Caricamento FuoriClasse...</div>
+      </div>
     );
   }
 
-  // ---------- VISTA NORMALE DEL DESK ----------
+  // 2. Se l'utente non è loggato, mostra la schermata di Login
+  if (!user) {
+    return <Login />;
+  }
+
+  // 3. Se l'utente è un genitore, mostra la sua App
+  if (ruolo === 'genitore') {
+    return <AppGenitore utente={user} onLogout={() => signOut(auth)} />;
+  }
+
+  // 4. Se l'utente è ADMIN, mostra il gestionale completo
   return (
-    <div className="flex h-screen bg-gray-100 font-sans overflow-hidden">
+    <div className="flex h-screen bg-gray-100 font-sans overflow-hidden relative">
       
-      {/* NUOVO BOTTONE: per switchare all'app genitore */}
-      <button
-        onClick={() => setVistaDebug('genitore')}
-        className="fixed bottom-6 right-6 z-[9999] bg-blue-600 text-white px-6 py-3 rounded-full shadow-2xl font-bold border-2 border-white hover:scale-105 transition-transform"
+      {/* Bottone Logout temporaneo per il Desk */}
+      <button 
+        onClick={() => signOut(auth)}
+        className="absolute top-4 right-4 z-50 bg-red-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow hover:bg-red-700 transition"
       >
-        📱 Apri App Genitore (Test)
+        Esci (Admin)
       </button>
 
       <Sidebar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        searchQuery={searchQuery} 
-        setSearchQuery={setSearchQuery} 
+        activeTab={activeTab} setActiveTab={setActiveTab} 
+        searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
         logs={logsAttivita}
       />
 
       <main className="flex-1 overflow-auto bg-gray-50/50">
         {activeTab === 'planning' && (
           <PlanningCalendario
-            insegnanti={insegnantiSicuri}
-            studenti={studentiSicuri}
-            lezioni={lezioniSicure}
-            aggiungiLog={aggiungiLog}
-            onDeleteLezione={handleDeleteLezione}
-            onOpenModal={handleOpenLezioneModal}
+            insegnanti={insegnantiSicuri} studenti={studentiSicuri} lezioni={lezioniSicure}
+            aggiungiLog={aggiungiLog} onDeleteLezione={handleDeleteLezione} onOpenModal={handleOpenLezioneModal}
             onSelectStudent={(stdId) => {
               const std = studentiSicuri.find(s => s?.id === stdId);
               if (std) setStudenteSelezionatoDettaglio(std);
             }}
-            onUpdateLezioneStatus={handleUpdateLezioneStatus}
-            onRestoreLezione={handleRestoreLezione}
-            onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
-            onEstraiStudenteDaGruppo={handleEstraiStudenteDaGruppo}
-            onAcceptRichiesta={handleAcceptRichiesta}
-            onRejectRichiesta={handleRejectRichiesta}
+            onUpdateLezioneStatus={handleUpdateLezioneStatus} onRestoreLezione={handleRestoreLezione}
+            onUpdateLezioneCompleta={handleUpdateLezioneCompleta} onEstraiStudenteDaGruppo={handleEstraiStudenteDaGruppo}
+            onAcceptRichiesta={handleAcceptRichiesta} onRejectRichiesta={handleRejectRichiesta}
           />
         )}
         
         {activeTab === 'insegnanti' && (
           <GestioneInsegnanti 
-            insegnanti={insegnantiSicuri} 
-            searchQuery={searchQuery} 
-            onOpenModal={handleOpenInsegnanteModal} 
-            onToggleStato={handleToggleStatoInsegnante} 
-            onDelete={handleDeleteInsegnante} 
+            insegnanti={insegnantiSicuri} searchQuery={searchQuery} onOpenModal={handleOpenInsegnanteModal} 
+            onToggleStato={handleToggleStatoInsegnante} onDelete={handleDeleteInsegnante} 
           />
         )}
 
         {activeTab === 'studenti' && (
           <GestioneStudenti 
-            studenti={studentiSicuri} 
-            searchQuery={searchQuery} 
-            onOpenModal={handleOpenStudenteModal} 
-            onToggleStato={handleToggleStatoStudente} 
-            onDelete={handleDeleteStudente} 
+            studenti={studentiSicuri} searchQuery={searchQuery} onOpenModal={handleOpenStudenteModal} 
+            onToggleStato={handleToggleStatoStudente} onDelete={handleDeleteStudente} 
           />
         )}
 
         {activeTab === 'cassa' && (
           <CassaPresenze
-            lezioni={lezioniSicure}
-            studenti={studentiSicuri}
-            insegnanti={insegnantiSicuri}
+            lezioni={lezioniSicure} studenti={studentiSicuri} insegnanti={insegnantiSicuri}
             onConfermaPresenzaConScalo={handleConfermaPresenzaConScalo}
-            onStornoPresenzaConRipristino={handleStornoPresenzaConRipristino}
-            aggiungiLog={aggiungiLog}
+            onStornoPresenzaConRipristino={handleStornoPresenzaConRipristino} aggiungiLog={aggiungiLog}
           />
         )}
       </main>
 
-      <ModaleInsegnante 
-        isOpen={showInsegnanteModal} 
-        onClose={() => setShowInsegnanteModal(false)} 
-        onSave={handleSaveInsegnante} 
-        formData={insegnanteForm} 
-        setFormData={setInsegnanteForm} 
-        isEditing={Boolean(editingInsegnante)} 
-      />
-
-      <ModaleStudente 
-        isOpen={showStudenteModal} 
-        onClose={() => setShowStudenteModal(false)} 
-        onSave={handleSaveStudente} 
-        formData={studenteForm} 
-        setFormData={setStudenteForm} 
-        isEditing={Boolean(editingStudente)} 
-      />
-
-      <ModaleLezione 
-        isOpen={showLezioneModal} 
-        onClose={() => {
-          setShowLezioneModal(false);
-          setInitialLezioneData(null);
-        }} 
-        onSave={handleSaveLezione} 
-        insegnanti={insegnantiSicuri} 
-        studenti={studentiSicuri} 
-        lezioni={lezioniSicure} 
-        initialData={initialLezioneData}
-      />
-
+      <ModaleInsegnante isOpen={showInsegnanteModal} onClose={() => setShowInsegnanteModal(false)} onSave={handleSaveInsegnante} formData={insegnanteForm} setFormData={setInsegnanteForm} isEditing={Boolean(editingInsegnante)} />
+      <ModaleStudente isOpen={showStudenteModal} onClose={() => setShowStudenteModal(false)} onSave={handleSaveStudente} formData={studenteForm} setFormData={setStudenteForm} isEditing={Boolean(editingStudente)} />
+      <ModaleLezione isOpen={showLezioneModal} onClose={() => { setShowLezioneModal(false); setInitialLezioneData(null); }} onSave={handleSaveLezione} insegnanti={insegnantiSicuri} studenti={studentiSicuri} lezioni={lezioniSicure} initialData={initialLezioneData} />
+      
       {studenteSelezionatoDettaglio && (
         <DettaglioStudente
-          studente={studenteSelezionatoDettaglio}
-          lezioni={lezioniSicure}
-          onClose={() => setStudenteSelezionatoDettaglio(null)}
-          onUpdateLezioneCompleta={handleUpdateLezioneCompleta}
-          onUpdateLezioneStatus={handleUpdateLezioneStatus}
-          onRicaricaPacchetto={handleRicaricaPacchetto}
-          aggiungiLog={aggiungiLog}
+          studente={studenteSelezionatoDettaglio} lezioni={lezioniSicure} onClose={() => setStudenteSelezionatoDettaglio(null)}
+          onUpdateLezioneCompleta={handleUpdateLezioneCompleta} onUpdateLezioneStatus={handleUpdateLezioneStatus}
+          onRicaricaPacchetto={handleRicaricaPacchetto} aggiungiLog={aggiungiLog}
         />
       )}
     </div>
