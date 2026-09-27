@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../services/firebase';
+import { db, storage } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { Calendar, Plus, UserPlus, Clock, BookOpen, CheckCircle, XCircle, ChevronLeft, Paperclip } from 'lucide-react';
 
 export default function AppGenitore({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
@@ -11,13 +13,13 @@ export default function AppGenitore({ utente, onLogout }) {
   const [isSubmittingFiglio, setIsSubmittingFiglio] = useState(false);
 
   const [nuovaRichiesta, setNuovaRichiesta] = useState({ studenteId: '', materia: '', ore: 1, note: '' });
+  const [fileAllegato, setFileAllegato] = useState(null); // Stato per il file caricato
   
-  // Aggiunti Telefono ed Email Studente
   const [nuovoFiglio, setNuovoFiglio] = useState({ 
     nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' 
   });
 
-  // 1. Carica i Profili Studente associati a questa email
+  // 1. Carica i Profili
   useEffect(() => {
     if (!utente?.email) return;
     const unsub = onSnapshot(query(collection(db, 'studenti'), where('genitoreEmail', '==', utente.email)), (snapshot) => {
@@ -42,50 +44,65 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [utente]);
 
-  // 3. Carica Lezioni Programmate (Calendario potenziato)
+  // 3. Carica Lezioni Programmate
   useEffect(() => {
     if (iMieiFigli.length === 0) {
       setLezioniProgrammate([]);
       return;
     }
-    
-    // Peschiamo tutte le lezioni attive
     const unsub = onSnapshot(query(collection(db, 'lezioni'), where('stato', '==', 'attiva')), (snapshot) => {
       const tutteLezioni = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       const idsFigli = iMieiFigli.map(f => f.id);
+      const lezioniDeiFigli = tutteLezioni.filter(lez => (lez.studentiIds || []).some(id => idsFigli.includes(id)));
       
-      // Filtriamo solo quelle che contengono almeno uno degli ID dei nostri studenti
-      const lezioniDeiFigli = tutteLezioni.filter(lez => 
-        (lez.studentiIds || []).some(id => idsFigli.includes(id))
-      );
+      const oggi = new Date().toISOString().split('T')[0];
+      const future = lezioniDeiFigli.filter(l => l.data >= oggi);
 
-      // Ordiniamo per data e ora
-      lezioniDeiFigli.sort((a, b) => {
+      future.sort((a, b) => {
         if (a.data !== b.data) return a.data.localeCompare(b.data);
         return (a.oraInizio || '').localeCompare(b.oraInizio || '');
       });
-
-      setLezioniProgrammate(lezioniDeiFigli);
+      setLezioniProgrammate(future);
     });
     return () => unsub();
   }, [iMieiFigli]);
 
+  // INVIA RICHIESTA CON FILE ALLEGATO
   const handleInviaRichiesta = async (e) => {
     e.preventDefault();
     if (!nuovaRichiesta.studenteId) return alert("Devi selezionare uno studente.");
     setIsSubmitting(true);
+    
     try {
       const figlio = iMieiFigli.find(f => f.id === nuovaRichiesta.studenteId);
+      let allegatoUrl = '';
+
+      // Se l'utente ha selezionato un file, lo carichiamo su Firebase
+      if (fileAllegato) {
+        const estensione = fileAllegato.name.split('.').pop();
+        const nomeFileUnico = `allegati/${Date.now()}_${figlio.nome}.${estensione}`;
+        const storageRef = ref(storage, nomeFileUnico);
+        
+        await uploadBytes(storageRef, fileAllegato);
+        allegatoUrl = await getDownloadURL(storageRef); // Otteniamo il link pubblico
+      }
+
+      // Salviamo la richiesta nel database includendo il link al file
       await addDoc(collection(db, 'richieste_genitori'), {
         genitoreId: utente.uid, emailGenitore: utente.email, studenteId: figlio.id,
         studente: `${figlio.nome} ${figlio.cognome}`, materia: nuovaRichiesta.materia,
-        ore: Number(nuovaRichiesta.ore), note: nuovaRichiesta.note, stato: 'In attesa',
+        ore: Number(nuovaRichiesta.ore), note: nuovaRichiesta.note, 
+        allegatoUrl: allegatoUrl, // Salvataggio del link!
+        stato: 'In attesa',
         dataCreazione: serverTimestamp()
       });
+      
       setNuovaRichiesta(prev => ({ ...prev, materia: '', ore: 1, note: '' }));
+      setFileAllegato(null);
       setVistaAttiva('dashboard');
     } catch (error) {
-      alert("Errore di connessione.");
+      console.error(error);
+      alert("Errore di connessione o nel caricamento del file.");
     } finally {
       setIsSubmitting(false);
     }
@@ -96,15 +113,10 @@ export default function AppGenitore({ utente, onLogout }) {
     setIsSubmittingFiglio(true);
     try {
       await addDoc(collection(db, 'studenti'), {
-        nome: nuovoFiglio.nome, 
-        cognome: nuovoFiglio.cognome, 
-        scuola: nuovoFiglio.scuola,
-        dataNascita: nuovoFiglio.dataNascita, 
-        telefono: nuovoFiglio.telefono,           // Salviamo il telefono
-        email: nuovoFiglio.emailStudente,         // Salviamo l'email dello studente
-        genitoreEmail: utente.email,              // La chiave di collegamento per l'app
-        attivo: true, totaleVersato: 0, totaleConsumato: 0, totalePattuito: 0, storicoRicariche: [],
-        categoriaTariffaria: 'medie', isMinorenne: true
+        nome: nuovoFiglio.nome, cognome: nuovoFiglio.cognome, scuola: nuovoFiglio.scuola,
+        dataNascita: nuovoFiglio.dataNascita, telefono: nuovoFiglio.telefono, email: nuovoFiglio.emailStudente,
+        genitoreEmail: utente.email, attivo: true, totaleVersato: 0, totaleConsumato: 0, totalePattuito: 0, 
+        storicoRicariche: [], categoriaTariffaria: 'medie', isMinorenne: true
       });
       setNuovoFiglio({ nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' });
       setVistaAttiva('dashboard');
@@ -127,12 +139,8 @@ export default function AppGenitore({ utente, onLogout }) {
 
         <header className="bg-blue-600 text-white p-5 shadow-md shrink-0 flex flex-col gap-3 relative z-10">
           <div className="flex justify-between items-center">
-            <h1 className="text-xl font-black flex items-center gap-2">
-              📚 FuoriClasse
-            </h1>
-            <button onClick={onLogout} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 transition">
-              Esci
-            </button>
+            <h1 className="text-xl font-black flex items-center gap-2">📚 FuoriClasse</h1>
+            <button onClick={onLogout} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 transition">Esci</button>
           </div>
           <p className="text-xs text-blue-200 truncate">Accesso: <span className="font-bold text-white">{utente.email}</span></p>
         </header>
@@ -141,7 +149,6 @@ export default function AppGenitore({ utente, onLogout }) {
 
           {vistaAttiva === 'dashboard' && (
             <>
-              {/* LEZIONI IN PROGRAMMA */}
               {lezioniProgrammate.length > 0 && (
                 <div className="mb-2">
                   <h2 className="text-sm font-black text-blue-600 uppercase tracking-wider mb-3 flex items-center gap-1.5">
@@ -175,15 +182,11 @@ export default function AppGenitore({ utente, onLogout }) {
                 </div>
               )}
 
-              {/* SALDI E PROFILI */}
               <div>
                 <h2 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-3">I Tuoi Profili Studente</h2>
-                
                 {iMieiFigli.length === 0 ? (
                   <div className="bg-white p-6 rounded-2xl text-center border border-gray-200 shadow-sm space-y-4">
-                    <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto text-3xl">
-                      👤
-                    </div>
+                    <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto text-3xl">👤</div>
                     <div>
                       <h3 className="font-black text-slate-800 text-lg">Nessun profilo registrato</h3>
                       <p className="text-sm text-gray-500 mt-1">Aggiungi il profilo studente per poter prenotare lezioni.</p>
@@ -223,10 +226,7 @@ export default function AppGenitore({ utente, onLogout }) {
                       );
                     })}
 
-                    <button 
-                      onClick={() => setVistaAttiva('aggiungiFiglio')}
-                      className="w-full flex items-center justify-center gap-2 py-3.5 bg-white border-2 border-blue-600 text-blue-600 rounded-2xl font-black hover:bg-blue-50 transition-colors shadow-sm"
-                    >
+                    <button onClick={() => setVistaAttiva('aggiungiFiglio')} className="w-full flex items-center justify-center gap-2 py-3.5 bg-white border-2 border-blue-600 text-blue-600 rounded-2xl font-black hover:bg-blue-50 transition-colors shadow-sm">
                       ➕ Aggiungi un altro Profilo
                     </button>
                   </div>
@@ -234,10 +234,7 @@ export default function AppGenitore({ utente, onLogout }) {
               </div>
 
               {iMieiFigli.length > 0 && (
-                <button
-                  onClick={() => setVistaAttiva('nuovaRichiesta')}
-                  className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-blue-700 transition flex justify-center items-center gap-2 mt-4"
-                >
+                <button onClick={() => setVistaAttiva('nuovaRichiesta')} className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-blue-700 transition flex justify-center items-center gap-2 mt-4">
                   ➕ Richiedi Nuove Ore
                 </button>
               )}
@@ -250,26 +247,30 @@ export default function AppGenitore({ utente, onLogout }) {
                   <div className="space-y-3">
                     {richieste.map(req => (
                       <div key={req.id} className="bg-white border border-gray-200 p-4 rounded-2xl shadow-sm relative overflow-hidden">
-                        <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
-                          req.stato === 'Approvata' ? 'bg-green-500' :
-                          req.stato === 'Rifiutata' ? 'bg-red-500' : 'bg-yellow-400'
-                        }`}></div>
+                        <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${ req.stato === 'Approvata' ? 'bg-green-500' : req.stato === 'Rifiutata' ? 'bg-red-500' : 'bg-yellow-400' }`}></div>
 
                         <div className="flex justify-between items-start pl-2">
                           <div>
-                            <span className="font-black text-slate-800 block text-base">{req.materia}</span>
+                            <span className="font-black text-slate-800 block text-base flex items-center gap-2">
+                              {req.materia} 
+                              {req.allegatoUrl && <Paperclip className="w-3.5 h-3.5 text-blue-500"/>}
+                            </span>
                             <span className="text-xs font-bold text-slate-500">{req.studente} • {req.ore}h</span>
                           </div>
                           
-                          <span className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-wider ${
-                            req.stato === 'Approvata' ? 'bg-green-100 text-green-700' :
-                            req.stato === 'Rifiutata' ? 'bg-red-100 text-red-700' :
-                            'bg-yellow-100 text-yellow-700'
-                          }`}>
+                          <span className={`flex items-center gap-1 text-[9px] font-black px-2.5 py-1.5 rounded-lg uppercase tracking-wider ${ req.stato === 'Approvata' ? 'bg-green-100 text-green-700' : req.stato === 'Rifiutata' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700' }`}>
                             {req.stato === 'Approvata' ? 'Fissata' : req.stato}
                           </span>
                         </div>
-                        <p className="text-[10px] font-bold text-gray-400 pl-2 mt-2">Inviata il: {req.dataFormattata}</p>
+                        
+                        <div className="pl-2 mt-3 flex justify-between items-end">
+                          <p className="text-[10px] font-bold text-gray-400">Inviata il: {req.dataFormattata}</p>
+                          {req.allegatoUrl && (
+                            <a href={req.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded font-bold hover:bg-blue-100 transition-colors">
+                              Vedi Allegato
+                            </a>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -278,81 +279,55 @@ export default function AppGenitore({ utente, onLogout }) {
             </>
           )}
 
-          {/* VISTA: AGGIUNGI FIGLIO/PROFILO */}
           {vistaAttiva === 'aggiungiFiglio' && (
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-2 mb-6 cursor-pointer text-slate-500 hover:text-slate-800" onClick={() => setVistaAttiva('dashboard')}>
                 <span className="text-sm font-bold">⬅️ Indietro</span>
               </div>
-
               <h2 className="text-2xl font-black text-slate-800 mb-2">Profilo Studente</h2>
-              <p className="text-xs text-gray-500 mb-6 font-medium">Inserisci i dati dello studente. Questi verranno collegati al tuo account per la gestione.</p>
-
+              <p className="text-xs text-gray-500 mb-6 font-medium">Inserisci i dati dello studente da associare al tuo profilo.</p>
               <form onSubmit={handleAggiungiFiglio} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">Nome *</label>
-                    <input type="text" required placeholder="Es. Marco" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-medium" value={nuovoFiglio.nome} onChange={(e) => setNuovoFiglio({...nuovoFiglio, nome: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">Cognome *</label>
-                    <input type="text" required placeholder="Es. Rossi" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-medium" value={nuovoFiglio.cognome} onChange={(e) => setNuovoFiglio({...nuovoFiglio, cognome: e.target.value})} />
-                  </div>
+                  <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Nome *</label><input type="text" required className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovoFiglio.nome} onChange={(e) => setNuovoFiglio({...nuovoFiglio, nome: e.target.value})} /></div>
+                  <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Cognome *</label><input type="text" required className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovoFiglio.cognome} onChange={(e) => setNuovoFiglio({...nuovoFiglio, cognome: e.target.value})} /></div>
                 </div>
-                
-                <div>
-                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">Cellulare Studente (WhatsApp) - Opzionale</label>
-                  <input type="tel" placeholder="Es. 333 1234567" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-medium" value={nuovoFiglio.telefono} onChange={(e) => setNuovoFiglio({...nuovoFiglio, telefono: e.target.value})} />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">Email Studente - Opzionale</label>
-                  <input type="email" placeholder="email.studente@gmail.com" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-medium" value={nuovoFiglio.emailStudente} onChange={(e) => setNuovoFiglio({...nuovoFiglio, emailStudente: e.target.value})} />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider mb-1">Scuola Frequentata</label>
-                  <input type="text" placeholder="Es. Liceo Scientifico..." className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-medium" value={nuovoFiglio.scuola} onChange={(e) => setNuovoFiglio({...nuovoFiglio, scuola: e.target.value})} />
-                </div>
-
-                <button type="submit" disabled={isSubmittingFiglio} className={`w-full font-black py-4 rounded-xl transition mt-4 text-sm ${isSubmittingFiglio ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'}`}>
-                  {isSubmittingFiglio ? 'Salvataggio...' : 'Salva Profilo'}
-                </button>
+                <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Cellulare (WhatsApp)</label><input type="tel" className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovoFiglio.telefono} onChange={(e) => setNuovoFiglio({...nuovoFiglio, telefono: e.target.value})} /></div>
+                <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Email Studente</label><input type="email" className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovoFiglio.emailStudente} onChange={(e) => setNuovoFiglio({...nuovoFiglio, emailStudente: e.target.value})} /></div>
+                <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Scuola Frequentata</label><input type="text" className="w-full p-3 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovoFiglio.scuola} onChange={(e) => setNuovoFiglio({...nuovoFiglio, scuola: e.target.value})} /></div>
+                <button type="submit" disabled={isSubmittingFiglio} className="w-full font-black py-4 rounded-xl mt-4 text-sm bg-blue-600 text-white shadow-lg">{isSubmittingFiglio ? 'Salvataggio...' : 'Salva Profilo'}</button>
               </form>
             </div>
           )}
 
-          {/* VISTA: NUOVA RICHIESTA */}
           {vistaAttiva === 'nuovaRichiesta' && (
             <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
               <div className="flex items-center gap-2 mb-6 cursor-pointer text-slate-500 hover:text-slate-800" onClick={() => setVistaAttiva('dashboard')}>
                 <span className="text-sm font-bold">⬅️ Indietro</span>
               </div>
-
               <h2 className="text-2xl font-black text-slate-800 mb-6">Nuova Richiesta Ore</h2>
-
               <form onSubmit={handleInviaRichiesta} className="space-y-4">
+                <div><label className="block text-xs font-black text-slate-600 uppercase mb-1">Studente *</label><select required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-bold" value={nuovaRichiesta.studenteId} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, studenteId: e.target.value})}>{iMieiFigli.map(f => (<option key={f.id} value={f.id}>{f.nome} {f.cognome}</option>))}</select></div>
+                <div><label className="block text-xs font-black text-slate-600 uppercase mb-1">Materia *</label><input type="text" required placeholder="Es. Matematica" className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.materia} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, materia: e.target.value})} /></div>
+                <div><label className="block text-xs font-black text-slate-600 uppercase mb-1">Ore richieste *</label><input type="number" min="1" max="10" required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.ore} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, ore: e.target.value})} /></div>
+                
+                {/* CAMPO FILE ALLEGATO */}
                 <div>
-                  <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-1">Studente *</label>
-                  <select required className="w-full p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-bold text-slate-800" value={nuovaRichiesta.studenteId} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, studenteId: e.target.value})}>
-                    {iMieiFigli.map(f => (<option key={f.id} value={f.id}>{f.nome} {f.cognome}</option>))}
-                  </select>
+                  <label className="block text-xs font-black text-slate-600 uppercase mb-1 flex items-center gap-2">
+                    <Paperclip className="w-3.5 h-3.5"/> Allega Foto / Esercizi (opzionale)
+                  </label>
+                  <div className="w-full p-2 border border-dashed border-blue-400 bg-blue-50/50 rounded-xl">
+                    <input 
+                      type="file" 
+                      accept="image/*,.pdf,.doc,.docx"
+                      onChange={(e) => setFileAllegato(e.target.files[0])}
+                      className="text-xs text-slate-500 w-full file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer transition-colors"
+                    />
+                  </div>
+                  {fileAllegato && <p className="text-[10px] text-emerald-600 font-bold mt-1.5 flex items-center gap-1"><CheckCircle className="w-3 h-3"/> {fileAllegato.name}</p>}
                 </div>
-                <div>
-                  <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-1">Materia *</label>
-                  <input type="text" required placeholder="Es. Matematica" className="w-full p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-medium" value={nuovaRichiesta.materia} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, materia: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-1">Ore richieste *</label>
-                  <input type="number" min="1" max="10" required className="w-full p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-medium" value={nuovaRichiesta.ore} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, ore: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-black text-slate-600 uppercase tracking-wider mb-1">Note (opzionale)</label>
-                  <textarea rows="3" placeholder="Argomenti da trattare..." className="w-full p-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 bg-gray-50 text-sm font-medium resize-none" value={nuovaRichiesta.note} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, note: e.target.value})}></textarea>
-                </div>
-                <button type="submit" disabled={isSubmitting} className={`w-full font-black py-4 rounded-xl transition mt-2 text-sm ${isSubmitting ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'}`}>
-                  {isSubmitting ? 'Invio in corso...' : 'Invia Richiesta al Desk'}
-                </button>
+
+                <div><label className="block text-xs font-black text-slate-600 uppercase mb-1">Note (opzionale)</label><textarea rows="3" placeholder="Argomenti da trattare..." className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm resize-none" value={nuovaRichiesta.note} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, note: e.target.value})}></textarea></div>
+                <button type="submit" disabled={isSubmitting} className={`w-full font-black py-4 rounded-xl transition mt-2 text-sm ${isSubmitting ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg'}`}>{isSubmitting ? 'Invio in corso...' : 'Invia Richiesta al Desk'}</button>
               </form>
             </div>
           )}
