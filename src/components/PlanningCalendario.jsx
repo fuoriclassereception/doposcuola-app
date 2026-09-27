@@ -63,18 +63,62 @@ export default function PlanningCalendario({
     return () => window.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // ---------- ASCOLTO IN TEMPO REALE DELLE RICHIESTE GENITORI ----------
+ // ---------- ASCOLTO IN TEMPO REALE DELLE RICHIESTE GENITORI CON SUONO ----------
+  const richiestePrecedenti = useRef(0);
+
   useEffect(() => {
     const q = query(collection(db, 'richieste_genitori'), where('stato', '==', 'In attesa'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Ordina per le più recenti
       data.sort((a, b) => (b.dataCreazione?.toMillis?.() || 0) - (a.dataCreazione?.toMillis?.() || 0));
+      
+      // Se il numero di richieste è aumentato rispetto a prima, suona l'allerta
+      if (data.length > richiestePrecedenti.current && richiestePrecedenti.current !== 0) {
+        try {
+          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3'); // Suono "ding" leggero e professionale
+          audio.volume = 0.5;
+          audio.play();
+        } catch (e) {
+          console.error("Audio blockato dal browser", e);
+        }
+      }
+      richiestePrecedenti.current = data.length;
       setRichiesteInAttesa(data);
     });
     return () => unsubscribe();
   }, []);
 
+  const handleRifiutaRichiesta = async (id, nomeStudente) => {
+    if (window.confirm('Vuoi davvero rifiutare questa richiesta? Il genitore vedrà lo stato "Rifiutata".')) {
+      try {
+        await updateDoc(doc(db, 'richieste_genitori', id), { stato: 'Rifiutata' });
+        if (aggiungiLog) aggiungiLog(`Rifiutata richiesta App per lo studente: ${nomeStudente}`);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  };
+
+  const handleAccettaRichiesta = async (req) => {
+    try {
+      await updateDoc(doc(db, 'richieste_genitori', req.id), { stato: 'Approvata' });
+      setShowRichiesteModal(false);
+      
+      // PASSIAMO L'ID DELLO STUDENTE RICEVUTO DALL'APP GENITORE
+      if (onOpenModal) {
+        onOpenModal({
+          data: dataSelezionata,
+          materia: req.materia,
+          studentiIds: req.studenteId ? [req.studenteId] : [], // <--- QUI L'AGGIUNTA CHIAVE
+          note: `Richiesta da App per ${req.ore}h. Note extra: ${req.note || 'Nessuna'}`,
+        });
+      }
+      
+      if (aggiungiLog) aggiungiLog(`Iniziata pianificazione per richiesta App: ${req.studente}`);
+    } catch (err) {
+      console.error(err);
+    }
+  };
   // Azioni sulle Richieste Genitori
   const handleRifiutaRichiesta = async (id, nomeStudente) => {
     if (window.confirm('Vuoi davvero rifiutare questa richiesta? Il genitore vedrà lo stato "Rifiutata".')) {
