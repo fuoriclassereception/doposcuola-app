@@ -7,15 +7,15 @@ import { doc, updateDoc } from 'firebase/firestore';
 export default function DettaglioStudente({ 
   studente, 
   lezioni = [], 
+  insegnanti = [], // <-- Ora riceviamo i prof!
   onClose, 
   onUpdateLezioneCompleta, 
   onUpdateLezioneStatus,
   onRicaricaPacchetto,
   aggiungiLog
 }) {
-  const [activeTab, setActiveTab] = useState('lezioni'); // 'profilo', 'lezioni', 'contabilita'
+  const [activeTab, setActiveTab] = useState('lezioni'); 
 
-  // --- STATI PER IL PROFILO ---
   const [editStd, setEditStd] = useState({});
   const [isSavingProfilo, setIsSavingProfilo] = useState(false);
 
@@ -23,13 +23,11 @@ export default function DettaglioStudente({
     if (studente) setEditStd(studente);
   }, [studente]);
 
-  // --- STATI PER LEZIONI ---
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [editFormData, setEditFormData] = useState({ oraInizio: '', oraFine: '', data: '' });
   const [annullaConfig, setAnnullaConfig] = useState({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
   const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
 
-  // --- STATI PER RICARICA ---
   const [showRicarica, setShowRicarica] = useState(false);
   const [ricaricaData, setRicaricaData] = useState({
     costoDaAggiungere: '', pagatoDaAggiungere: '', metodoPagamento: 'Contanti',
@@ -46,7 +44,13 @@ export default function DettaglioStudente({
   lezioniFuture.sort((a, b) => a.data.localeCompare(b.data) || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
   lezioniPassate.sort((a, b) => b.data.localeCompare(a.data) || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
 
-  // --- FUNZIONI SALVATAGGIO PROFILO ---
+  // Funzione per ricavare il nome del prof formattato
+  const getNomeProf = (lez) => {
+    const prof = insegnanti.find(i => i.id === lez.insegnanteId);
+    if (lez.isGruppo && !lez.insegnanteId) return 'Gruppo Misto';
+    return prof ? `${prof.nome} ${prof.cognome}` : 'Da assegnare';
+  };
+
   const salvaProfilo = async (e) => {
     e.preventDefault();
     setIsSavingProfilo(true);
@@ -54,15 +58,10 @@ export default function DettaglioStudente({
       await updateDoc(doc(db, 'studenti', studente.id), editStd);
       if (aggiungiLog) aggiungiLog(`Modificata anagrafica studente: ${editStd.nome} ${editStd.cognome}`);
       alert("Profilo aggiornato con successo!");
-    } catch (error) {
-      console.error(error);
-      alert("Errore durante il salvataggio.");
-    } finally {
-      setIsSavingProfilo(false);
-    }
+    } catch (error) { console.error(error); alert("Errore salvataggio."); } 
+    finally { setIsSavingProfilo(false); }
   };
 
-  // --- FUNZIONI LEZIONI ---
   const handleStartEdit = (lez) => {
     setEditingLezioneId(lez.id);
     setEditFormData({ oraInizio: lez.oraInizio, oraFine: lez.oraFine, data: lez.data });
@@ -70,9 +69,7 @@ export default function DettaglioStudente({
 
   const handleSaveEdit = async () => {
     if (onUpdateLezioneCompleta) {
-      await onUpdateLezioneCompleta({
-        lezioneId: editingLezioneId, oraInizio: editFormData.oraInizio, oraFine: editFormData.oraFine, data: editFormData.data
-      });
+      await onUpdateLezioneCompleta({ lezioneId: editingLezioneId, oraInizio: editFormData.oraInizio, oraFine: editFormData.oraFine, data: editFormData.data });
       if (aggiungiLog) aggiungiLog(`Spostata lezione ${studente.nome} al ${editFormData.data} ore ${editFormData.oraInizio}`);
     }
     setEditingLezioneId(null);
@@ -103,7 +100,6 @@ export default function DettaglioStudente({
     <div className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex justify-center items-start pt-10 pb-10 overflow-y-auto">
       <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl relative flex flex-col border border-slate-200 overflow-hidden min-h-[600px]">
         
-        {/* HEADER */}
         <div className="bg-slate-900 text-white p-6 flex justify-between items-start shrink-0">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 bg-amber-400 text-slate-900 rounded-2xl flex items-center justify-center font-black text-2xl shadow-inner">
@@ -128,53 +124,28 @@ export default function DettaglioStudente({
           <button onClick={onClose} className="text-slate-400 hover:text-white p-2 transition-colors bg-slate-800 rounded-full"><X className="w-5 h-5"/></button>
         </div>
 
-        {/* NAVIGATION TABS */}
         <div className="flex border-b border-gray-200 bg-slate-50 px-6 shrink-0">
-          <button 
-            onClick={() => setActiveTab('lezioni')} 
-            className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'lezioni' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
-          >
-            <Calendar className="w-4 h-4"/> Lezioni ({lezioniFuture.length})
-          </button>
-          <button 
-            onClick={() => setActiveTab('profilo')} 
-            className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'profilo' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
-          >
-            <User className="w-4 h-4"/> Profilo & Recapiti
-          </button>
-          <button 
-            onClick={() => setActiveTab('contabilita')} 
-            className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'contabilita' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}
-          >
-            <CreditCard className="w-4 h-4"/> Contabilità & Storico
-          </button>
+          <button onClick={() => setActiveTab('lezioni')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'lezioni' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}><Calendar className="w-4 h-4"/> Lezioni ({lezioniFuture.length})</button>
+          <button onClick={() => setActiveTab('profilo')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'profilo' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}><User className="w-4 h-4"/> Profilo & Recapiti</button>
+          <button onClick={() => setActiveTab('contabilita')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'contabilita' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}><CreditCard className="w-4 h-4"/> Contabilità & Storico</button>
         </div>
 
-        {/* CORPO DELLO SCHERMO */}
         <div className="p-6 overflow-y-auto flex-1 bg-white">
           
-          {/* ----------------- TAB: LEZIONI PROGRAMMATE ----------------- */}
+          {/* TAB: LEZIONI PROGRAMMATE */}
           {activeTab === 'lezioni' && (
             <div className="space-y-4">
               {lezioniFuture.length === 0 ? (
-                <div className="text-center py-10 border border-dashed border-gray-300 rounded-3xl bg-gray-50">
-                  <Calendar className="w-10 h-10 text-gray-300 mx-auto mb-3"/>
-                  <p className="text-sm font-bold text-gray-500">Nessuna lezione in programma</p>
-                </div>
+                <div className="text-center py-10 border border-dashed border-gray-300 rounded-3xl bg-gray-50"><p className="text-sm font-bold text-gray-500">Nessuna lezione in programma</p></div>
               ) : (
                 lezioniFuture.map(lez => (
                   <div key={lez.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl gap-4 hover:shadow-md transition-shadow">
                     <div>
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span className="font-black text-slate-900 text-base">{lez.materia || 'Lezione'}</span>
                         <span className="text-[9px] font-black bg-amber-100 text-amber-800 px-2 py-0.5 rounded uppercase">{lez.stato}</span>
-                        
-                        {/* --- ALLEGATO REINSERITO QUI --- */}
-                        {lez.allegatoUrl && (
-                          <a href={lez.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-blue-100 transition-colors" title="Vedi Appunti">
-                            <Paperclip className="w-3 h-3"/> Appunti
-                          </a>
-                        )}
+                        {lez.isGruppo && <span className="text-[9px] font-black bg-purple-100 text-purple-800 px-2 py-0.5 rounded uppercase">Gruppo</span>}
+                        {lez.allegatoUrl && (<a href={lez.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-blue-100 transition-colors"><Paperclip className="w-3 h-3"/> Appunti</a>)}
                       </div>
                       
                       {editingLezioneId === lez.id ? (
@@ -185,9 +156,10 @@ export default function DettaglioStudente({
                           <input type="time" className="text-xs font-bold bg-white border border-slate-300 rounded p-2" value={editFormData.oraFine} onChange={(e) => setEditFormData({...editFormData, oraFine: e.target.value})}/>
                         </div>
                       ) : (
-                        <div className="text-xs font-bold text-slate-600 flex items-center gap-3">
-                          <span className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-slate-200"><Calendar className="w-3.5 h-3.5 text-amber-500"/> {lez.data}</span>
-                          <span className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-md border border-slate-200"><Clock className="w-3.5 h-3.5 text-amber-500"/> {lez.oraInizio} - {lez.oraFine}</span>
+                        <div className="text-xs font-bold text-slate-600 flex flex-wrap items-center gap-3">
+                          <span className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-md border border-slate-200 text-blue-700 shadow-sm"><User className="w-3.5 h-3.5"/> {getNomeProf(lez)}</span>
+                          <span className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-md border border-slate-200"><Calendar className="w-3.5 h-3.5 text-amber-500"/> {lez.data}</span>
+                          <span className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-md border border-slate-200"><Clock className="w-3.5 h-3.5 text-amber-500"/> {lez.oraInizio} - {lez.oraFine}</span>
                         </div>
                       )}
                     </div>
@@ -211,10 +183,9 @@ export default function DettaglioStudente({
             </div>
           )}
 
-          {/* ----------------- TAB: PROFILO & RECAPITI (FORM DI MODIFICA) ----------------- */}
+          {/* TAB: PROFILO & RECAPITI */}
           {activeTab === 'profilo' && (
             <form onSubmit={salvaProfilo} className="space-y-6">
-              
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-2"><User className="w-4 h-4"/> Anagrafica Studente</h3>
                 <div className="grid grid-cols-2 gap-4">
@@ -262,24 +233,18 @@ export default function DettaglioStudente({
               </div>
 
               <div className="flex justify-end pt-4 border-t border-gray-100">
-                <button type="submit" disabled={isSavingProfilo} className="px-6 py-3 bg-slate-900 text-white font-black text-sm rounded-xl hover:bg-slate-800 transition-colors shadow-lg flex items-center gap-2">
-                  <Save className="w-4 h-4"/> {isSavingProfilo ? 'Salvataggio...' : 'Salva Modifiche Profilo'}
-                </button>
+                <button type="submit" disabled={isSavingProfilo} className="px-6 py-3 bg-slate-900 text-white font-black text-sm rounded-xl hover:bg-slate-800 transition-colors shadow-lg flex items-center gap-2"><Save className="w-4 h-4"/> Salva Modifiche Profilo</button>
               </div>
             </form>
           )}
 
-          {/* ----------------- TAB: CONTABILITÀ & STORICO ----------------- */}
+          {/* TAB: CONTABILITÀ E STORICO */}
           {activeTab === 'contabilita' && (
             <div className="space-y-6">
               
               <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                <div>
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2"><CreditCard className="w-4 h-4 text-emerald-500"/> Situazione Plafond</h3>
-                </div>
-                <button onClick={() => setShowRicarica(!showRicarica)} className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-sm transition-colors flex items-center gap-2">
-                  <PlusCircle className="w-4 h-4"/> + Registra Ricarica
-                </button>
+                <div><h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2"><CreditCard className="w-4 h-4 text-emerald-500"/> Situazione Plafond</h3></div>
+                <button onClick={() => setShowRicarica(!showRicarica)} className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-sm transition-colors flex items-center gap-2"><PlusCircle className="w-4 h-4"/> + Registra Ricarica</button>
               </div>
 
               {showRicarica && (
@@ -308,19 +273,11 @@ export default function DettaglioStudente({
                     {((studente.totaleVersato || 0) - (studente.totaleConsumato || 0)).toFixed(2)} €
                   </p>
                 </div>
-                <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Totale Versato</p>
-                  <p className="text-2xl font-black text-slate-800">{(studente.totaleVersato || 0).toFixed(2)} €</p>
-                </div>
-                <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Totale Consumato</p>
-                  <p className="text-2xl font-black text-slate-800">{(studente.totaleConsumato || 0).toFixed(2)} €</p>
-                </div>
+                <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"><p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Totale Versato</p><p className="text-2xl font-black text-slate-800">{(studente.totaleVersato || 0).toFixed(2)} €</p></div>
+                <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"><p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Totale Consumato</p><p className="text-2xl font-black text-slate-800">{(studente.totaleConsumato || 0).toFixed(2)} €</p></div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 border-t border-slate-100 pt-6">
-                
-                {/* Storico Lezioni Svolte */}
                 <div>
                   <h4 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2"><History className="w-4 h-4 text-blue-500"/> Storico Lezioni Passate</h4>
                   <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
@@ -329,14 +286,10 @@ export default function DettaglioStudente({
                         <div>
                           <div className="flex items-center gap-2">
                             <span className="font-black text-slate-800 block">{lez.materia || 'Lezione'}</span>
-                            {/* --- ALLEGATO STORICO REINSERITO QUI --- */}
-                            {lez.allegatoUrl && (
-                              <a href={lez.allegatoUrl} target="_blank" rel="noreferrer" title="Vedi Appunti" className="text-blue-500 hover:text-blue-700">
-                                <Paperclip className="w-3.5 h-3.5"/>
-                              </a>
-                            )}
+                            {lez.allegatoUrl && (<a href={lez.allegatoUrl} target="_blank" rel="noreferrer" title="Vedi Appunti" className="text-blue-500 hover:text-blue-700"><Paperclip className="w-3.5 h-3.5"/></a>)}
                           </div>
-                          <span className="text-slate-500 font-medium">{lez.data} • {lez.oraInizio}-{lez.oraFine}</span>
+                          <span className="text-slate-500 font-medium">{lez.data} • {lez.oraInizio}-{lez.oraFine}</span><br/>
+                          <span className="text-blue-600 font-bold">{getNomeProf(lez)}</span>
                         </div>
                         <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase ${lez.stato === 'svolta' ? 'bg-emerald-100 text-emerald-800' : lez.stato === 'annullata' ? 'bg-red-100 text-red-800' : 'bg-slate-200 text-slate-600'}`}>{lez.stato}</span>
                       </div>
@@ -344,7 +297,6 @@ export default function DettaglioStudente({
                   </div>
                 </div>
 
-                {/* Storico Ricevute */}
                 <div>
                   <h4 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2"><FileText className="w-4 h-4 text-amber-500"/> Registro Ricevute</h4>
                   <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
@@ -360,7 +312,6 @@ export default function DettaglioStudente({
                     ))}
                   </div>
                 </div>
-
               </div>
             </div>
           )}
@@ -368,7 +319,6 @@ export default function DettaglioStudente({
         </div>
       </div>
 
-      {/* MODALE SCELTA ANNULLAMENTO (SI APRE DAL TAB LEZIONI) */}
       {annullaConfig.isOpen && (
         <div className="fixed inset-0 z-[60] bg-slate-950/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -393,13 +343,7 @@ export default function DettaglioStudente({
         </div>
       )}
 
-      {/* MODALE PIN SICUREZZA */}
-      <ModalePin 
-        isOpen={pinConfig.isOpen} 
-        descrizione={pinConfig.description} 
-        onClose={() => setPinConfig({ isOpen: false, actionCallback: null, description: '' })} 
-        onSuccess={() => { if (pinConfig.actionCallback) pinConfig.actionCallback(); setPinConfig({ isOpen: false, actionCallback: null, description: '' }); }} 
-      />
+      <ModalePin isOpen={pinConfig.isOpen} descrizione={pinConfig.description} onClose={() => setPinConfig({ isOpen: false, actionCallback: null, description: '' })} onSuccess={() => { if (pinConfig.actionCallback) pinConfig.actionCallback(); setPinConfig({ isOpen: false, actionCallback: null, description: '' }); }} />
     </div>
   );
 }
