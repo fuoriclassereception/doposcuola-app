@@ -1,23 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
-import { Calendar, Plus, User, X, CheckCircle, BookOpen, AlertTriangle, Crown } from 'lucide-react';
+import { Calendar, Plus, User, X, CheckCircle, BookOpen, AlertTriangle, Crown, Users } from 'lucide-react';
 
 export default function AppInsegnante({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
   const [insegnanteRef, setInsegnanteRef] = useState(null);
-  const [lezioni, setLezioni] = useState([]); // Lezioni del docente loggato
-  const [tutteLezioni, setTutteLezioni] = useState([]); // Tutte le lezioni (Serve per il radar!)
+  const [lezioni, setLezioni] = useState([]);
+  const [tutteLezioni, setTutteLezioni] = useState([]);
   const [studenti, setStudenti] = useState([]);
   const [tuttiInsegnanti, setTuttiInsegnanti] = useState([]);
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [nuovaLezione, setNuovaLezione] = useState({ data: new Date().toISOString().split('T')[0], oraInizio: '15:00', oraFine: '16:00', materia: '', note: '' });
+  
+  // STATI PER LA MULTI-SELEZIONE
   const [studentiSelezionati, setStudentiSelezionati] = useState([]);
   const [ricercaStudente, setRicercaStudente] = useState('');
-  const [docenteSelezionato, setDocenteSelezionato] = useState(''); // Per i Docenti Admin
+  
+  const [docentiSelezionati, setDocentiSelezionati] = useState([]);
+  const [ricercaDocente, setRicercaDocente] = useState('');
 
-  // 1. Identifica l'insegnante loggato
   useEffect(() => {
     if (!utente?.email) return;
     const q = query(collection(db, 'insegnanti'), where('email', '==', utente.email));
@@ -26,17 +29,17 @@ export default function AppInsegnante({ utente, onLogout }) {
         const ins = { id: snap.docs[0].id, ...snap.docs[0].data() };
         setInsegnanteRef(ins);
         setNuovaLezione(prev => ({ ...prev, materia: ins.materia || '' }));
-        if (!docenteSelezionato) setDocenteSelezionato(ins.id);
+        // Imposta se stesso come docente di default
+        if (docentiSelezionati.length === 0) setDocentiSelezionati([ins]);
       }
     });
     return () => unsub();
   }, [utente]);
 
-  // 2. Carica i dati necessari (Studenti, e se Admin, tutti i Prof)
   useEffect(() => {
     if (!insegnanteRef?.id) return;
     
-    // Lezioni Personali per la Dashboard
+    // Lezioni Personali
     const qLez = query(collection(db, 'lezioni'), where('insegnanteId', '==', insegnanteRef.id));
     const unsubLez = onSnapshot(qLez, snap => {
       const oggi = new Date().toISOString().split('T')[0];
@@ -46,11 +49,8 @@ export default function AppInsegnante({ utente, onLogout }) {
     });
 
     const unsubStd = onSnapshot(query(collection(db, 'studenti'), where('attivo', '==', true)), snap => setStudenti(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
-    
-    // RADAR: Carica TUTTE le lezioni future attive
     const unsubTutteLez = onSnapshot(query(collection(db, 'lezioni'), where('data', '>=', new Date().toISOString().split('T')[0])), snap => setTutteLezioni(snap.docs.map(doc => ({ id: doc.id, ...doc.data() }))));
 
-    // Se è Admin, carica tutti i colleghi
     let unsubProf = () => {};
     if (insegnanteRef.isCoordinatore) {
       unsubProf = onSnapshot(query(collection(db, 'insegnanti'), where('attivo', '==', true)), snap => setTuttiInsegnanti(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
@@ -68,7 +68,16 @@ export default function AppInsegnante({ utente, onLogout }) {
     setRicercaStudente('');
   };
 
-  // --- MOTORE RADAR ANTI-INCASTRO ---
+  const toggleDocente = (doc) => {
+    if (docentiSelezionati.find(d => d.id === doc.id)) {
+      setDocentiSelezionati(docentiSelezionati.filter(d => d.id !== doc.id));
+    } else {
+      setDocentiSelezionati([...docentiSelezionati, doc]);
+    }
+    setRicercaDocente('');
+  };
+
+  // --- MOTORE RADAR POTENZIATO PER LA CO-DOCENZA ---
   const checkCollisioni = () => {
     const conflitti = [];
     const { data, oraInizio, oraFine } = nuovaLezione;
@@ -79,34 +88,33 @@ export default function AppInsegnante({ utente, onLogout }) {
       return conflitti;
     }
 
-    // Identifichiamo di quale docente stiamo controllando l'agenda
-    const currentProf = (insegnanteRef?.isCoordinatore && docenteSelezionato) ? docenteSelezionato : insegnanteRef?.id;
-
-    // Filtra le lezioni di quel giorno non annullate
     const lezioniGiorno = tutteLezioni.filter(l => l.data === data && l.stato !== 'annullata');
 
     lezioniGiorno.forEach(lez => {
       const sovrapposizione = oraInizio < lez.oraFine && oraFine > lez.oraInizio;
       if (sovrapposizione) {
-        // 1. Controllo Insegnante (se non è "Gruppo")
-        if (currentProf !== 'Gruppo' && lez.insegnanteId === currentProf) {
-          const nomeProf = currentProf === insegnanteRef.id ? 'Sei' : `Il docente selezionato è`;
-          conflitti.push(`⛔ ${nomeProf} già occupato/a in questa fascia (${lez.oraInizio}-${lez.oraFine})`);
-        }
-        // 2. Controllo Studenti
+        // Controllo su TUTTI i docenti selezionati
+        docentiSelezionati.forEach(prof => {
+          if (lez.insegnanteId === prof.id || (lez.coDocentiIds && lez.coDocentiIds.includes(prof.id))) {
+            const nomeProf = prof.id === insegnanteRef.id ? 'Sei' : `Il Prof. ${prof.cognome} è`;
+            conflitti.push(`⛔ ${nomeProf} già occupato/a (${lez.oraInizio}-${lez.oraFine})`);
+          }
+        });
+        
+        // Controllo Studenti
         studentiSelezionati.forEach(std => {
           if ((lez.studentiIds || []).includes(std.id)) {
-            conflitti.push(`⛔ L'allievo ${std.nome} ha già una lezione programmata (${lez.oraInizio}-${lez.oraFine})`);
+            conflitti.push(`⛔ ${std.nome} ha già una lezione programmata (${lez.oraInizio}-${lez.oraFine})`);
           }
         });
       }
     });
 
-    return [...new Set(conflitti)]; // Rimuove eventuali doppioni
+    return [...new Set(conflitti)];
   };
 
   const conflittiAttuali = checkCollisioni();
-  const formNonValido = conflittiAttuali.length > 0 || studentiSelezionati.length === 0;
+  const formNonValido = conflittiAttuali.length > 0 || studentiSelezionati.length === 0 || docentiSelezionati.length === 0;
 
   const handleSalvaLezione = async (e) => {
     e.preventDefault();
@@ -114,16 +122,26 @@ export default function AppInsegnante({ utente, onLogout }) {
     setIsSubmitting(true);
 
     try {
-      const profAssegnato = (insegnanteRef.isCoordinatore && docenteSelezionato) ? docenteSelezionato : insegnanteRef.id;
-      const isGruppoReale = profAssegnato === 'Gruppo' || studentiSelezionati.length > 1;
-      const idDaSalvare = profAssegnato === 'Gruppo' ? '' : profAssegnato;
+      // Il primo è il titolare (per il calendario), gli altri sono co-docenti
+      const idTitolare = docentiSelezionati[0].id;
+      const idCoDocenti = docentiSelezionati.slice(1).map(d => d.id);
       
-      const materiaDaSalvare = nuovaLezione.materia || (profAssegnato === insegnanteRef.id ? insegnanteRef.materia : (tuttiInsegnanti.find(i=>i.id===profAssegnato)?.materia || ''));
+      const isGruppoReale = studentiSelezionati.length > 1 || docentiSelezionati.length > 1;
+      const materiaDaSalvare = nuovaLezione.materia || docentiSelezionati[0].materia;
 
       await addDoc(collection(db, 'lezioni'), {
-        data: nuovaLezione.data, oraInizio: nuovaLezione.oraInizio, oraFine: nuovaLezione.oraFine,
-        materia: materiaDaSalvare, insegnanteId: idDaSalvare, studentiIds: studentiSelezionati.map(s => s.id),
-        isGruppo: isGruppoReale, stato: 'attiva', inseritaDaDocente: true, note: nuovaLezione.note || '', createdAt: serverTimestamp()
+        data: nuovaLezione.data, 
+        oraInizio: nuovaLezione.oraInizio, 
+        oraFine: nuovaLezione.oraFine,
+        materia: materiaDaSalvare, 
+        insegnanteId: idTitolare, 
+        coDocentiIds: idCoDocenti, // <-- SALVATO PER LE BUSTE PAGA FUTURE!
+        studentiIds: studentiSelezionati.map(s => s.id),
+        isGruppo: isGruppoReale, 
+        stato: 'attiva', 
+        inseritaDaDocente: true, 
+        note: nuovaLezione.note || '', 
+        createdAt: serverTimestamp()
       });
 
       await addDoc(collection(db, 'logs'), {
@@ -133,13 +151,14 @@ export default function AppInsegnante({ utente, onLogout }) {
 
       setNuovaLezione(prev => ({ ...prev, oraInizio: '15:00', oraFine: '16:00', note: '' }));
       setStudentiSelezionati([]);
-      if (insegnanteRef.isCoordinatore) setDocenteSelezionato(insegnanteRef.id);
+      setDocentiSelezionati([insegnanteRef]); // Resetta mettendo solo se stesso
       setVistaAttiva('dashboard');
     } catch (error) { console.error(error); alert("Errore salvataggio lezione."); } 
     finally { setIsSubmitting(false); }
   };
 
   const studentiFiltrati = studenti.filter(s => `${s.nome} ${s.cognome}`.toLowerCase().includes(ricercaStudente.toLowerCase()));
+  const docentiFiltrati = tuttiInsegnanti.filter(d => `${d.nome} ${d.cognome}`.toLowerCase().includes(ricercaDocente.toLowerCase()));
   const formatDataLezione = (dataStr) => { if(!dataStr) return ''; const [y, m, d] = dataStr.split('-'); return `${d}/${m}/${y}`; };
 
   return (
@@ -206,22 +225,34 @@ export default function AppInsegnante({ utente, onLogout }) {
               
               <form onSubmit={handleSalvaLezione} className="space-y-5">
                 
-                {/* MENU COORDINATORE */}
+                {/* MENU COORDINATORE: MULTI-SELEZIONE DOCENTI */}
                 {insegnanteRef?.isCoordinatore && (
                   <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 mb-4">
-                    <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5">Assegna Lezione A (Potere Admin):</label>
-                    <select 
-                      className="w-full p-2.5 border border-amber-300 rounded-lg text-sm font-black bg-white text-slate-900"
-                      value={docenteSelezionato} onChange={e => setDocenteSelezionato(e.target.value)}
-                    >
-                      <option value="Gruppo">Gruppo</option>
-                      {tuttiInsegnanti.map(ins => (
-                        <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
-                      ))}
-                    </select>
+                    <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Docenti Assegnati (Potere Admin)</label>
+                    <p className="text-[9px] text-amber-700 font-bold mb-2">Il primo nome della lista è il Titolare sul calendario.</p>
+                    
+                    {docentiSelezionati.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {docentiSelezionati.map((doc, idx) => (
+                          <span key={doc.id} className={`${idx === 0 ? 'bg-amber-500 text-amber-950 border border-amber-600' : 'bg-white text-slate-700 border border-slate-300'} text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm`}>
+                            {idx === 0 && <Crown className="w-3 h-3"/>} {doc.cognome} 
+                            <button type="button" onClick={() => toggleDocente(doc)}><X className="w-3 h-3 opacity-60 hover:opacity-100"/></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <input type="text" placeholder="Aggiungi collega per co-docenza..." className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none" value={ricercaDocente} onChange={e => setRicercaDocente(e.target.value)} />
+                    {ricercaDocente.trim().length > 0 && (
+                      <div className="mt-1 border border-amber-300 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white absolute z-30 w-[calc(100%-70px)]">
+                        {docentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : docentiFiltrati.map(doc => (
+                          <div key={doc.id} onClick={() => toggleDocente(doc)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-amber-50 cursor-pointer">{doc.nome} {doc.cognome} ({doc.materia})</div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
+                {/* MENU STUDENTI (MULTI-SELEZIONE) */}
                 <div>
                   <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">Allievi Presenti *</label>
                   {studentiSelezionati.length > 0 && (
@@ -233,7 +264,7 @@ export default function AppInsegnante({ utente, onLogout }) {
                       ))}
                     </div>
                   )}
-                  <input type="text" placeholder="Cerca e clicca sullo studente..." className="w-full p-3 bg-white border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" value={ricercaStudente} onChange={e => setRicercaStudente(e.target.value)} />
+                  <input type="text" placeholder="Cerca e aggiungi studente..." className="w-full p-3 bg-white border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" value={ricercaStudente} onChange={e => setRicercaStudente(e.target.value)} />
                   {ricercaStudente.trim().length > 0 && (
                     <div className="mt-1 border border-slate-200 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white absolute z-20 w-[calc(100%-40px)]">
                       {studentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : studentiFiltrati.map(std => (
@@ -247,12 +278,12 @@ export default function AppInsegnante({ utente, onLogout }) {
                   <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Data *</label><input type="date" required className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-bold" value={nuovaLezione.data} onChange={e => setNuovaLezione({...nuovaLezione, data: e.target.value})} /></div>
                   <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Dalle *</label><input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-bold" value={nuovaLezione.oraInizio} onChange={e => setNuovaLezione({...nuovaLezione, oraInizio: e.target.value})} /></div>
                   <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Alle *</label><input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-bold" value={nuovaLezione.oraFine} onChange={e => setNuovaLezione({...nuovaLezione, oraFine: e.target.value})} /></div>
-                  <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Materia Trattata</label><input type="text" className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-medium" value={nuovaLezione.materia} onChange={e => setNuovaLezione({...nuovaLezione, materia: e.target.value})} placeholder={insegnanteRef?.materia} /></div>
+                  <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Materia Trattata</label><input type="text" className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-medium" value={nuovaLezione.materia} onChange={e => setNuovaLezione({...nuovaLezione, materia: e.target.value})} placeholder={docentiSelezionati[0]?.materia || ''} /></div>
                 </div>
 
                 <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Note (opzionale)</label><textarea rows="2" className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm resize-none" value={nuovaLezione.note} onChange={e => setNuovaLezione({...nuovaLezione, note: e.target.value})} placeholder="Argomenti, compiti..."></textarea></div>
                 
-                {/* ZONA RADAR - MOSTRA I CONFLITTI IN TEMPO REALE */}
+                {/* ZONA RADAR */}
                 {conflittiAttuali.length > 0 && (
                   <div className="bg-red-50 border border-red-200 p-3 rounded-xl space-y-1 animate-pulse">
                     <p className="text-xs font-black text-red-800 flex items-center gap-1"><AlertTriangle className="w-4 h-4"/> Rilevati Conflitti nel Planning!</p>
