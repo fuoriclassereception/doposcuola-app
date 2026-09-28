@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
-import { Calendar, Plus, User, X, CheckCircle, BookOpen, AlertTriangle, Crown, Users } from 'lucide-react';
+import { Calendar, Plus, User, X, CheckCircle, BookOpen, AlertTriangle, Crown, Users, MapPin } from 'lucide-react';
 
 export default function AppInsegnante({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
@@ -14,11 +14,12 @@ export default function AppInsegnante({ utente, onLogout }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [nuovaLezione, setNuovaLezione] = useState({ data: new Date().toISOString().split('T')[0], oraInizio: '15:00', oraFine: '16:00', materia: '', note: '' });
   
-  // STATI PER LA MULTI-SELEZIONE
   const [studentiSelezionati, setStudentiSelezionati] = useState([]);
   const [ricercaStudente, setRicercaStudente] = useState('');
   
-  const [docentiSelezionati, setDocentiSelezionati] = useState([]);
+  // STATI PER IL COORDINATORE
+  const [titolareSelezionato, setTitolareSelezionato] = useState(''); // Contiene l'ID del prof o 'Gruppo'
+  const [coDocenti, setCoDocenti] = useState([]);
   const [ricercaDocente, setRicercaDocente] = useState('');
 
   useEffect(() => {
@@ -29,8 +30,7 @@ export default function AppInsegnante({ utente, onLogout }) {
         const ins = { id: snap.docs[0].id, ...snap.docs[0].data() };
         setInsegnanteRef(ins);
         setNuovaLezione(prev => ({ ...prev, materia: ins.materia || '' }));
-        // Imposta se stesso come docente di default
-        if (docentiSelezionati.length === 0) setDocentiSelezionati([ins]);
+        if (!titolareSelezionato) setTitolareSelezionato(ins.id);
       }
     });
     return () => unsub();
@@ -39,7 +39,6 @@ export default function AppInsegnante({ utente, onLogout }) {
   useEffect(() => {
     if (!insegnanteRef?.id) return;
     
-    // Lezioni Personali
     const qLez = query(collection(db, 'lezioni'), where('insegnanteId', '==', insegnanteRef.id));
     const unsubLez = onSnapshot(qLez, snap => {
       const oggi = new Date().toISOString().split('T')[0];
@@ -60,43 +59,38 @@ export default function AppInsegnante({ utente, onLogout }) {
   }, [insegnanteRef]);
 
   const toggleStudente = (std) => {
-    if (studentiSelezionati.find(s => s.id === std.id)) {
-      setStudentiSelezionati(studentiSelezionati.filter(s => s.id !== std.id));
-    } else {
-      setStudentiSelezionati([...studentiSelezionati, std]);
-    }
+    if (studentiSelezionati.find(s => s.id === std.id)) setStudentiSelezionati(studentiSelezionati.filter(s => s.id !== std.id));
+    else setStudentiSelezionati([...studentiSelezionati, std]);
     setRicercaStudente('');
   };
 
-  const toggleDocente = (doc) => {
-    if (docentiSelezionati.find(d => d.id === doc.id)) {
-      setDocentiSelezionati(docentiSelezionati.filter(d => d.id !== doc.id));
-    } else {
-      setDocentiSelezionati([...docentiSelezionati, doc]);
-    }
+  const toggleCoDocente = (doc) => {
+    if (coDocenti.find(d => d.id === doc.id)) setCoDocenti(coDocenti.filter(d => d.id !== doc.id));
+    else setCoDocenti([...coDocenti, doc]);
     setRicercaDocente('');
   };
 
-  // --- MOTORE RADAR POTENZIATO PER LA CO-DOCENZA ---
+  // --- RADAR COMPLETO ---
   const checkCollisioni = () => {
     const conflitti = [];
     const { data, oraInizio, oraFine } = nuovaLezione;
     if (!data || !oraInizio || !oraFine) return conflitti;
-    
-    if (oraInizio >= oraFine) {
-      conflitti.push("L'ora di inizio deve essere precedente all'ora di fine.");
-      return conflitti;
-    }
+    if (oraInizio >= oraFine) { conflitti.push("L'ora di inizio deve essere precedente all'ora di fine."); return conflitti; }
 
     const lezioniGiorno = tutteLezioni.filter(l => l.data === data && l.stato !== 'annullata');
+    
+    // Tutti i prof coinvolti in questa operazione
+    const profDaControllare = coDocenti.map(d => d.id);
+    if (titolareSelezionato !== 'Gruppo') profDaControllare.push(titolareSelezionato);
 
     lezioniGiorno.forEach(lez => {
       const sovrapposizione = oraInizio < lez.oraFine && oraFine > lez.oraInizio;
       if (sovrapposizione) {
-        // Controllo su TUTTI i docenti selezionati
-        docentiSelezionati.forEach(prof => {
-          if (lez.insegnanteId === prof.id || (lez.coDocentiIds && lez.coDocentiIds.includes(prof.id))) {
-            const nomeProf = prof.id === insegnanteRef.id ? 'Sei' : `Il Prof. ${prof.cognome} è`;
+        // Controllo Insegnanti
+        profDaControllare.forEach(pId => {
+          if (lez.insegnanteId === pId || (lez.coDocentiIds || []).includes(pId)) {
+            const profInfo = tuttiInsegnanti.find(i => i.id === pId) || insegnanteRef;
+            const nomeProf = profInfo.id === insegnanteRef.id ? 'Sei' : `Il Prof. ${profInfo.cognome} è`;
             conflitti.push(`⛔ ${nomeProf} già occupato/a (${lez.oraInizio}-${lez.oraFine})`);
           }
         });
@@ -104,17 +98,16 @@ export default function AppInsegnante({ utente, onLogout }) {
         // Controllo Studenti
         studentiSelezionati.forEach(std => {
           if ((lez.studentiIds || []).includes(std.id)) {
-            conflitti.push(`⛔ ${std.nome} ha già una lezione programmata (${lez.oraInizio}-${lez.oraFine})`);
+            conflitti.push(`⛔ L'allievo ${std.nome} ha già una lezione in questo orario`);
           }
         });
       }
     });
-
     return [...new Set(conflitti)];
   };
 
   const conflittiAttuali = checkCollisioni();
-  const formNonValido = conflittiAttuali.length > 0 || studentiSelezionati.length === 0 || docentiSelezionati.length === 0;
+  const formNonValido = conflittiAttuali.length > 0 || studentiSelezionati.length === 0 || (!insegnanteRef.isCoordinatore && studentiSelezionati.length === 0);
 
   const handleSalvaLezione = async (e) => {
     e.preventDefault();
@@ -122,43 +115,43 @@ export default function AppInsegnante({ utente, onLogout }) {
     setIsSubmitting(true);
 
     try {
-      // Il primo è il titolare (per il calendario), gli altri sono co-docenti
-      const idTitolare = docentiSelezionati[0].id;
-      const idCoDocenti = docentiSelezionati.slice(1).map(d => d.id);
+      const idTitolare = titolareSelezionato === 'Gruppo' ? '' : (titolareSelezionato || insegnanteRef.id);
+      const idCoDocenti = coDocenti.map(d => d.id);
       
-      const isGruppoReale = studentiSelezionati.length > 1 || docentiSelezionati.length > 1;
-      const materiaDaSalvare = nuovaLezione.materia || docentiSelezionati[0].materia;
+      const isGruppoReale = titolareSelezionato === 'Gruppo' || studentiSelezionati.length > 1 || coDocenti.length > 0;
+      const profMateria = tuttiInsegnanti.find(i => i.id === idTitolare);
+      const materiaDaSalvare = nuovaLezione.materia || (profMateria ? profMateria.materia : insegnanteRef.materia);
 
       await addDoc(collection(db, 'lezioni'), {
-        data: nuovaLezione.data, 
-        oraInizio: nuovaLezione.oraInizio, 
-        oraFine: nuovaLezione.oraFine,
+        data: nuovaLezione.data, oraInizio: nuovaLezione.oraInizio, oraFine: nuovaLezione.oraFine,
         materia: materiaDaSalvare, 
         insegnanteId: idTitolare, 
-        coDocentiIds: idCoDocenti, // <-- SALVATO PER LE BUSTE PAGA FUTURE!
+        coDocentiIds: idCoDocenti, 
         studentiIds: studentiSelezionati.map(s => s.id),
-        isGruppo: isGruppoReale, 
-        stato: 'attiva', 
-        inseritaDaDocente: true, 
-        note: nuovaLezione.note || '', 
-        createdAt: serverTimestamp()
+        isGruppo: isGruppoReale, stato: 'attiva', inseritaDaDocente: true, note: nuovaLezione.note || '', createdAt: serverTimestamp()
       });
 
       await addDoc(collection(db, 'logs'), {
         timestamp: new Date().toLocaleString('it-IT'), createdAt: Date.now(), operatore: insegnanteRef.nome, 
-        azione: `Lezione auto-inserita da Docente per il ${nuovaLezione.data}`
+        azione: `Lezione auto-inserita da Docente (Titolare: ${idTitolare || 'Gruppo'})`
       });
 
       setNuovaLezione(prev => ({ ...prev, oraInizio: '15:00', oraFine: '16:00', note: '' }));
       setStudentiSelezionati([]);
-      setDocentiSelezionati([insegnanteRef]); // Resetta mettendo solo se stesso
+      setCoDocenti([]);
+      setTitolareSelezionato(insegnanteRef.id);
       setVistaAttiva('dashboard');
     } catch (error) { console.error(error); alert("Errore salvataggio lezione."); } 
     finally { setIsSubmitting(false); }
   };
 
   const studentiFiltrati = studenti.filter(s => `${s.nome} ${s.cognome}`.toLowerCase().includes(ricercaStudente.toLowerCase()));
-  const docentiFiltrati = tuttiInsegnanti.filter(d => `${d.nome} ${d.cognome}`.toLowerCase().includes(ricercaDocente.toLowerCase()));
+  
+  // Togliamo dai risultati il prof già selezionato come Titolare
+  const docentiFiltrati = tuttiInsegnanti
+    .filter(d => d.id !== titolareSelezionato)
+    .filter(d => `${d.nome} ${d.cognome}`.toLowerCase().includes(ricercaDocente.toLowerCase()));
+
   const formatDataLezione = (dataStr) => { if(!dataStr) return ''; const [y, m, d] = dataStr.split('-'); return `${d}/${m}/${y}`; };
 
   return (
@@ -189,9 +182,7 @@ export default function AppInsegnante({ utente, onLogout }) {
               <div className="pt-2">
                 <h2 className="text-sm font-black text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2"><Calendar className="w-4 h-4"/> Le Tue Prossime Lezioni</h2>
                 {lezioni.length === 0 ? (
-                  <div className="text-center py-10 bg-white border border-dashed border-slate-300 rounded-2xl">
-                    <p className="text-sm font-bold text-slate-400">Nessuna lezione imminente.</p>
-                  </div>
+                  <div className="text-center py-10 bg-white border border-dashed border-slate-300 rounded-2xl"><p className="text-sm font-bold text-slate-400">Nessuna lezione imminente.</p></div>
                 ) : (
                   <div className="space-y-3">
                     {lezioni.map(lez => {
@@ -225,34 +216,56 @@ export default function AppInsegnante({ utente, onLogout }) {
               
               <form onSubmit={handleSalvaLezione} className="space-y-5">
                 
-                {/* MENU COORDINATORE: MULTI-SELEZIONE DOCENTI */}
+                {/* 👑 MENU COORDINATORE */}
                 {insegnanteRef?.isCoordinatore && (
-                  <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 mb-4">
-                    <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-2 flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Docenti Assegnati (Potere Admin)</label>
-                    <p className="text-[9px] text-amber-700 font-bold mb-2">Il primo nome della lista è il Titolare sul calendario.</p>
+                  <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 mb-4 space-y-4">
                     
-                    {docentiSelezionati.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {docentiSelezionati.map((doc, idx) => (
-                          <span key={doc.id} className={`${idx === 0 ? 'bg-amber-500 text-amber-950 border border-amber-600' : 'bg-white text-slate-700 border border-slate-300'} text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm`}>
-                            {idx === 0 && <Crown className="w-3 h-3"/>} {doc.cognome} 
-                            <button type="button" onClick={() => toggleDocente(doc)}><X className="w-3 h-3 opacity-60 hover:opacity-100"/></button>
-                          </span>
+                    {/* SCELTA DELLA COLONNA (TITOLARE) */}
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><MapPin className="w-3.5 h-3.5"/> Colonna sul Planning (Titolare)</label>
+                      <select 
+                        className="w-full p-2.5 border border-amber-300 rounded-lg text-sm font-black bg-white text-slate-900"
+                        value={titolareSelezionato} 
+                        onChange={e => {
+                          setTitolareSelezionato(e.target.value);
+                          // Se lo scegli come Titolare, rimuovilo dai co-docenti per non averlo doppio
+                          if(e.target.value !== 'Gruppo') {
+                            setCoDocenti(coDocenti.filter(d => d.id !== e.target.value));
+                          }
+                        }}
+                      >
+                        <option value="Gruppo">📚 Gruppo Misto (Colonna Generale)</option>
+                        {tuttiInsegnanti.map(ins => (
+                          <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
                         ))}
-                      </div>
-                    )}
-                    <input type="text" placeholder="Aggiungi collega per co-docenza..." className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none" value={ricercaDocente} onChange={e => setRicercaDocente(e.target.value)} />
-                    {ricercaDocente.trim().length > 0 && (
-                      <div className="mt-1 border border-amber-300 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white absolute z-30 w-[calc(100%-70px)]">
-                        {docentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : docentiFiltrati.map(doc => (
-                          <div key={doc.id} onClick={() => toggleDocente(doc)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-amber-50 cursor-pointer">{doc.nome} {doc.cognome} ({doc.materia})</div>
-                        ))}
-                      </div>
-                    )}
+                      </select>
+                    </div>
+
+                    {/* AGGIUNTA CO-DOCENTI */}
+                    <div className="pt-2 border-t border-amber-200">
+                      <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Aggiungi Co-Docenti (Buste Paga)</label>
+                      {coDocenti.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {coDocenti.map(doc => (
+                            <span key={doc.id} className="bg-white text-slate-700 border border-slate-300 text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+                              {doc.cognome} <button type="button" onClick={() => toggleCoDocente(doc)}><X className="w-3 h-3 text-slate-400 hover:text-red-500"/></button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <input type="text" placeholder="Cerca collega..." className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none" value={ricercaDocente} onChange={e => setRicercaDocente(e.target.value)} />
+                      {ricercaDocente.trim().length > 0 && (
+                        <div className="mt-1 border border-amber-300 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white absolute z-30 w-[calc(100%-70px)]">
+                          {docentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : docentiFiltrati.map(doc => (
+                            <div key={doc.id} onClick={() => toggleCoDocente(doc)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-amber-50 cursor-pointer">{doc.nome} {doc.cognome} ({doc.materia})</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                {/* MENU STUDENTI (MULTI-SELEZIONE) */}
+                {/* MENU ALLIEVI */}
                 <div>
                   <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">Allievi Presenti *</label>
                   {studentiSelezionati.length > 0 && (
@@ -278,12 +291,11 @@ export default function AppInsegnante({ utente, onLogout }) {
                   <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Data *</label><input type="date" required className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-bold" value={nuovaLezione.data} onChange={e => setNuovaLezione({...nuovaLezione, data: e.target.value})} /></div>
                   <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Dalle *</label><input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-bold" value={nuovaLezione.oraInizio} onChange={e => setNuovaLezione({...nuovaLezione, oraInizio: e.target.value})} /></div>
                   <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Alle *</label><input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-bold" value={nuovaLezione.oraFine} onChange={e => setNuovaLezione({...nuovaLezione, oraFine: e.target.value})} /></div>
-                  <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Materia Trattata</label><input type="text" className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-medium" value={nuovaLezione.materia} onChange={e => setNuovaLezione({...nuovaLezione, materia: e.target.value})} placeholder={docentiSelezionati[0]?.materia || ''} /></div>
+                  <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Materia Trattata</label><input type="text" className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm font-medium" value={nuovaLezione.materia} onChange={e => setNuovaLezione({...nuovaLezione, materia: e.target.value})} placeholder="Es. Italiano" /></div>
                 </div>
 
                 <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Note (opzionale)</label><textarea rows="2" className="w-full p-3 border border-slate-300 rounded-xl bg-white text-sm resize-none" value={nuovaLezione.note} onChange={e => setNuovaLezione({...nuovaLezione, note: e.target.value})} placeholder="Argomenti, compiti..."></textarea></div>
                 
-                {/* ZONA RADAR */}
                 {conflittiAttuali.length > 0 && (
                   <div className="bg-red-50 border border-red-200 p-3 rounded-xl space-y-1 animate-pulse">
                     <p className="text-xs font-black text-red-800 flex items-center gap-1"><AlertTriangle className="w-4 h-4"/> Rilevati Conflitti nel Planning!</p>
