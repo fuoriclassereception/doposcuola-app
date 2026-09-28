@@ -518,17 +518,37 @@ export default function PlanningCalendario({
               <div className="flex items-center space-x-2 text-amber-900"><Users className="w-5 h-5 text-amber-600"/><h3 className="font-extrabold text-base text-slate-900">Gruppo Studio ({groupModalData.fascia})</h3></div>
               <button onClick={() => setGroupModalData(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
             </div>
+            
             <div className="space-y-3 max-h-[60vh] overflow-y-auto">
-              {groupModalData.lezioniGroup.map(lez => (
-                <div key={lez.id} className="p-3 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <div><span className="font-extrabold text-slate-900">{stdsNames(lez.studentiIds, studenti)}</span><div className="text-[11px] text-gray-600">🕒 {lez.oraInizio} - {lez.oraFine} • {lez.materia || 'Doposcuola'}</div></div>
-                    <button onClick={() => { setGroupModalData(null); if (onSelectStudent && lez.studentiIds?.[0]) onSelectStudent(lez.studentiIds[0]); }} className="px-2.5 py-1 bg-slate-900 text-white font-bold rounded-lg text-[10px]">Scheda</button>
+              {groupModalData.lezioniGroup.map(lez => {
+                // Recupera il nome del docente titolare e degli eventuali co-docenti
+                const nomeTitolare = (insegnanti || []).find(i => i?.id === lez.insegnanteId)?.nome || 'Da Assegnare';
+                const nomiCoDocenti = (lez.coDocentiIds || []).map(id => (insegnanti || []).find(i => i?.id === id)?.nome).filter(Boolean).join(', ');
+                
+                return (
+                  <div key={lez.id} className="p-3 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col space-y-2">
+                    <div className="flex justify-between items-start text-xs">
+                      <div className="space-y-1">
+                        <span className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-amber-600"/>
+                          {stdsNames(lez.studentiIds, studenti)}
+                        </span>
+                        
+                        <div className="text-[11px] text-gray-600 font-medium">🕒 {lez.oraInizio} - {lez.oraFine} • {lez.materia || 'Doposcuola'}</div>
+                        
+                        <div className="text-[10px] bg-white border border-amber-200 px-2 py-1 rounded-lg inline-block mt-1 shadow-sm">
+                          <span className="font-bold text-slate-700">Titolare:</span> <span className="text-amber-700 font-black">{nomeTitolare}</span>
+                          {nomiCoDocenti && <><br/><span className="font-bold text-slate-700">Co-Docenti:</span> <span className="text-slate-600">{nomiCoDocenti}</span></>}
+                        </div>
+                      </div>
+                      
+                      <button onClick={() => { setGroupModalData(null); if (onSelectStudent && lez.studentiIds?.[0]) onSelectStudent(lez.studentiIds[0]); }} className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 transition-colors text-white font-bold rounded-lg text-[10px] shadow-sm">Apri Scheda</button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-            <div className="pt-2 border-t border-gray-100 flex justify-end"><button onClick={() => setGroupModalData(null)} className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs">Chiudi</button></div>
+            <div className="pt-2 border-t border-gray-100 flex justify-end"><button onClick={() => setGroupModalData(null)} className="px-4 py-2 bg-slate-900 hover:bg-slate-800 transition-colors text-white font-bold rounded-xl text-xs shadow-md">Chiudi</button></div>
           </div>
         </div>
       )}
