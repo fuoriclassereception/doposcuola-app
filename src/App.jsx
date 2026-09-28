@@ -27,7 +27,7 @@ import CassaPresenze from './components/CassaPresenze';
 
 import Login from './components/Login';
 import AppGenitore from './components/AppGenitore';
-import AppInsegnante from './components/AppInsegnante'; // <-- IMPORTIAMO L'APP INSEGNANTI
+import AppInsegnante from './components/AppInsegnante';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -45,7 +45,7 @@ export default function App() {
   const [showInsegnanteModal, setShowInsegnanteModal] = useState(false);
   const [editingInsegnante, setEditingInsegnante] = useState(null);
   const [insegnanteForm, setInsegnanteForm] = useState({ 
-    nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' 
+    nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6', isCoordinatore: false 
   });
 
   const [showStudenteModal, setShowStudenteModal] = useState(false);
@@ -70,14 +70,14 @@ export default function App() {
           if (userDoc.exists()) {
             setRuolo(userDoc.data().ruolo);
           } else {
-            // CONTROLLO AUTOMATICO: È un insegnante appena creato?
+            // CONTROLLO AUTOMATICO DOCENTI
             const qIns = query(collection(db, 'insegnanti'), where('email', '==', currentUser.email));
             const snapIns = await getDocs(qIns);
             if (!snapIns.empty) {
               setRuolo('insegnante');
               await setDoc(doc(db, 'utenti', currentUser.uid), { ruolo: 'insegnante', email: currentUser.email });
             } else {
-              setRuolo('genitore'); // Altrimenti è un genitore standard
+              setRuolo('genitore'); 
             }
           }
         } catch (error) {
@@ -134,11 +134,11 @@ export default function App() {
       setEditingInsegnante(ins.id);
       setInsegnanteForm({ 
         nome: ins.nome || '', cognome: ins.cognome || '', telefono: ins.telefono || '', 
-        email: ins.email || '', materia: ins.materia || '', colore: ins.colore || '#3b82f6' 
+        email: ins.email || '', materia: ins.materia || '', colore: ins.colore || '#3b82f6', isCoordinatore: Boolean(ins.isCoordinatore) 
       });
     } else {
       setEditingInsegnante(null);
-      setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6' });
+      setInsegnanteForm({ nome: '', cognome: '', telefono: '', email: '', materia: '', colore: '#3b82f6', isCoordinatore: false });
     }
     setShowInsegnanteModal(true);
   };
@@ -403,7 +403,6 @@ export default function App() {
   if (authLoading) return <div className="flex items-center justify-center h-screen bg-gray-100"><div className="text-2xl font-bold text-blue-600 animate-pulse">Caricamento FuoriClasse...</div></div>;
   if (!user) return <Login />;
   
-  // SMISTAMENTO RUOLI
   if (ruolo === 'insegnante') return <AppInsegnante utente={user} onLogout={() => signOut(auth)} />;
   if (ruolo === 'genitore' || ruolo === 'studente') return <AppGenitore utente={user} onLogout={() => signOut(auth)} />;
 
@@ -462,9 +461,14 @@ export default function App() {
       
       {studenteSelezionatoDettaglio && (
         <DettaglioStudente
-          studente={studenteSelezionatoDettaglio} lezioni={lezioniSicure} onClose={() => setStudenteSelezionatoDettaglio(null)}
-          onUpdateLezioneCompleta={handleUpdateLezioneCompleta} onUpdateLezioneStatus={handleUpdateLezioneStatus}
-          onRicaricaPacchetto={handleRicaricaPacchetto} aggiungiLog={aggiungiLog}
+          studente={studenteSelezionatoDettaglio} 
+          lezioni={lezioniSicure} 
+          insegnanti={insegnantiSicuri} /* LA RIGA AGGIUNTA È QUESTA */
+          onClose={() => setStudenteSelezionatoDettaglio(null)}
+          onUpdateLezioneCompleta={handleUpdateLezioneCompleta} 
+          onUpdateLezioneStatus={handleUpdateLezioneStatus}
+          onRicaricaPacchetto={handleRicaricaPacchetto} 
+          aggiungiLog={aggiungiLog}
         />
       )}
     </div>
