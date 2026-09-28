@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft, Paperclip, Edit2 } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft, Paperclip, Edit2, Pin } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
@@ -20,7 +20,6 @@ export default function PlanningCalendario({
   const [showAnnullateModal, setShowAnnullateModal] = useState(false);
   const [richiesteInAttesa, setRichiesteInAttesa] = useState([]);
   const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
-  const [contextMenu, setContextMenu] = useState(null);
   const [dragSelection, setDragSelection] = useState(null);
   const isDraggingRef = useRef(false);
 
@@ -40,12 +39,6 @@ export default function PlanningCalendario({
     updateCurrentTime();
     const interval = setInterval(updateCurrentTime, 60000);
     return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = () => setContextMenu(null);
-    window.addEventListener('click', handleClickOutside);
-    return () => window.removeEventListener('click', handleClickOutside);
   }, []);
 
   const richiestePrecedenti = useRef(0);
@@ -102,7 +95,7 @@ export default function PlanningCalendario({
           studentiIds: req.studenteId ? [req.studenteId] : [],
           note: noteComposte.trim(),
           allegatoUrl: req.allegatoUrl || '', 
-          oreRichieste: req.ore // <-- PASSIAMO IL VALORE DELLE ORE PER CALCOLARE LA FINE
+          oreRichieste: req.ore 
         });
       }
       if (aggiungiLog) aggiungiLog(`Iniziata pianificazione per richiesta App: ${req.studente}`);
@@ -112,6 +105,9 @@ export default function PlanningCalendario({
   const lezioniAttive = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
   const lezioniAnnullateOggi = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato === 'annullata');
   const lezioniGruppoOggi = lezioniAttive.filter(l => l && l.isGruppo);
+
+  // LA MAGIA: Tutte le lezioni senza prof E che non sono di gruppo finiscono qui!
+  const lezioniSenzaProf = lezioniAttive.filter(l => !l.isGruppo && !l.insegnanteId);
 
   const changeDate = (days) => {
     const current = new Date(dataSelezionata);
@@ -224,13 +220,18 @@ export default function PlanningCalendario({
 
       if (conflitto) return alert(`Attenzione: uno o più studenti hanno già un'altra lezione tra le ${conflitto.oraInizio} e le ${conflitto.oraFine}!`);
 
+      // Se drop nella colonna "Da assegnare", l'id insegnante diventa nullo!
+      const finalDocenteId = targetInsegnanteId === 'DA_ASSEGNARE' ? '' : targetInsegnanteId;
+
       const payloadAggiornato = {
         lezioneId: lezioneId, data: dataSelezionata, oraInizio: targetOraStr, oraFine: oraFineNuova,
-        insegnanteId: targetIsGruppo ? '' : targetInsegnanteId, isGruppo: Boolean(targetIsGruppo)
+        insegnanteId: targetIsGruppo ? '' : finalDocenteId, isGruppo: Boolean(targetIsGruppo)
       };
 
-      const targetDoc = (insegnanti || []).find(i => i?.id === targetInsegnanteId);
-      const docDest = targetIsGruppo ? 'Gruppo Studio' : (targetDoc?.nome || 'Docente');
+      let docDest = 'Docente';
+      if (targetIsGruppo) docDest = 'Gruppo Studio';
+      else if (targetInsegnanteId === 'DA_ASSEGNARE') docDest = 'Sala di Attesa (Da Assegnare)';
+      else docDest = (insegnanti || []).find(i => i?.id === targetInsegnanteId)?.nome || 'Docente';
 
       setPinConfig({
         isOpen: true, description: `Spostamento lezione alle ore ${targetOraStr} (${docDest})`,
@@ -248,7 +249,8 @@ export default function PlanningCalendario({
     if (isDraggingRef.current) return;
     const oraInizio = formatMinsToStr(slotMins);
     const oraFine = formatMinsToStr(slotMins + 60);
-    if (onOpenModal) onOpenModal({ data: dataSelezionata, insegnanteId: targetIsGruppo ? '' : targetInsegnanteId, isGruppo: Boolean(targetIsGruppo), oraInizio, oraFine });
+    const finalDocenteId = targetInsegnanteId === 'DA_ASSEGNARE' ? '' : targetInsegnanteId;
+    if (onOpenModal) onOpenModal({ data: dataSelezionata, insegnanteId: targetIsGruppo ? '' : finalDocenteId, isGruppo: Boolean(targetIsGruppo), oraInizio, oraFine });
   };
 
   const handleSlotMouseDown = (e, targetInsegnanteId, targetIsGruppo, slotMins) => {
@@ -271,11 +273,13 @@ export default function PlanningCalendario({
     const wasDragging = isDraggingRef.current;
     setDragSelection(null);
     if (wasDragging && onOpenModal) {
-      onOpenModal({ data: dataSelezionata, insegnanteId: isGruppo ? '' : insegnanteId, isGruppo: Boolean(isGruppo), oraInizio: formatMinsToStr(startMin), oraFine: formatMinsToStr(endMin) });
+      const finalDocenteId = insegnanteId === 'DA_ASSEGNARE' ? '' : insegnanteId;
+      onOpenModal({ data: dataSelezionata, insegnanteId: isGruppo ? '' : finalDocenteId, isGruppo: Boolean(isGruppo), oraInizio: formatMinsToStr(startMin), oraFine: formatMinsToStr(endMin) });
     }
   };
 
-  const gridTemplateColumns = `60px repeat(${insegnantiAttivi.length}, minmax(170px, 1fr)) 170px`;
+  // AGGIUNTA LA COLONNA "DA ASSEGNARE" COME ULTIMA COLONNA
+  const gridTemplateColumns = `60px repeat(${insegnantiAttivi.length}, minmax(170px, 1fr)) 170px 170px`;
 
   return (
     <div className="w-full h-full p-0 flex flex-col space-y-3 select-none" onMouseUp={handleGlobalMouseUp}>
@@ -313,7 +317,7 @@ export default function PlanningCalendario({
       </div>
 
       <div className="flex-1 bg-white border border-gray-200 rounded-3xl mx-4 mb-4 overflow-x-auto flex flex-col min-h-[650px] shadow-sm">
-        <div className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[850px] rounded-t-3xl" style={{ gridTemplateColumns }}>
+        <div className="border-b border-gray-200 bg-gray-50/90 sticky top-0 z-20 grid w-full min-w-[1020px] rounded-t-3xl" style={{ gridTemplateColumns }}>
           <div className="p-3 text-center text-[11px] font-extrabold text-gray-400 border-r border-gray-200">ORA</div>
           {insegnantiAttivi.map(ins => (
             <div key={ins.id} className="p-3 text-center border-r border-gray-200 flex flex-col items-center justify-center">
@@ -321,6 +325,10 @@ export default function PlanningCalendario({
               <span className="font-extrabold text-xs text-slate-900 uppercase tracking-wider truncate">{ins?.nome || 'Docente'}</span>
             </div>
           ))}
+          <div className="p-3 text-center bg-gray-200/50 border-r border-gray-300 flex flex-col items-center justify-center">
+             <Pin className="w-4 h-4 text-gray-500 mb-0.5"/>
+             <span className="font-black text-[10px] text-gray-600 uppercase tracking-wider">DA ASSEGNARE</span>
+          </div>
           <div onClick={() => setGroupModalData({ fascia: 'Tutto il giorno', lezioniGroup: lezioniGruppoOggi })} className="p-3 text-center bg-amber-100/60 hover:bg-amber-100 flex flex-col items-center justify-center cursor-pointer rounded-tr-3xl transition-colors">
             <Users className="w-4 h-4 text-amber-800 mb-0.5"/>
             <span className="font-black text-xs text-amber-950 uppercase tracking-wider flex items-center">
@@ -329,7 +337,7 @@ export default function PlanningCalendario({
           </div>
         </div>
 
-        <div className="relative flex-1 grid w-full min-w-[850px]" style={{ gridTemplateColumns }}>
+        <div className="relative flex-1 grid w-full min-w-[1020px]" style={{ gridTemplateColumns }}>
           <div className="border-r border-gray-200 bg-gray-50/40 text-center divide-y divide-gray-100">
             {slots30.map((slot, i) => <div key={i} className="h-8 text-[10px] font-extrabold text-gray-400 pt-1">{slot.oraStr.endsWith(':00') ? slot.oraStr : ''}</div>)}
           </div>
@@ -371,6 +379,38 @@ export default function PlanningCalendario({
             );
           })}
 
+          {/* COLONNA DA ASSEGNARE */}
+          <div className="border-r border-gray-300 bg-gray-100/30 relative divide-y divide-gray-200/50">
+            {slots30.map((slot, i) => (
+              <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, 'DA_ASSEGNARE', false, slot.oraStr)} onMouseDown={(e) => handleSlotMouseDown(e, 'DA_ASSEGNARE', false, slot.totalMins)} onMouseEnter={() => handleSlotMouseEnter('DA_ASSEGNARE', false, slot.totalMins)} onClick={() => handleSlotClick('DA_ASSEGNARE', false, slot.totalMins)} className="h-8 hover:bg-gray-200/60 transition-colors cursor-pointer select-none"/>
+            ))}
+            
+            {dragSelection && dragSelection.insegnanteId === 'DA_ASSEGNARE' && !dragSelection.isGruppo && (
+              <div style={{ top: `${((dragSelection.startMin - startHourMins) / totalHoursMins) * 100}%`, height: `${((dragSelection.endMin - dragSelection.startMin) / totalHoursMins) * 100}%` }} className="absolute left-1 right-1 bg-gray-400/50 border-2 border-dashed border-gray-600 rounded-xl z-20 pointer-events-none flex items-center justify-center shadow-md">
+                <span className="text-[11px] font-black text-gray-950 bg-white/95 px-2 py-0.5 rounded shadow">{formatMinsToStr(dragSelection.startMin)} - {formatMinsToStr(dragSelection.endMin)}</span>
+              </div>
+            )}
+
+            {computeOverlappingLayout(lezioniSenzaProf).map(lez => {
+              const topPercent = ((lez.startMins - startHourMins) / totalHoursMins) * 100;
+              const heightPercent = ((lez.endMins - lez.startMins) / totalHoursMins) * 100;
+              const totalCols = lez.totalLanes || 1;
+              const colWidthPercent = 100 / totalCols;
+              const leftPercent = lez.laneIndex * colWidthPercent;
+
+              return (
+                <div key={lez.id} draggable onDragStart={(e) => handleDragStart(e, lez)} onClick={(e) => { e.stopPropagation(); setSelectedLezioneDetail(lez); }} style={{ top: `${topPercent}%`, height: `${heightPercent}%`, left: `calc(${leftPercent}% + 2px)`, width: `calc(${colWidthPercent}% - 4px)` }} className="absolute border-l-4 border-gray-500 bg-gray-200/80 rounded-xl p-1.5 text-xs shadow-sm overflow-hidden flex flex-col justify-between cursor-pointer hover:shadow-md hover:scale-[1.01] hover:z-30 transition-all z-10">
+                  <div>
+                    <div className="font-black text-slate-900 text-[11px] leading-tight truncate">{stdsNames(lez.studentiIds, studenti)}</div>
+                    <div className="text-[10px] font-bold text-gray-700 truncate mt-0.5">{lez.materia || 'Materia'}</div>
+                    <div className="text-[9px] font-extrabold text-gray-500 mt-0.5">{lez.oraInizio} - {lez.oraFine}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* COLONNA GRUPPO */}
           <div className="bg-amber-50/30 relative divide-y divide-amber-100/50">
             {slots30.map((slot, i) => <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDrop(e, '', true, slot.oraStr)} onMouseDown={(e) => handleSlotMouseDown(e, '', true, slot.totalMins)} onMouseEnter={() => handleSlotMouseEnter('', true, slot.totalMins)} onClick={() => handleSlotClick('', true, slot.totalMins)} className="h-8 hover:bg-amber-100/50 transition-colors cursor-pointer select-none"/>)}
 
@@ -420,7 +460,11 @@ export default function PlanningCalendario({
                 </div>
                 
                 <div className="text-gray-600 font-bold flex items-center gap-2"><span>📅 {selectedLezioneDetail.data}</span><span>🕒 {selectedLezioneDetail.oraInizio} - {selectedLezioneDetail.oraFine}</span></div>
-                {selectedLezioneDetail.insegnanteId && <p className="text-slate-800 font-bold">Docente: <span className="text-amber-700">{(insegnanti || []).find(i => i?.id === selectedLezioneDetail.insegnanteId)?.nome || 'N.D.'}</span></p>}
+                {selectedLezioneDetail.insegnanteId ? (
+                  <p className="text-slate-800 font-bold">Docente: <span className="text-amber-700">{(insegnanti || []).find(i => i?.id === selectedLezioneDetail.insegnanteId)?.nome || 'N.D.'}</span></p>
+                ) : (
+                  <p className="text-rose-600 font-bold flex items-center gap-1">⚠️ Da Assegnare a un Docente</p>
+                )}
                 {selectedLezioneDetail.note && <p className="text-slate-500 italic mt-2 border-l-2 border-slate-300 pl-2">Note: {selectedLezioneDetail.note}</p>}
               </div>
 
