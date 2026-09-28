@@ -379,6 +379,12 @@ export default function App() {
     } catch (err) { console.error("Errore estrazione:", err); }
   };
 
+  // Funzione per impostare lo studente selezionato e aprire il Dettaglio
+  const handleSelectStudentForDetail = (stdId) => {
+    const std = studenti.find(s => s?.id === stdId);
+    if (std) setStudenteSelezionatoDettaglio(std);
+  };
+
   const insegnantiSicuri = (insegnanti || []).filter(Boolean);
   const studentiSicuri = (studenti || []).filter(Boolean);
   const lezioniSicure = (lezioni || []).filter(Boolean);
@@ -402,10 +408,7 @@ export default function App() {
           <PlanningCalendario
             insegnanti={insegnantiSicuri} studenti={studentiSicuri} lezioni={lezioniSicure}
             aggiungiLog={aggiungiLog} onDeleteLezione={handleDeleteLezione} onOpenModal={handleOpenLezioneModal}
-            onSelectStudent={(stdId) => {
-              const std = studentiSicuri.find(s => s?.id === stdId);
-              if (std) setStudenteSelezionatoDettaglio(std);
-            }}
+            onSelectStudent={handleSelectStudentForDetail}
             onUpdateLezioneStatus={handleUpdateLezioneStatus} onRestoreLezione={handleRestoreLezione}
             onUpdateLezioneCompleta={handleUpdateLezioneCompleta} onEstraiStudenteDaGruppo={handleEstraiStudenteDaGruppo}
             onAcceptRichiesta={handleAcceptRichiesta} onRejectRichiesta={handleRejectRichiesta}
@@ -421,8 +424,12 @@ export default function App() {
 
         {activeTab === 'studenti' && (
           <GestioneStudenti 
-            studenti={studentiSicuri} searchQuery={searchQuery} onOpenModal={handleOpenStudenteModal} 
-            onToggleStato={handleToggleStatoStudente} onDelete={handleDeleteStudente} 
+            studenti={studentiSicuri} 
+            searchQuery={searchQuery} 
+            onOpenModal={handleOpenStudenteModal} 
+            onSelectStudent={handleSelectStudentForDetail} // LA MODIFICA È QUI!
+            onToggleStato={handleToggleStatoStudente} 
+            onDelete={handleDeleteStudente} 
           />
         )}
 
