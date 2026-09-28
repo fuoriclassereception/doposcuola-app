@@ -518,31 +518,48 @@ export default function PlanningCalendario({
               <div className="flex items-center space-x-2 text-amber-900"><Users className="w-5 h-5 text-amber-600"/><h3 className="font-extrabold text-base text-slate-900">Gruppo Studio ({groupModalData.fascia})</h3></div>
               <button onClick={() => setGroupModalData(null)} className="p-1.5 text-gray-400 hover:text-gray-600 rounded-full"><X className="w-5 h-5"/></button>
             </div>
-            
             <div className="space-y-3 max-h-[60vh] overflow-y-auto">
               {groupModalData.lezioniGroup.map(lez => {
-                // Recupera il nome del docente titolare e degli eventuali co-docenti
                 const nomeTitolare = (insegnanti || []).find(i => i?.id === lez.insegnanteId)?.nome || 'Da Assegnare';
                 const nomiCoDocenti = (lez.coDocentiIds || []).map(id => (insegnanti || []).find(i => i?.id === id)?.nome).filter(Boolean).join(', ');
                 
                 return (
-                  <div key={lez.id} className="p-3 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col space-y-2">
+                  <div key={lez.id} className="p-4 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col space-y-3">
                     <div className="flex justify-between items-start text-xs">
                       <div className="space-y-1">
                         <span className="font-extrabold text-slate-900 flex items-center gap-1.5">
                           <User className="w-3.5 h-3.5 text-amber-600"/>
                           {stdsNames(lez.studentiIds, studenti)}
                         </span>
-                        
                         <div className="text-[11px] text-gray-600 font-medium">🕒 {lez.oraInizio} - {lez.oraFine} • {lez.materia || 'Doposcuola'}</div>
-                        
                         <div className="text-[10px] bg-white border border-amber-200 px-2 py-1 rounded-lg inline-block mt-1 shadow-sm">
                           <span className="font-bold text-slate-700">Titolare:</span> <span className="text-amber-700 font-black">{nomeTitolare}</span>
                           {nomiCoDocenti && <><br/><span className="font-bold text-slate-700">Co-Docenti:</span> <span className="text-slate-600">{nomiCoDocenti}</span></>}
                         </div>
                       </div>
-                      
-                      <button onClick={() => { setGroupModalData(null); if (onSelectStudent && lez.studentiIds?.[0]) onSelectStudent(lez.studentiIds[0]); }} className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 transition-colors text-white font-bold rounded-lg text-[10px] shadow-sm">Apri Scheda</button>
+                    </div>
+                    
+                    {/* ZONA BOTTONI AGGIORNATA */}
+                    <div className="flex gap-2 justify-end border-t border-amber-200/50 pt-2">
+                      <button 
+                        onClick={() => { 
+                          setGroupModalData(null); 
+                          if (onOpenModal) {
+                            onOpenModal({
+                              data: dataSelezionata, oraInizio: lez.oraInizio, oraFine: lez.oraFine, materia: lez.materia,
+                              note: lez.note || '', studentiIds: lez.studentiIds || [], insegnanteId: lez.insegnanteId || '',
+                              coDocentiIds: lez.coDocentiIds || [], isGruppo: Boolean(lez.isGruppo), oldLezioneId: lez.id, 
+                              isRischedulazione: true, allegatoUrl: lez.allegatoUrl || ''
+                            });
+                          }
+                        }} 
+                        className="px-3 py-1.5 bg-amber-400 hover:bg-amber-500 transition-colors text-amber-950 font-bold rounded-lg text-[10px] shadow-sm flex items-center gap-1"
+                      >
+                        <Edit2 className="w-3 h-3"/> Modifica Lezione
+                      </button>
+                      <button onClick={() => { setGroupModalData(null); if (onSelectStudent && lez.studentiIds?.[0]) onSelectStudent(lez.studentiIds[0]); }} className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 transition-colors text-white font-bold rounded-lg text-[10px] shadow-sm">
+                        Apri Scheda
+                      </button>
                     </div>
                   </div>
                 );
