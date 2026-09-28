@@ -104,10 +104,13 @@ export default function PlanningCalendario({
 
   const lezioniAttive = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
   const lezioniAnnullateOggi = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato === 'annullata');
-  const lezioniGruppoOggi = lezioniAttive.filter(l => l && l.isGruppo);
+ const lezioniGruppoOggi = lezioniAttive.filter(l => l && l.isGruppo);
 
-  // LA MAGIA: Tutte le lezioni senza prof E che non sono di gruppo finiscono qui!
-  const lezioniSenzaProf = lezioniAttive.filter(l => !l.isGruppo && !l.insegnanteId);
+  // IL CERVELLO POTENZIATO: Prende lezioni senza prof OPPURE con prof che sono stati cancellati
+  const idInsegnantiAttivi = insegnantiAttivi.map(i => i.id);
+  const lezioniSenzaProf = lezioniAttive.filter(l => 
+    !l.isGruppo && (!l.insegnanteId || !idInsegnantiAttivi.includes(l.insegnanteId))
+  );
 
   const changeDate = (days) => {
     const current = new Date(dataSelezionata);
