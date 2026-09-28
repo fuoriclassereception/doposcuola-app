@@ -8,7 +8,10 @@ import {
   updateDoc, 
   deleteDoc, 
   addDoc,
-  getDoc
+  getDoc,
+  getDocs,
+  query,
+  where
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
@@ -24,6 +27,7 @@ import CassaPresenze from './components/CassaPresenze';
 
 import Login from './components/Login';
 import AppGenitore from './components/AppGenitore';
+import AppInsegnante from './components/AppInsegnante'; // <-- IMPORTIAMO L'APP INSEGNANTI
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -66,7 +70,15 @@ export default function App() {
           if (userDoc.exists()) {
             setRuolo(userDoc.data().ruolo);
           } else {
-            setRuolo('genitore'); 
+            // CONTROLLO AUTOMATICO: È un insegnante appena creato?
+            const qIns = query(collection(db, 'insegnanti'), where('email', '==', currentUser.email));
+            const snapIns = await getDocs(qIns);
+            if (!snapIns.empty) {
+              setRuolo('insegnante');
+              await setDoc(doc(db, 'utenti', currentUser.uid), { ruolo: 'insegnante', email: currentUser.email });
+            } else {
+              setRuolo('genitore'); // Altrimenti è un genitore standard
+            }
           }
         } catch (error) {
           console.error("Errore recupero ruolo:", error);
@@ -379,7 +391,6 @@ export default function App() {
     } catch (err) { console.error("Errore estrazione:", err); }
   };
 
-  // Funzione per impostare lo studente selezionato e aprire il Dettaglio
   const handleSelectStudentForDetail = (stdId) => {
     const std = studenti.find(s => s?.id === stdId);
     if (std) setStudenteSelezionatoDettaglio(std);
@@ -391,6 +402,9 @@ export default function App() {
 
   if (authLoading) return <div className="flex items-center justify-center h-screen bg-gray-100"><div className="text-2xl font-bold text-blue-600 animate-pulse">Caricamento FuoriClasse...</div></div>;
   if (!user) return <Login />;
+  
+  // SMISTAMENTO RUOLI
+  if (ruolo === 'insegnante') return <AppInsegnante utente={user} onLogout={() => signOut(auth)} />;
   if (ruolo === 'genitore' || ruolo === 'studente') return <AppGenitore utente={user} onLogout={() => signOut(auth)} />;
 
   return (
@@ -400,7 +414,7 @@ export default function App() {
         activeTab={activeTab} setActiveTab={setActiveTab} 
         searchQuery={searchQuery} setSearchQuery={setSearchQuery} 
         logs={logsAttivita}
-        onLogout={() => signOut(auth)} // Passato alla sidebar
+        onLogout={() => signOut(auth)} 
       />
 
       <main className="flex-1 overflow-auto bg-gray-50/50">
@@ -427,7 +441,7 @@ export default function App() {
             studenti={studentiSicuri} 
             searchQuery={searchQuery} 
             onOpenModal={handleOpenStudenteModal} 
-            onSelectStudent={handleSelectStudentForDetail} // LA MODIFICA È QUI!
+            onSelectStudent={handleSelectStudentForDetail} 
             onToggleStato={handleToggleStatoStudente} 
             onDelete={handleDeleteStudente} 
           />
