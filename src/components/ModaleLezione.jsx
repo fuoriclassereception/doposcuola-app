@@ -1,243 +1,236 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, BookOpen, Search, UserCheck, Euro, Paperclip } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Calendar, Clock, User, BookOpen, CheckCircle, Users, MapPin, AlertTriangle } from 'lucide-react';
 
-export default function ModaleLezione({
-  isOpen,
-  onClose,
-  onSave,
-  insegnanti = [],
-  studenti = [],
-  lezioni = [],
-  initialData = null
-}) {
+export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = [], studenti = [], lezioni = [], initialData = null }) {
   const [formData, setFormData] = useState({
-    data: new Date().toISOString().split('T')[0],
-    oraInizio: '15:00',
-    oraFine: '16:00',
-    materia: 'Matematica',
-    insegnanteId: '',
-    studentiIds: [],
-    isGruppo: false,
-    tipoTariffa: 'standard',
-    costoTotaleLezione: 22,
-    note: '',
-    allegatoUrl: '',
-    oldLezioneId: null
+    data: '', oraInizio: '', oraFine: '', materia: '', note: '', isGruppo: false,
+    insegnanteId: '', coDocentiIds: [], studentiIds: []
   });
-
-  const [searchStudente, setSearchStudente] = useState('');
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef(null);
-
-  const insegnantiValidi = (insegnanti || []).filter(i => i && i.nome && i.attivo !== false);
-  const studentiValidi = (studenti || []).filter(s => s && s.nome && s.attivo !== false);
-
-  const getDurataOre = (inizio, fine) => {
-    if (!inizio || !fine) return 1;
-    const [h1, m1] = inizio.split(':').map(Number);
-    const [h2, m2] = fine.split(':').map(Number);
-    const mins = (h2 * 60 + m2) - (h1 * 60 + m1);
-    return mins > 0 ? mins / 60 : 1;
-  };
-
-  const calcolaCosto = (isGruppo, studentiIds, inizio, fine, tipoTariffa, costoManuale) => {
-    if (tipoTariffa === 'personalizzata') return Number(costoManuale || 0);
-    const durata = getDurataOre(inizio, fine);
-    if (isGruppo) return Number((durata * 12).toFixed(2));
-    const std = studentiValidi.find(s => (studentiIds || []).includes(s?.id));
-    let tariffaBase = 22;
-    if (std) {
-      if (std?.haTariffaRiservata && Number(std?.tariffaRiservataValore) > 0) tariffaBase = Number(std.tariffaRiservataValore);
-      else if (std?.categoriaTariffaria === 'elementari') tariffaBase = 18;
-      else if (std?.categoriaTariffaria === 'superiori') tariffaBase = 26;
-    }
-    if (durata >= 2) return Number((durata * (tariffaBase - 2)).toFixed(2));
-    return Number((durata * tariffaBase).toFixed(2));
-  };
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [ricercaStudente, setRicercaStudente] = useState('');
+  const [ricercaDocente, setRicercaDocente] = useState('');
 
   useEffect(() => {
     if (isOpen) {
-      const initGruppo = Boolean(initialData?.isGruppo);
-      const initStudenti = initialData?.studentiIds || [];
-      const initInizio = initialData?.oraInizio || '15:00';
-      
-      // CALCOLO AUTOMATICO ORA FINE IN BASE ALLE ORE RICHIESTE
-      let initFine = initialData?.oraFine || '16:00';
-      if (initialData?.oreRichieste) {
-        const [h, m] = initInizio.split(':').map(Number);
-        const totalMins = h * 60 + m + (parseFloat(initialData.oreRichieste) * 60);
-        const newH = Math.floor(totalMins / 60).toString().padStart(2, '0');
-        const newM = (totalMins % 60).toString().padStart(2, '0');
-        initFine = `${newH}:${newM}`;
+      if (initialData) {
+        setFormData({
+          data: initialData.data || new Date().toISOString().split('T')[0],
+          oraInizio: initialData.oraInizio || '15:00',
+          oraFine: initialData.oraFine || '16:00',
+          materia: initialData.materia || '',
+          note: initialData.note || '',
+          isGruppo: initialData.isGruppo || false,
+          insegnanteId: initialData.insegnanteId || '',
+          coDocentiIds: initialData.coDocentiIds || [],
+          studentiIds: initialData.studentiIds || [],
+          oldLezioneId: initialData.oldLezioneId || null
+        });
+      } else {
+        setFormData({
+          data: new Date().toISOString().split('T')[0], oraInizio: '15:00', oraFine: '16:00',
+          materia: '', note: '', isGruppo: false, insegnanteId: '', coDocentiIds: [], studentiIds: []
+        });
       }
-
-      const defaultDocId = insegnantiValidi[0]?.id || '';
-      const initDocente = initGruppo ? '' : (initialData?.insegnanteId || defaultDocId);
-      
-      const costoIniziale = calcolaCosto(initGruppo, initStudenti, initInizio, initFine, 'standard', initialData?.costoTotaleLezione);
-
-      setFormData({
-        data: initialData?.data || new Date().toISOString().split('T')[0],
-        oraInizio: initInizio,
-        oraFine: initFine,
-        materia: initialData?.materia || 'Matematica',
-        insegnanteId: initDocente,
-        studentiIds: initStudenti,
-        isGruppo: initGruppo,
-        tipoTariffa: 'standard',
-        costoTotaleLezione: costoIniziale,
-        note: initialData?.note || '',
-        allegatoUrl: initialData?.allegatoUrl || '', 
-        oldLezioneId: initialData?.oldLezioneId || null
-      });
+      setRicercaStudente('');
+      setRicercaDocente('');
     }
   }, [isOpen, initialData]);
 
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setIsDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   if (!isOpen) return null;
 
-  const handleToggleStudente = (id) => {
-    setFormData(prev => {
-      const exists = prev.studentiIds.includes(id);
-      const nuovi = exists ? prev.studentiIds.filter(sId => sId !== id) : [...prev.studentiIds, id];
-      const costo = calcolaCosto(prev.isGruppo, nuovi, prev.oraInizio, prev.oraFine, prev.tipoTariffa, prev.costoTotaleLezione);
-      return { ...prev, studentiIds: nuovi, costoTotaleLezione: costo };
-    });
+  const toggleStudente = (id) => {
+    setFormData(prev => ({
+      ...prev,
+      studentiIds: prev.studentiIds.includes(id) ? prev.studentiIds.filter(sId => sId !== id) : [...prev.studentiIds, id]
+    }));
+    setRicercaStudente('');
   };
 
-  const handleCambioOrario = (campo, valore) => {
-    setFormData(prev => {
-      const nuovoInizio = campo === 'oraInizio' ? valore : prev.oraInizio;
-      const nuovaFine = campo === 'oraFine' ? valore : prev.oraFine;
-      const costo = calcolaCosto(prev.isGruppo, prev.studentiIds, nuovoInizio, nuovaFine, prev.tipoTariffa, prev.costoTotaleLezione);
-      return { ...prev, [campo]: valore, costoTotaleLezione: costo };
-    });
+  const toggleCoDocente = (id) => {
+    setFormData(prev => ({
+      ...prev,
+      coDocentiIds: prev.coDocentiIds.includes(id) ? prev.coDocentiIds.filter(dId => dId !== id) : [...prev.coDocentiIds, id]
+    }));
+    setRicercaDocente('');
   };
 
-  const handleSubmit = (e) => {
+  // Controlli anti accavallamento (Solo avviso per la Reception, non bloccante)
+  const checkCollisioni = () => {
+    const conflitti = [];
+    if (!formData.data || !formData.oraInizio || !formData.oraFine) return conflitti;
+    if (formData.oraInizio >= formData.oraFine) return ["Orari non validi (fine antecedente all'inizio)."];
+
+    const lezioniGiorno = lezioni.filter(l => l.data === formData.data && l.stato !== 'annullata' && l.id !== formData.oldLezioneId);
+    const profDaControllare = [...formData.coDocentiIds];
+    if (formData.insegnanteId) profDaControllare.push(formData.insegnanteId);
+
+    lezioniGiorno.forEach(lez => {
+      const overlap = formData.oraInizio < lez.oraFine && formData.oraFine > lez.oraInizio;
+      if (overlap) {
+        profDaControllare.forEach(pId => {
+          if (lez.insegnanteId === pId || (lez.coDocentiIds || []).includes(pId)) {
+            const profInfo = insegnanti.find(i => i.id === pId);
+            if(profInfo) conflitti.push(`⚠️ Il Prof. ${profInfo.cognome} è già occupato/a in questa fascia oraria.`);
+          }
+        });
+        formData.studentiIds.forEach(sId => {
+          if ((lez.studentiIds || []).includes(sId)) {
+            const stdInfo = studenti.find(s => s.id === sId);
+            if(stdInfo) conflitti.push(`⚠️ ${stdInfo.nome} ha già una lezione in questa fascia oraria.`);
+          }
+        });
+      }
+    });
+    return [...new Set(conflitti)];
+  };
+
+  const conflittiAttuali = checkCollisioni();
+  const formNonValido = formData.studentiIds.length === 0 || formData.oraInizio >= formData.oraFine;
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.studentiIds.length) {
-      alert("Seleziona almeno uno studente per la lezione.");
-      return;
-    }
-    onSave(formData);
+    if (formNonValido) return;
+    setIsSubmitting(true);
+    
+    // Assicuriamoci che se ci sono più studenti sia flaggato come gruppo
+    const finalData = { ...formData };
+    if (finalData.studentiIds.length > 1) finalData.isGruppo = true;
+    
+    await onSave(finalData);
+    setIsSubmitting(false);
   };
 
-  const studentiFiltrati = studentiValidi.filter(s => {
-    const nome = `${s?.nome || ''} ${s?.cognome || ''}`.toLowerCase();
-    return nome.includes((searchStudente || '').toLowerCase().trim());
-  });
-
-  const studentiSelezionati = studentiValidi.filter(s => formData.studentiIds.includes(s?.id));
-  const durataOre = getDurataOre(formData.oraInizio, formData.oraFine);
+  const insegnantiAttivi = insegnanti.filter(i => i.attivo !== false);
+  const studentiFiltrati = studenti.filter(s => s.attivo !== false && `${s.nome} ${s.cognome}`.toLowerCase().includes(ricercaStudente.toLowerCase()));
+  const docentiFiltrati = insegnantiAttivi.filter(d => d.id !== formData.insegnanteId && `${d.nome} ${d.cognome}`.toLowerCase().includes(ricercaDocente.toLowerCase()));
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 select-none">
-      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center border-b border-gray-100 pb-3">
-          <div className="flex items-center space-x-2">
-            <BookOpen className="w-5 h-5 text-amber-500"/>
-            <h3 className="font-extrabold text-lg text-slate-900">
-              {formData.oldLezioneId ? 'Rischedula Lezione' : 'Nuova Lezione FuoriClasse'}
-            </h3>
-          </div>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-600 rounded-full">
-            <X className="w-5 h-5"/>
-          </button>
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto pt-10 pb-10">
+      <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden my-auto">
+        
+        <div className="bg-slate-900 p-5 flex justify-between items-center sticky top-0 z-10">
+          <h2 className="text-lg font-black text-white flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-amber-400"/>
+            {formData.oldLezioneId ? 'Modifica Lezione' : 'Inserisci Nuova Lezione'}
+          </h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition"><X className="w-5 h-5"/></button>
         </div>
 
-        {formData.allegatoUrl && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex justify-between items-center">
-            <span className="text-xs font-bold text-blue-800 flex items-center gap-1.5">
-              <Paperclip className="w-4 h-4 text-blue-500"/> 
-              Allegato dal genitore:
-            </span>
-            <a href={formData.allegatoUrl} target="_blank" rel="noreferrer" className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] px-3 py-1.5 rounded-lg font-bold transition-colors">
-              Apri File
-            </a>
-          </div>
-        )}
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div className="flex bg-gray-100 p-1 rounded-2xl">
-            <button type="button" onClick={() => { const costo = calcolaCosto(false, formData.studentiIds, formData.oraInizio, formData.oraFine, formData.tipoTariffa, formData.costoTotaleLezione); setFormData(prev => ({ ...prev, isGruppo: false, insegnanteId: insegnantiValidi[0]?.id || '', costoTotaleLezione: costo })); }} className={`flex-1 py-2 font-black rounded-xl transition-all ${!formData.isGruppo ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500'}`}>Docente Singolo</button>
-            <button type="button" onClick={() => { const costo = calcolaCosto(true, formData.studentiIds, formData.oraInizio, formData.oraFine, formData.tipoTariffa, formData.costoTotaleLezione); setFormData(prev => ({ ...prev, isGruppo: true, insegnanteId: '', costoTotaleLezione: costo })); }} className={`flex-1 py-2 font-black rounded-xl transition-all ${formData.isGruppo ? 'bg-amber-400 text-slate-950 shadow-sm' : 'text-gray-500'}`}>Gruppo Studio</button>
-          </div>
-
-          {!formData.isGruppo && (
+          {/* ASSEGNAZIONE DOCENTI */}
+          <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 space-y-4">
+            
+            {/* Titolare */}
             <div>
-              <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Docente Assegnato</label>
-              <select value={formData.insegnanteId} onChange={(e) => setFormData(prev => ({ ...prev, insegnanteId: e.target.value }))} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none">
-                {insegnantiValidi.map(ins => (<option key={ins.id} value={ins.id}>{ins?.nome || 'Docente'} {ins?.cognome || ''} ({ins?.materia || 'Generale'})</option>))}
+              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><MapPin className="w-3.5 h-3.5"/> Docente Titolare (Colonna Planning)</label>
+              <select 
+                className="w-full p-2.5 border border-amber-300 rounded-lg text-sm font-black bg-white text-slate-900"
+                value={formData.insegnanteId} 
+                onChange={e => {
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    insegnanteId: e.target.value,
+                    coDocentiIds: prev.coDocentiIds.filter(id => id !== e.target.value) // Rimuove dai co-docenti se diventa titolare
+                  }));
+                }}
+              >
+                <option value="">Nessun Titolare (Colonna "Da Assegnare")</option>
+                {insegnantiAttivi.map(ins => (
+                  <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
+                ))}
               </select>
             </div>
-          )}
 
-          <div className="grid grid-cols-3 gap-3">
-            <div><label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Data</label><input type="date" value={formData.data} onChange={(e) => setFormData(prev => ({ ...prev, data: e.target.value }))} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none"/></div>
-            <div><label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Inizio</label><input type="time" value={formData.oraInizio} onChange={(e) => handleCambioOrario('oraInizio', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none"/></div>
-            <div><label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Fine ({durataOre.toFixed(1)}h)</label><input type="time" value={formData.oraFine} onChange={(e) => handleCambioOrario('oraFine', e.target.value)} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none"/></div>
+            {/* Co-Docenti */}
+            <div className="pt-2 border-t border-amber-200">
+              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Aggiungi Co-Docenti (Extra Buste Paga)</label>
+              
+              {formData.coDocentiIds.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {formData.coDocentiIds.map(docId => {
+                    const prof = insegnantiAttivi.find(i => i.id === docId);
+                    if (!prof) return null;
+                    return (
+                      <span key={prof.id} className="bg-white text-slate-700 border border-slate-300 text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+                        {prof.cognome} <button type="button" onClick={() => toggleCoDocente(prof.id)}><X className="w-3 h-3 text-slate-400 hover:text-red-500"/></button>
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+              
+              <input type="text" placeholder="Cerca collega..." className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none" value={ricercaDocente} onChange={e => setRicercaDocente(e.target.value)} />
+              
+              {ricercaDocente.trim().length > 0 && (
+                <div className="mt-1 border border-amber-300 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white relative z-30">
+                  {docentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : docentiFiltrati.map(doc => (
+                    <div key={doc.id} onClick={() => toggleCoDocente(doc.id)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-amber-50 cursor-pointer">{doc.nome} {doc.cognome} ({doc.materia})</div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <label className="flex items-center gap-2 cursor-pointer pt-2 border-t border-amber-200 mt-2">
+              <input type="checkbox" className="w-4 h-4 text-amber-500 rounded focus:ring-amber-500" checked={formData.isGruppo} onChange={e => setFormData({...formData, isGruppo: e.target.checked})} />
+              <span className="text-xs font-bold text-amber-900">Forza posizionamento in "Gruppo Studio"</span>
+            </label>
           </div>
 
-          <div><label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Materia</label><input type="text" placeholder="es. Matematica..." value={formData.materia} onChange={(e) => setFormData(prev => ({ ...prev, materia: e.target.value }))} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none"/></div>
-
-          <div className="space-y-1.5 relative" ref={dropdownRef}>
-            <label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">Studenti Iscritti</label>
-            {studentiSelezionati.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 p-2 bg-amber-50/60 rounded-xl border border-amber-200 mb-1">
-                {studentiSelezionati.map(s => (
-                  <span key={s.id} className="inline-flex items-center space-x-1 bg-amber-200 text-amber-950 font-bold px-2 py-1 rounded-lg text-[11px]">
-                    <UserCheck className="w-3 h-3 text-amber-800"/><span>{s?.nome || 'Studente'} {s?.cognome || ''}</span>
-                    <button type="button" onClick={() => handleToggleStudente(s.id)} className="ml-1 hover:text-rose-600"><X className="w-3 h-3"/></button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className="relative">
-              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5"/>
-              <input type="text" placeholder="Cerca studente..." value={searchStudente} onFocus={() => setIsDropdownOpen(true)} onChange={(e) => { setSearchStudente(e.target.value); setIsDropdownOpen(true); }} className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-medium text-slate-900 focus:outline-none"/>
-            </div>
-            {isDropdownOpen && searchStudente.trim().length > 0 && (
-              <div className="absolute left-0 right-0 z-20 mt-1 max-h-44 overflow-y-auto border border-gray-200 rounded-2xl p-1.5 space-y-1 bg-white shadow-xl">
-                {studentiFiltrati.length === 0 ? <div className="text-center py-3 text-gray-400 font-medium">Nessuno studente trovato</div> : studentiFiltrati.map(std => {
-                  const isSelected = formData.studentiIds.includes(std.id);
+          {/* ALLIEVI (MULTI-SELEZIONE) */}
+          <div>
+            <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">Allievi Presenti *</label>
+            {formData.studentiIds.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
+                {formData.studentiIds.map(stdId => {
+                  const std = studenti.find(s => s.id === stdId);
+                  if(!std) return null;
                   return (
-                    <div key={std.id} onClick={() => { handleToggleStudente(std.id); setSearchStudente(''); setIsDropdownOpen(false); }} className={`p-2 rounded-xl flex items-center justify-between cursor-pointer font-bold transition-all ${isSelected ? 'bg-amber-100 text-slate-950' : 'hover:bg-gray-50 text-slate-700'}`}>
-                      <span>{std?.nome || 'Studente'} {std?.cognome || ''}</span>{isSelected && <span className="text-[10px] bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded font-black">Selezionato</span>}
-                    </div>
+                    <span key={std.id} className="bg-slate-900 text-white text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1">
+                      {std.nome} {std.cognome} <button type="button" onClick={() => toggleStudente(std.id)}><X className="w-3 h-3 text-slate-400 hover:text-white"/></button>
+                    </span>
                   );
                 })}
               </div>
             )}
+            <input type="text" placeholder="Cerca e aggiungi studente..." className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" value={ricercaStudente} onChange={e => setRicercaStudente(e.target.value)} />
+            
+            {ricercaStudente.trim().length > 0 && (
+              <div className="mt-1 border border-slate-200 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white relative z-20">
+                {studentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : studentiFiltrati.map(std => (
+                  <div key={std.id} onClick={() => toggleStudente(std.id)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">{std.nome} {std.cognome}</div>
+                ))}
+              </div>
+            )}
           </div>
 
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-            <div className="flex justify-between items-center"><span className="font-black text-slate-900 text-xs flex items-center gap-1"><Euro className="w-3.5 h-3.5 text-emerald-600"/><span>Costo Totale per Questa Lezione</span></span><span className="text-[10px] text-gray-500 font-bold">Durata: {durataOre.toFixed(1)} ore</span></div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Tipo Calcolo</label>
-                <select value={formData.tipoTariffa} onChange={(e) => { const nuovoTipo = e.target.value; const costo = calcolaCosto(formData.isGruppo, formData.studentiIds, formData.oraInizio, formData.oraFine, nuovoTipo, formData.costoTotaleLezione); setFormData(prev => ({ ...prev, tipoTariffa: nuovoTipo, costoTotaleLezione: costo })); }} className="w-full p-2 bg-white border border-gray-200 rounded-xl font-bold text-slate-900 focus:outline-none">
-                  <option value="standard">Calcolo Automatico Base</option><option value="personalizzata">Prezzo Forfait Manuale (€)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Importo da Scalare (€)</label>
-                <input type="number" step="0.5" min="0" required value={formData.costoTotaleLezione} disabled={formData.tipoTariffa !== 'personalizzata'} onChange={(e) => setFormData(prev => ({ ...prev, costoTotaleLezione: parseFloat(e.target.value) || 0 }))} className={`w-full p-2 rounded-xl font-black text-sm text-slate-900 border focus:outline-none ${formData.tipoTariffa === 'personalizzata' ? 'bg-amber-50 border-amber-300' : 'bg-gray-100 border-gray-200 text-gray-600'}`}/>
-              </div>
+          {/* DATI LEZIONE */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Data *</label><input type="date" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} /></div>
+            <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Dalle *</label><input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.oraInizio} onChange={e => setFormData({...formData, oraInizio: e.target.value})} /></div>
+            <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Alle *</label><input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.oraFine} onChange={e => setFormData({...formData, oraFine: e.target.value})} /></div>
+            <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Materia</label><input type="text" className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-medium" value={formData.materia} onChange={e => setFormData({...formData, materia: e.target.value})} placeholder="Es. Italiano" /></div>
+          </div>
+
+          <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Note (opzionale)</label><textarea rows="2" className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm resize-none" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} placeholder="Dettagli..."></textarea></div>
+
+          {/* RADAR RECEPTION (Non bloccante, solo avviso) */}
+          {conflittiAttuali.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl space-y-1">
+              <p className="text-xs font-black text-amber-800 flex items-center gap-1"><AlertTriangle className="w-4 h-4"/> Avviso di Sovrapposizione:</p>
+              <ul className="text-[11px] font-bold text-amber-700 space-y-1 mt-1">
+                {conflittiAttuali.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
             </div>
-          </div>
+          )}
 
-          <div><label className="block text-[11px] font-extrabold text-gray-500 uppercase tracking-wider mb-1">Note (opzionale)</label><input type="text" value={formData.note} onChange={(e) => setFormData(prev => ({ ...prev, note: e.target.value }))} className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl font-medium text-slate-900 focus:outline-none"/></div>
-          <div className="pt-3 border-t border-gray-100 flex justify-end space-x-2"><button type="button" onClick={onClose} className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-xl">Annulla</button><button type="submit" className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl shadow-sm">{formData.oldLezioneId ? 'Conferma Rischedulazione' : 'Salva Lezione'}</button></div>
+          <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
+            <button type="button" onClick={onClose} className="px-5 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl text-sm transition">Annulla</button>
+            <button type="submit" disabled={isSubmitting || formNonValido} className={`px-6 py-3 text-white font-black rounded-xl text-sm shadow-lg flex items-center gap-2 transition ${formNonValido ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800'}`}>
+              <CheckCircle className="w-4 h-4"/> {isSubmitting ? 'Salvataggio...' : 'Conferma e Salva'}
+            </button>
+          </div>
         </form>
       </div>
     </div>
