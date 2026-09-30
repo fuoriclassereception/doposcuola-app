@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from '../services/firebase';
-import { collection, addDoc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, updateDoc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Calendar, Plus, UserPlus, Clock, BookOpen, CheckCircle, XCircle, ChevronLeft, Paperclip } from 'lucide-react';
+import { Calendar, Plus, UserPlus, Clock, BookOpen, CheckCircle, XCircle, ChevronLeft, Paperclip, Settings, Bell, BellOff, Volume2, Vibrate, Mail, X } from 'lucide-react';
 
 export default function AppGenitore({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
@@ -21,16 +21,49 @@ export default function AppGenitore({ utente, onLogout }) {
     nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' 
   });
 
+  // STATI PER IMPOSTAZIONI SVEGLIA E NOTIFICHE GENITORE
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [impostazioniForm, setImpostazioniForm] = useState({ 
+    notificheAbilitate: false, 
+    minutiPreavviso: 30, // Predefinito a 30 minuti!
+    suonoAbilitato: true,
+    vibrazioneAbilitata: true,
+    emailAbilitate: false
+  });
+  const notifiedLezioni = useRef(new Set());
+
+  // Recupera i figli
   useEffect(() => {
     if (!utente?.email) return;
     const unsub = onSnapshot(query(collection(db, 'studenti'), where('genitoreEmail', '==', utente.email)), (snapshot) => {
       const figli = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setIMieiFigli(figli);
-      if (figli.length > 0) setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
+      if (figli.length > 0 && !nuovaRichiesta.studenteId) {
+        setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
+      }
     });
     return () => unsub();
   }, [utente]);
 
+  // Recupera le impostazioni (dal documento Utente)
+  useEffect(() => {
+    if (!utente?.uid) return;
+    const unsub = onSnapshot(doc(db, 'utenti', utente.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const dati = docSnap.data();
+        setImpostazioniForm({
+          notificheAbilitate: dati.notificheAbilitate || false,
+          minutiPreavviso: dati.minutiPreavviso || 30,
+          suonoAbilitato: dati.suonoAbilitato !== false,
+          vibrazioneAbilitata: dati.vibrazioneAbilitata !== false,
+          emailAbilitate: dati.emailAbilitate || false
+        });
+      }
+    });
+    return () => unsub();
+  }, [utente]);
+
+  // Recupera Storico Richieste
   useEffect(() => {
     if (!utente?.uid) return;
     const unsub = onSnapshot(query(collection(db, 'richieste_genitori'), where('genitoreId', '==', utente.uid)), (snapshot) => {
@@ -40,11 +73,7 @@ export default function AppGenitore({ utente, onLogout }) {
           ? dataCreazione.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 
           : 'Oggi';
           
-        return {
-          id: doc.id, 
-          ...doc.data(),
-          dataFormattata
-        };
+        return { id: doc.id, ...doc.data(), dataFormattata };
       });
       dati.sort((a, b) => (b.dataCreazione?.toMillis?.() || 0) - (a.dataCreazione?.toMillis?.() || 0));
       setRichieste(dati);
@@ -52,6 +81,7 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [utente]);
 
+  // Recupera Lezioni dei figli
   useEffect(() => {
     if (iMieiFigli.length === 0) {
       setLezioniProgrammate([]);
@@ -73,6 +103,67 @@ export default function AppGenitore({ utente, onLogout }) {
     });
     return () => unsub();
   }, [iMieiFigli]);
+
+  // --- MOTORE SVEGLIA E NOTIFICHE GENITORE ---
+  useEffect(() => {
+    if (!impostazioniForm.notificheAbilitate || lezioniProgrammate.length === 0) return;
+
+    const interval = setInterval(() => {
+      const now = new Date();
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      const todayStr = new Date().toISOString().split('T')[0];
+      const preavviso = Number(impostazioniForm.minutiPreavviso) || 30;
+
+      lezioniProgrammate.forEach(lez => {
+        if (lez.data === todayStr && lez.stato !== 'annullata') {
+          const [h, m] = (lez.oraInizio || '00:00').split(':').map(Number);
+          const startMins = h * 60 + m;
+          
+          if (startMins - nowMins === preavviso && startMins > nowMins && !notifiedLezioni.current.has(lez.id)) {
+            notifiedLezioni.current.add(lez.id);
+            
+            // Suono
+            if (impostazioniForm.suonoAbilitato) {
+              try { new Audio('https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3').play(); } catch(e){}
+            }
+            
+            // Vibrazione
+            if (impostazioniForm.vibrazioneAbilitata && navigator.vibrate) {
+              try { navigator.vibrate([200, 100, 200]); } catch(e){}
+            }
+            
+            // Notifica Push
+            if (Notification.permission === 'granted') {
+              new Notification('Lezione in arrivo!', { body: `Tra ${preavviso} min tuo figlio/a ha lezione di ${lez.materia}`});
+            }
+          }
+        }
+      });
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [impostazioniForm, lezioniProgrammate]);
+
+  const salvaImpostazioni = async () => {
+    try {
+      await updateDoc(doc(db, 'utenti', utente.uid), {
+        notificheAbilitate: impostazioniForm.notificheAbilitate,
+        minutiPreavviso: Number(impostazioniForm.minutiPreavviso),
+        suonoAbilitato: impostazioniForm.suonoAbilitato,
+        vibrazioneAbilitata: impostazioniForm.vibrazioneAbilitata,
+        emailAbilitate: impostazioniForm.emailAbilitate
+      });
+      setShowSettingsModal(false);
+      
+      // Chiede permessi notifiche browser
+      if (impostazioniForm.notificheAbilitate && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Errore durante il salvataggio delle preferenze.");
+    }
+  };
 
   const handleInviaRichiesta = async (e) => {
     e.preventDefault();
@@ -146,7 +237,10 @@ export default function AppGenitore({ utente, onLogout }) {
         <header className="bg-blue-600 text-white p-5 shadow-md shrink-0 flex flex-col gap-3 relative z-10">
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-black flex items-center gap-2">📚 FuoriClasse</h1>
-            <button onClick={onLogout} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 transition">Esci</button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setShowSettingsModal(true)} className="p-1.5 bg-blue-700 border border-blue-500 rounded-lg text-blue-100 hover:text-white transition"><Settings className="w-4 h-4"/></button>
+              <button onClick={onLogout} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 transition">Esci</button>
+            </div>
           </div>
           <p className="text-xs text-blue-200 truncate">Accesso: <span className="font-bold text-white">{utente.email}</span></p>
         </header>
@@ -188,8 +282,19 @@ export default function AppGenitore({ utente, onLogout }) {
                 </div>
               )}
 
+              {/* CRUSCOTTO STATO NOTIFICHE GENITORE */}
+              <div className={`p-4 border rounded-2xl flex items-center justify-between cursor-pointer transition shadow-sm ${impostazioniForm.notificheAbilitate ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setShowSettingsModal(true)}>
+                 <div>
+                    <h3 className={`text-sm font-black flex items-center gap-1.5 ${impostazioniForm.notificheAbilitate ? 'text-emerald-800' : 'text-slate-500'}`}>
+                      {impostazioniForm.notificheAbilitate ? <Bell className="w-4 h-4"/> : <BellOff className="w-4 h-4"/>} 
+                      {impostazioniForm.notificheAbilitate ? 'Promemoria Lezioni Attivo' : 'Promemoria Disattivati'}
+                    </h3>
+                    <p className="text-[10px] text-slate-500 font-bold mt-0.5">{impostazioniForm.notificheAbilitate ? `Ti avviseremo ${impostazioniForm.minutiPreavviso} minuti prima su questo telefono.` : 'Clicca per configurare la sveglia.'}</p>
+                 </div>
+              </div>
+
               <div>
-                <h2 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-3">I Tuoi Profili Studente</h2>
+                <h2 className="text-sm font-black text-gray-500 uppercase tracking-wider mb-3 mt-4">I Tuoi Profili Studente</h2>
                 {iMieiFigli.length === 0 ? (
                   <div className="bg-white p-6 rounded-2xl text-center border border-gray-200 shadow-sm space-y-4">
                     <div className="bg-blue-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto text-3xl">👤</div>
@@ -323,7 +428,6 @@ export default function AppGenitore({ utente, onLogout }) {
                   <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Giorno (Opzionale)</label><input type="date" className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovaRichiesta.dataPreferita} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, dataPreferita: e.target.value})} /></div>
                   <div><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Orario (Opzionale)</label><input type="text" placeholder="Es. Dopo le 16, Indifferente..." className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm font-medium" value={nuovaRichiesta.orarioPreferito} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, orarioPreferito: e.target.value})} /></div>
                   
-                  {/* RISOLTO BUG MEZZE ORE */}
                   <div className="col-span-2"><label className="block text-[10px] font-black text-slate-600 uppercase mb-1">Ore richieste *</label><input type="number" step="0.5" min="0.5" max="10" required className="w-full p-3.5 border border-gray-300 rounded-xl bg-gray-50 text-sm" value={nuovaRichiesta.ore} onChange={(e) => setNuovaRichiesta({...nuovaRichiesta, ore: e.target.value})} /></div>
                 </div>
                 
@@ -349,6 +453,81 @@ export default function AppGenitore({ utente, onLogout }) {
           )}
         </main>
       </div>
+
+      {/* MODALE IMPOSTAZIONI SVEGLIA E EMAIL GENITORE */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 max-h-[85vh] overflow-y-auto">
+            
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-black text-lg text-slate-800 flex items-center gap-2"><Settings className="w-5 h-5 text-blue-600"/> Impostazioni</h3>
+              <button onClick={() => setShowSettingsModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
+            </div>
+            
+            <div className="space-y-6">
+               
+               {/* SEZIONE SVEGLIA SMARTPHONE */}
+               <div>
+                  <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Avvisi su Telefono</h4>
+                  <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition">
+                    <input type="checkbox" className="w-5 h-5 text-emerald-500 rounded border-slate-300" checked={impostazioniForm.notificheAbilitate} onChange={e => setImpostazioniForm({...impostazioniForm, notificheAbilitate: e.target.checked})} />
+                    <div className="flex-1">
+                      <span className="font-black text-slate-800 flex items-center gap-2">
+                         {impostazioniForm.notificheAbilitate ? <Bell className="w-4 h-4 text-emerald-500"/> : <BellOff className="w-4 h-4 text-slate-400"/>} 
+                         Sveglia Attiva
+                      </span>
+                      <p className="text-[10px] text-slate-500 font-medium mt-0.5">Tieni l'app aperta o in background per far suonare l'avviso.</p>
+                    </div>
+                  </label>
+
+                  {impostazioniForm.notificheAbilitate && (
+                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl mt-3 space-y-4">
+                       <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-bold text-emerald-900 w-full">Minuti di preavviso:</span>
+                          <input type="number" min="5" max="120" className="w-16 p-2 text-center font-black bg-white border border-emerald-300 rounded-lg text-slate-900 shadow-inner" value={impostazioniForm.minutiPreavviso} onChange={e => setImpostazioniForm({...impostazioniForm, minutiPreavviso: e.target.value})} />
+                       </div>
+                       
+                       <div className="border-t border-emerald-200/60 pt-3 space-y-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded" checked={impostazioniForm.suonoAbilitato} onChange={e => setImpostazioniForm({...impostazioniForm, suonoAbilitato: e.target.checked})} />
+                            <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5"><Volume2 className="w-3.5 h-3.5"/> Riproduci Suono</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded" checked={impostazioniForm.vibrazioneAbilitata} onChange={e => setImpostazioniForm({...impostazioniForm, vibrazioneAbilitata: e.target.checked})} />
+                            <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5"><Vibrate className="w-3.5 h-3.5"/> Vibrazione</span>
+                          </label>
+                       </div>
+                       
+                       <button type="button" onClick={() => { 
+                         if(impostazioniForm.suonoAbilitato) { try { new Audio('https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3').play(); } catch(e){} }
+                         if(impostazioniForm.vibrazioneAbilitata && navigator.vibrate) { navigator.vibrate([200, 100, 200]); }
+                       }} className="w-full py-2 bg-emerald-200 hover:bg-emerald-300 text-emerald-900 font-black text-xs rounded-lg transition shadow-sm">
+                          Testa Avviso
+                       </button>
+                    </div>
+                  )}
+               </div>
+
+               {/* SEZIONE EMAIL */}
+               <div className="pt-2 border-t border-slate-100">
+                  <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Ricevi via Email</h4>
+                  <label className="flex items-center gap-3 cursor-pointer p-3 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition">
+                    <input type="checkbox" className="w-5 h-5 text-blue-600 rounded border-blue-300" checked={impostazioniForm.emailAbilitate} onChange={e => setImpostazioniForm({...impostazioniForm, emailAbilitate: e.target.checked})} />
+                    <div className="flex-1">
+                      <span className="font-black text-blue-900 flex items-center gap-2">
+                         <Mail className="w-4 h-4"/> 
+                         Invia promemoria via Email
+                      </span>
+                      <p className="text-[10px] text-blue-700 font-medium mt-0.5">Ricevi una email automatica con il riepilogo della lezione.</p>
+                    </div>
+                  </label>
+               </div>
+
+               <button onClick={salvaImpostazioni} className="w-full py-3.5 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg mt-2">Salva e Chiudi</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
