@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../services/firebase';
 import { doc, updateDoc, collection, addDoc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
-import { Calendar as CalendarIcon, Plus, User, X, CheckCircle, BookOpen, AlertTriangle, Crown, Users, MapPin, Home, CalendarDays, PlusCircle, ChevronLeft, ChevronRight, Clock, Settings, Bell, BellOff, Paperclip, AlignLeft, Volume2 } from 'lucide-react';
+import { Calendar as CalendarIcon, Plus, User, X, CheckCircle, BookOpen, AlertTriangle, Crown, Users, MapPin, Home, CalendarDays, PlusCircle, ChevronLeft, ChevronRight, Clock, Settings, Bell, BellOff, Paperclip, AlignLeft, Volume2, Vibrate, Link } from 'lucide-react';
 
 export default function AppInsegnante({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
@@ -21,10 +21,15 @@ export default function AppInsegnante({ utente, onLogout }) {
   const [coDocenti, setCoDocenti] = useState([]);
   const [ricercaDocente, setRicercaDocente] = useState('');
 
-  // STATI PER IMPOSTAZIONI SVEGLIA
+  // STATI PER IMPOSTAZIONI SVEGLIA E CALENDARIO
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [impostazioniForm, setImpostazioniForm] = useState({ notificheAbilitate: false, minutiPreavviso: 10 });
-  const notifiedLezioni = useRef(new Set()); // Per non far suonare la stessa sveglia due volte
+  const [impostazioniForm, setImpostazioniForm] = useState({ 
+    notificheAbilitate: false, 
+    minutiPreavviso: 10,
+    suonoAbilitato: true,
+    vibrazioneAbilitata: true
+  });
+  const notifiedLezioni = useRef(new Set()); 
 
   useEffect(() => {
     if (!utente?.email) return;
@@ -36,10 +41,11 @@ export default function AppInsegnante({ utente, onLogout }) {
         setNuovaLezione(prev => ({ ...prev, materia: ins.materia || '' }));
         if (!titolareSelezionato) setTitolareSelezionato(ins.id);
         
-        // Carica le preferenze salvate
         setImpostazioniForm({
           notificheAbilitate: ins.notificheAbilitate || false,
-          minutiPreavviso: ins.minutiPreavviso || 10
+          minutiPreavviso: ins.minutiPreavviso || 10,
+          suonoAbilitato: ins.suonoAbilitato !== false, 
+          vibrazioneAbilitata: ins.vibrazioneAbilitata !== false 
         });
       }
     });
@@ -67,7 +73,7 @@ export default function AppInsegnante({ utente, onLogout }) {
   const mieLezioni = tutteLezioni.filter(l => l.insegnanteId === insegnanteRef?.id || (l.coDocentiIds || []).includes(insegnanteRef?.id));
   mieLezioni.sort((a, b) => a.data.localeCompare(b.data) || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
 
-  // --- MOTORE DELLA SVEGLIA E DELLE NOTIFICHE ---
+  // --- MOTORE DELLA SVEGLIA POTENZIATO ---
   useEffect(() => {
     if (!insegnanteRef?.notificheAbilitate) return;
 
@@ -82,37 +88,41 @@ export default function AppInsegnante({ utente, onLogout }) {
           const [h, m] = (lez.oraInizio || '00:00').split(':').map(Number);
           const startMins = h * 60 + m;
           
-          // Se mancano esattamente i minuti richiesti e non ha ancora suonato
           if (startMins - nowMins === preavviso && startMins > nowMins && !notifiedLezioni.current.has(lez.id)) {
             notifiedLezioni.current.add(lez.id);
             
-            // Suona!
-            try {
-              const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-              audio.play();
-            } catch(e) { console.error("Auto-play bloccato"); }
+            // Suono Dolce
+            if (insegnanteRef.suonoAbilitato !== false) {
+              try { new Audio('https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3').play(); } catch(e){}
+            }
             
-            // Manda Notifica Push
+            // Vibrazione
+            if (insegnanteRef.vibrazioneAbilitata !== false && navigator.vibrate) {
+              try { navigator.vibrate([200, 100, 200]); } catch(e){}
+            }
+            
+            // Notifica Push
             if (Notification.permission === 'granted') {
-              new Notification('Lezione in arrivo!', { body: `Tra ${preavviso} minuti inizia la lezione di ${lez.materia}`});
+              new Notification('Lezione imminente', { body: `Tra ${preavviso} min: ${lez.materia}`});
             }
           }
         }
       });
-    }, 30000); // Controlla ogni 30 secondi
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [insegnanteRef, mieLezioni]);
 
-  const salvaImpostazioniSveglia = async () => {
+  const salvaImpostazioni = async () => {
     try {
       await updateDoc(doc(db, 'insegnanti', insegnanteRef.id), {
         notificheAbilitate: impostazioniForm.notificheAbilitate,
-        minutiPreavviso: Number(impostazioniForm.minutiPreavviso)
+        minutiPreavviso: Number(impostazioniForm.minutiPreavviso),
+        suonoAbilitato: impostazioniForm.suonoAbilitato,
+        vibrazioneAbilitata: impostazioniForm.vibrazioneAbilitata
       });
       setShowSettingsModal(false);
       
-      // Chiede il permesso per le notifiche se attivato
       if (impostazioniForm.notificheAbilitate && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
         Notification.requestPermission();
       }
@@ -233,7 +243,6 @@ export default function AppInsegnante({ utente, onLogout }) {
     return giorni[d.getDay()];
   };
 
-  // --- CARDS LEZIONI POTENZIATE (Appunti e Note) ---
   const renderLezioneCard = (lez) => {
     const nomiStudenti = (lez.studentiIds || []).map(id => studenti.find(s => s.id === id)?.nome).filter(Boolean).join(', ');
     return (
@@ -248,16 +257,12 @@ export default function AppInsegnante({ utente, onLogout }) {
           <div className="flex items-center gap-1 text-[10px] font-bold bg-slate-50 border border-slate-100 px-2 py-1 rounded-lg text-slate-600">
             <Clock className="w-3 h-3 text-amber-500"/> {lez.oraInizio} - {lez.oraFine}
           </div>
-          
-          {/* BOTTONE APPUNTI */}
           {lez.allegatoUrl && (
             <a href={lez.allegatoUrl} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[10px] font-bold bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg text-blue-700 hover:bg-blue-100 transition">
               <Paperclip className="w-3 h-3"/> Vedi Appunti
             </a>
           )}
         </div>
-        
-        {/* SPAZIO NOTE DELLA RECEPTION */}
         {lez.note && (
           <div className="mt-2 bg-amber-50/50 p-2 rounded-lg border border-amber-100">
             <p className="text-[10px] text-slate-600 flex items-start gap-1"><AlignLeft className="w-3 h-3 text-amber-500 shrink-0 mt-0.5"/> <span className="italic font-medium">{lez.note}</span></p>
@@ -270,27 +275,24 @@ export default function AppInsegnante({ utente, onLogout }) {
   return (
     <div className="h-[100dvh] bg-slate-100 flex flex-col font-sans overflow-hidden mx-auto max-w-md w-full shadow-2xl relative">
 
-      {/* HEADER SUPERIORE CON INGRANAGGIO IMPOSTAZIONI */}
       <header className="bg-slate-900 text-white p-4 shadow-md shrink-0 flex justify-between items-center z-10">
         <div>
           <h1 className="text-lg font-black flex items-center gap-1.5"><Crown className="w-4 h-4 text-amber-400"/> {insegnanteRef?.nome || 'Docente'}</h1>
           {insegnanteRef?.isCoordinatore && <span className="text-[9px] bg-amber-500 text-amber-950 font-black uppercase px-2 py-0.5 rounded shadow mt-1 inline-block">Coordinatore</span>}
         </div>
         <div className="flex items-center gap-2">
-          {/* TASTO IMPOSTAZIONI ⚙️ */}
           <button onClick={() => setShowSettingsModal(true)} className="p-1.5 bg-slate-800 border border-slate-700 rounded-lg text-amber-400 hover:text-white transition"><Settings className="w-4 h-4"/></button>
           <button onClick={onLogout} className="text-[10px] bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg font-bold hover:bg-rose-600 transition">Esci</button>
         </div>
       </header>
 
-      {/* ZONA CENTRALE SCORREVOLE */}
       <main className="flex-1 overflow-y-auto bg-slate-50 relative pb-20">
         
         {vistaAttiva === 'dashboard' && (
           <div className="p-5 space-y-6">
             <div className="bg-gradient-to-br from-amber-400 to-amber-500 p-6 rounded-3xl shadow-lg text-amber-950">
               <h2 className="text-2xl font-black mb-1">Benvenuto!</h2>
-              <p className="text-sm font-bold opacity-90">Controlla la tua agenda o inserisci una nuova lezione direttamente dal telefono.</p>
+              <p className="text-sm font-bold opacity-90">Controlla la tua agenda o inserisci una nuova lezione dal telefono.</p>
             </div>
 
             <div>
@@ -304,22 +306,14 @@ export default function AppInsegnante({ utente, onLogout }) {
               <button onClick={() => setVistaAttiva('calendario')} className="w-full mt-2 py-2 text-amber-600 font-black text-xs uppercase bg-amber-50 rounded-xl">Vedi tutto il calendario</button>
             </div>
             
-            {/* PANNELLO STATO SVEGLIA */}
             <div className={`p-4 border rounded-2xl flex items-center justify-between cursor-pointer transition ${insegnanteRef?.notificheAbilitate ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setShowSettingsModal(true)}>
                <div>
                   <h3 className={`text-sm font-black flex items-center gap-1.5 ${insegnanteRef?.notificheAbilitate ? 'text-amber-900' : 'text-slate-500'}`}>
                     {insegnanteRef?.notificheAbilitate ? <Bell className="w-4 h-4"/> : <BellOff className="w-4 h-4"/>} 
                     {insegnanteRef?.notificheAbilitate ? 'Sveglia Attiva' : 'Sveglia Disattivata'}
                   </h3>
-                  <p className="text-[10px] text-slate-500 font-bold mt-0.5">{insegnanteRef?.notificheAbilitate ? `Ti avviseremo ${insegnanteRef.minutiPreavviso} minuti prima della lezione.` : 'Clicca per attivare i promemoria.'}</p>
+                  <p className="text-[10px] text-slate-500 font-bold mt-0.5">{insegnanteRef?.notificheAbilitate ? `Preavviso: ${insegnanteRef.minutiPreavviso} minuti.` : 'Clicca per configurare.'}</p>
                </div>
-            </div>
-
-            <div className="bg-indigo-50 border border-indigo-100 p-5 rounded-2xl">
-              <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wider mb-2 flex items-center gap-2">🗓️ Promemoria iCal</h3>
-              <button onClick={() => { const linkMagico = `${window.location.origin}/api/calendario?profId=${insegnanteRef.id}`; navigator.clipboard.writeText(linkMagico); alert("✅ Link copiato! \n\nUsa questo link per iscriverti al calendario su PC o Smartphone."); }} className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl text-xs hover:bg-indigo-700 shadow-sm transition-colors">
-                Copia Link Calendario
-              </button>
             </div>
           </div>
         )}
@@ -382,7 +376,6 @@ export default function AppInsegnante({ utente, onLogout }) {
                                 </div>
                                 <span className="text-[10px] font-black text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100">{lez.oraInizio}</span>
                               </div>
-                              {/* Icone compatte nella visuale settimanale se ci sono note o appunti */}
                               {(lez.note || lez.allegatoUrl) && (
                                 <div className="flex gap-2 text-[9px] font-bold text-slate-400 mt-1 pt-1 border-t border-slate-100">
                                   {lez.allegatoUrl && <span className="text-blue-500 flex items-center gap-0.5"><Paperclip className="w-2.5 h-2.5"/> Appunti</span>}
@@ -416,7 +409,6 @@ export default function AppInsegnante({ utente, onLogout }) {
                         {tuttiInsegnanti.map(ins => (<option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome}</option>))}
                       </select>
                     </div>
-
                     <div className="pt-2 border-t border-amber-200">
                       <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Co-Docenti (Buste Paga)</label>
                       {coDocenti.length > 0 && (
@@ -502,45 +494,72 @@ export default function AppInsegnante({ utente, onLogout }) {
         </button>
       </nav>
 
-      {/* MODALE IMPOSTAZIONI SVEGLIA */}
+      {/* MODALE IMPOSTAZIONI SVEGLIA E CALENDARIO */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 max-h-[85vh] overflow-y-auto">
             
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-black text-lg text-slate-800 flex items-center gap-2"><Settings className="w-5 h-5 text-amber-500"/> Impostazioni</h3>
               <button onClick={() => setShowSettingsModal(false)}><X className="w-5 h-5 text-slate-400"/></button>
             </div>
             
-            <div className="space-y-5">
+            <div className="space-y-6">
+               
+               {/* SEZIONE SVEGLIA */}
                <div>
+                  <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Avvisi Lezione</h4>
                   <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition">
                     <input type="checkbox" className="w-5 h-5 text-amber-500 rounded border-slate-300" checked={impostazioniForm.notificheAbilitate} onChange={e => setImpostazioniForm({...impostazioniForm, notificheAbilitate: e.target.checked})} />
                     <div className="flex-1">
                       <span className="font-black text-slate-800 flex items-center gap-2">
                          {impostazioniForm.notificheAbilitate ? <Bell className="w-4 h-4 text-amber-500"/> : <BellOff className="w-4 h-4 text-slate-400"/>} 
-                         Sveglia Lezioni
+                         Sveglia Attiva
                       </span>
-                      <p className="text-[10px] text-slate-500 font-medium mt-0.5">Suona e invia una notifica prima della lezione. Tieni l'app aperta o in background.</p>
+                      <p className="text-[10px] text-slate-500 font-medium mt-0.5">L'app deve restare aperta o in background.</p>
                     </div>
                   </label>
+
+                  {impostazioniForm.notificheAbilitate && (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl mt-3 space-y-4">
+                       <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-bold text-amber-900 w-full">Minuti di preavviso:</span>
+                          <input type="number" min="1" max="60" className="w-16 p-2 text-center font-black bg-white border border-amber-300 rounded-lg text-slate-900 shadow-inner" value={impostazioniForm.minutiPreavviso} onChange={e => setImpostazioniForm({...impostazioniForm, minutiPreavviso: e.target.value})} />
+                       </div>
+                       
+                       <div className="border-t border-amber-200/60 pt-3 space-y-3">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" className="w-4 h-4 text-amber-600 rounded" checked={impostazioniForm.suonoAbilitato} onChange={e => setImpostazioniForm({...impostazioniForm, suonoAbilitato: e.target.checked})} />
+                            <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5"><Volume2 className="w-3.5 h-3.5"/> Riproduci Suono (Delicato)</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" className="w-4 h-4 text-amber-600 rounded" checked={impostazioniForm.vibrazioneAbilitata} onChange={e => setImpostazioniForm({...impostazioniForm, vibrazioneAbilitata: e.target.checked})} />
+                            <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5"><Vibrate className="w-3.5 h-3.5"/> Vibrazione</span>
+                          </label>
+                       </div>
+                       
+                       <button type="button" onClick={() => { 
+                         if(impostazioniForm.suonoAbilitato) { try { new Audio('https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3').play(); } catch(e){} }
+                         if(impostazioniForm.vibrazioneAbilitata && navigator.vibrate) { navigator.vibrate([200, 100, 200]); }
+                       }} className="w-full py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 font-black text-xs rounded-lg transition shadow-sm">
+                          Testa Avviso
+                       </button>
+                    </div>
+                  )}
                </div>
 
-               {impostazioniForm.notificheAbilitate && (
-                 <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                    <label className="block text-[11px] font-extrabold text-amber-800 uppercase mb-3">Quanti minuti prima?</label>
-                    <div className="flex items-center justify-between gap-3">
-                       <input type="number" min="1" max="60" className="w-20 p-2.5 text-center font-black bg-white border border-amber-300 rounded-lg text-slate-900 shadow-inner" value={impostazioniForm.minutiPreavviso} onChange={e => setImpostazioniForm({...impostazioniForm, minutiPreavviso: e.target.value})} />
-                       <span className="text-xs font-bold text-amber-900 w-full">Minuti di preavviso</span>
-                    </div>
-                    
-                    <button type="button" onClick={() => { try { new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play(); } catch(e){} }} className="mt-4 w-full py-2 bg-amber-200 hover:bg-amber-300 text-amber-900 font-black text-xs rounded-lg flex items-center justify-center gap-2 transition shadow-sm">
-                       <Volume2 className="w-4 h-4"/> Testa il Suono
+               {/* SEZIONE CALENDARIO ESTERNO */}
+               <div className="pt-2 border-t border-slate-100">
+                  <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Esporta Calendario</h4>
+                  <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl">
+                    <p className="text-[10px] text-indigo-800 font-bold mb-3 leading-snug">Ottieni il link per vedere le tue lezioni su Google Calendar o Apple Calendar (sincronizzazione passiva).</p>
+                    <button onClick={() => { const linkMagico = `${window.location.origin}/api/calendario?profId=${insegnanteRef.id}`; navigator.clipboard.writeText(linkMagico); alert("✅ Link copiato! \n\nIncollalo in Google Calendar ('Da URL') o Apple Calendar ('Aggiungi calendario in abbonamento')."); }} className="w-full bg-indigo-600 text-white font-black py-2.5 rounded-lg text-xs hover:bg-indigo-700 shadow-sm flex items-center justify-center gap-1.5">
+                      <Link className="w-3.5 h-3.5"/> Copia Link iCal
                     </button>
-                 </div>
-               )}
+                  </div>
+               </div>
 
-               <button onClick={salvaImpostazioniSveglia} className="w-full py-3.5 bg-slate-900 text-white font-black rounded-xl hover:bg-slate-800 shadow-lg mt-2">Salva Impostazioni</button>
+               <button onClick={salvaImpostazioni} className="w-full py-3.5 bg-slate-900 text-white font-black rounded-xl hover:bg-slate-800 shadow-lg">Salva e Chiudi</button>
             </div>
           </div>
         </div>
