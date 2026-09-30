@@ -30,8 +30,15 @@ export default async function handler(req, res) {
     const studenti = {};
     studentiSnap.forEach(doc => { studenti[doc.id] = doc.data(); });
 
-    // Intestazione obbligatoria per far capire a Google che è un Calendario
-    let icsData = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//FuoriClasse//IT\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\n`;
+      // Intestazione arricchita per Google Calendar e Apple Calendar
+    let icsData = `BEGIN:VCALENDAR\r\n`;
+    icsData += `VERSION:2.0\r\n`;
+    icsData += `PRODID:-//FuoriClasse//IT\r\n`;
+    icsData += `CALSCALE:GREGORIAN\r\n`;
+    icsData += `METHOD:PUBLISH\r\n`;
+    icsData += `X-WR-CALNAME:FuoriClasse - Lezioni\r\n`; // <-- IL NOME AUTOMATICO!
+    icsData += `X-WR-TIMEZONE:Europe/Rome\r\n`;        // <-- IL FUSO ORARIO CORRETTO!
+    icsData += `X-WR-CALDESC:Calendario personale docente\r\n`;
 
     lezioniSnap.forEach(doc => {
       const lez = doc.data();
