@@ -23,8 +23,8 @@ export default function AppInsegnante({ utente, onLogout }) {
 
   // STATI PER IMPOSTAZIONI SVEGLIA E CALENDARIO
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [impostazioniForm, setImpostazioniForm] = useState({ 
-    notificheAbilitate: false, 
+  const [impostazioniForm, setImpostazioniForm] = useState({  
+    notificheAbilitate: false,  
     minutiPreavviso: 10,
     suonoAbilitato: true,
     vibrazioneAbilitata: true
@@ -73,6 +73,15 @@ export default function AppInsegnante({ utente, onLogout }) {
   const mieLezioni = tutteLezioni.filter(l => l.insegnanteId === insegnanteRef?.id || (l.coDocentiIds || []).includes(insegnanteRef?.id));
   mieLezioni.sort((a, b) => a.data.localeCompare(b.data) || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
 
+  // Filtraggio studenti per la ricerca al volo
+  const studentiFiltrati = studenti.filter(s => 
+    `${s.nome} ${s.cognome}`.toLowerCase().includes(ricercaStudente.toLowerCase())
+  );
+
+  const docentiFiltrati = tuttiInsegnanti.filter(d => 
+    `${d.nome} ${d.cognome}`.toLowerCase().includes(ricercaDocente.toLowerCase())
+  );
+
   // --- MOTORE DELLA SVEGLIA POTENZIATO ---
   useEffect(() => {
     if (!insegnanteRef?.notificheAbilitate) return;
@@ -91,17 +100,14 @@ export default function AppInsegnante({ utente, onLogout }) {
           if (startMins - nowMins === preavviso && startMins > nowMins && !notifiedLezioni.current.has(lez.id)) {
             notifiedLezioni.current.add(lez.id);
             
-            // Suono Dolce
             if (insegnanteRef.suonoAbilitato !== false) {
               try { new Audio('https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3').play(); } catch(e){}
             }
             
-            // Vibrazione
             if (insegnanteRef.vibrazioneAbilitata !== false && navigator.vibrate) {
               try { navigator.vibrate([200, 100, 200]); } catch(e){}
             }
             
-            // Notifica Push
             if (Notification.permission === 'granted') {
               new Notification('Lezione imminente', { body: `Tra ${preavviso} min: ${lez.materia}`});
             }
@@ -438,17 +444,45 @@ export default function AppInsegnante({ utente, onLogout }) {
                     <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
                       {studentiSelezionati.map(std => (
                         <span key={std.id} className="bg-slate-900 text-white text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1">
-                          {std.nome} <button type="button" onClick={() => toggleStudente(std)}><X className="w-3 h-3 text-slate-400"/></button>
+                          {std.nome} {std.isProvvisorio && '(Prova)'} <button type="button" onClick={() => toggleStudente(std)}><X className="w-3 h-3 text-slate-400"/></button>
                         </span>
                       ))}
                     </div>
                   )}
-                  <input type="text" placeholder="Cerca studente..." className="w-full p-3 bg-white border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" value={ricercaStudente} onChange={e => setRicercaStudente(e.target.value)} />
+                  <input type="text" placeholder="Cerca studente o digita nome per prova al volo..." className="w-full p-3 bg-white border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" value={ricercaStudente} onChange={e => setRicercaStudente(e.target.value)} />
                   {ricercaStudente.trim().length > 0 && (
                     <div className="mt-1 border border-slate-200 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white relative z-20">
-                      {studentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : studentiFiltrati.map(std => (
-                        <div key={std.id} onClick={() => toggleStudente(std)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">{std.nome} {std.cognome}</div>
-                      ))}
+                      {studentiFiltrati.length === 0 ? (
+                        <div 
+                          onClick={async () => {
+                            try {
+                              const nuovoDocRef = await addDoc(collection(db, 'studenti'), {
+                                nome: ricercaStudente.trim(),
+                                cognome: '(In Prova)',
+                                attivo: true,
+                                isProvvisorio: true,
+                                totaleVersato: 0,
+                                totaleConsumato: 0,
+                                createdAt: serverTimestamp()
+                              });
+                              const studenteCreato = { id: nuovoDocRef.id, nome: ricercaStudente.trim(), cognome: '(In Prova)', isProvvisorio: true };
+                              setStudentiSelezionati([...studentiSelezionati, studenteCreato]);
+                              setRicercaStudente('');
+                            } catch(err) {
+                              alert("Errore nella creazione al volo.");
+                            }
+                          }}
+                          className="p-3 text-xs font-black text-amber-600 hover:bg-amber-50 cursor-pointer flex items-center justify-between"
+                        >
+                          <span>➕ Aggiungi "{ricercaStudente}" in prova al volo</span>
+                        </div>
+                      ) : (
+                        studentiFiltrati.map(std => (
+                          <div key={std.id} onClick={() => toggleStudente(std)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">
+                            {std.nome} {std.cognome} {std.isProvvisorio && <span className="text-[10px] bg-amber-100 text-amber-800 px-1 rounded ml-2">PROVA</span>}
+                          </div>
+                        ))
+                      )}
                     </div>
                   )}
                 </div>
@@ -506,7 +540,6 @@ export default function AppInsegnante({ utente, onLogout }) {
             
             <div className="space-y-6">
                
-               {/* SEZIONE SVEGLIA */}
                <div>
                   <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Avvisi Lezione</h4>
                   <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition">
@@ -548,7 +581,6 @@ export default function AppInsegnante({ utente, onLogout }) {
                   )}
                </div>
 
-               {/* SEZIONE CALENDARIO ESTERNO */}
                <div className="pt-2 border-t border-slate-100">
                   <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Esporta Calendario</h4>
                   <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl">
