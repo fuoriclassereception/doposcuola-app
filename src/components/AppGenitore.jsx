@@ -146,14 +146,27 @@ export default function AppGenitore({ utente, onLogout }) {
 
   const salvaImpostazioni = async () => {
     try {
-      await updateDoc(doc(db, 'utenti', utente.uid), {
+      // Usiamo setDoc con { merge: true }: se il documento non esiste, lo crea in automatico!
+      await setDoc(doc(db, 'utenti', utente.uid), {
+        email: utente.email,
         notificheAbilitate: impostazioniForm.notificheAbilitate,
         minutiPreavviso: Number(impostazioniForm.minutiPreavviso),
         suonoAbilitato: impostazioniForm.suonoAbilitato,
         vibrazioneAbilitata: impostazioniForm.vibrazioneAbilitata,
         emailAbilitate: impostazioniForm.emailAbilitate
-      });
+      }, { merge: true });
+
       setShowSettingsModal(false);
+      
+      // Chiede permessi notifiche browser
+      if (impostazioniForm.notificheAbilitate && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        Notification.requestPermission();
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Errore durante il salvataggio delle preferenze.");
+    }
+  };
       
       // Chiede permessi notifiche browser
       if (impostazioniForm.notificheAbilitate && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
