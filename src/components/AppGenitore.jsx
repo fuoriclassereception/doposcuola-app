@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from '../services/firebase';
-import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, setDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Calendar, Plus, UserPlus, Clock, BookOpen, CheckCircle, XCircle, ChevronLeft, Paperclip, Settings, Bell, BellOff, Volume2, Vibrate, Mail, X } from 'lucide-react';
 
@@ -32,7 +32,21 @@ export default function AppGenitore({ utente, onLogout }) {
   });
   const notifiedLezioni = useRef(new Set());
 
-  // Recupera le impostazioni del genitore
+  // 1. Recupera i figli associati al genitore
+  useEffect(() => {
+    if (!utente?.email) return;
+    const unsub = onSnapshot(query(collection(db, 'studenti'), where('genitoreEmail', '==', utente.email)), (snapshot) => {
+      const figli = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setIMieiFigli(figli);
+      
+      if (figli.length > 0 && !nuovaRichiesta.studenteId) {
+        setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
+      }
+    });
+    return () => unsub();
+  }, [utente]);
+
+  // 2. Recupera le impostazioni salvate del genitore in modo sicuro
   useEffect(() => {
     if (!utente?.uid) return;
     const unsub = onSnapshot(doc(db, 'impostazioni_genitori', utente.uid), (docSnap) => {
@@ -46,19 +60,8 @@ export default function AppGenitore({ utente, onLogout }) {
           emailAbilitate: dati.emailAbilitate || false
         });
       }
-    });
-    return () => unsub();
-  }, [utente]);
-        // Carica le preferenze dal primo figlio
-        const primoFiglio = figli[0];
-        setImpostazioniForm({
-          notificheAbilitate: primoFiglio.notificheAbilitate || false,
-          minutiPreavviso: primoFiglio.minutiPreavviso || 30,
-          suonoAbilitato: primoFiglio.suonoAbilitato !== false,
-          vibrazioneAbilitata: primoFiglio.vibrazioneAbilitata !== false,
-          emailAbilitate: primoFiglio.emailAbilitate || false
-        });
-      }
+    }, (error) => {
+      console.error("Errore lettura impostazioni:", error);
     });
     return () => unsub();
   }, [utente]);
@@ -139,10 +142,9 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => clearInterval(interval);
   }, [impostazioniForm, lezioniProgrammate]);
 
+  // SALVATAGGIO IMPOSTAZIONI SICURO
   const salvaImpostazioni = async () => {
     try {
-      // Metodo sicuro: salviamo le preferenze in una collezione dedicata "impostazioni_genitori" basata sull'UID del genitore
-      const { setDoc, doc } = await import('firebase/firestore');
       await setDoc(doc(db, 'impostazioni_genitori', utente.uid), {
         email: utente.email,
         notificheAbilitate: impostazioniForm.notificheAbilitate,
@@ -152,15 +154,6 @@ export default function AppGenitore({ utente, onLogout }) {
         emailAbilitate: impostazioniForm.emailAbilitate
       }, { merge: true });
 
-      // Se ha anche dei figli, salviamo una copia rapida anche lì per comodità del postino email
-      if (iMieiFigli.length > 0) {
-        for (const figlio of iMieiFigli) {
-          await updateDoc(doc(db, 'studenti', figlio.id), {
-            emailAbilitate: impostazioniForm.emailAbilitate
-          }).catch(() => {}); // Ignora eventuali errori minori sul singolo studente
-        }
-      }
-
       setShowSettingsModal(false);
       
       if (impostazioniForm.notificheAbilitate && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
@@ -168,8 +161,8 @@ export default function AppGenitore({ utente, onLogout }) {
       }
       alert("✅ Preferenze salvate con successo!");
     } catch (error) {
-      console.error("Errore dettagliato Firebase:", error);
-      alert("Errore durante il salvataggio. Controlla la console per i dettagli.");
+      console.error("Errore salvataggio impostazioni:", error);
+      alert("Errore durante il salvataggio delle preferenze.");
     }
   };
 
@@ -290,7 +283,6 @@ export default function AppGenitore({ utente, onLogout }) {
                 </div>
               )}
 
-              {/* CRUSCOTTO STATO NOTIFICHE GENITORE */}
               <div className={`p-4 border rounded-2xl flex items-center justify-between cursor-pointer transition shadow-sm ${impostazioniForm.notificheAbilitate ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setShowSettingsModal(true)}>
                  <div>
                     <h3 className={`text-sm font-black flex items-center gap-1.5 ${impostazioniForm.notificheAbilitate ? 'text-emerald-800' : 'text-slate-500'}`}>
