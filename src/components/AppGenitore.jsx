@@ -32,17 +32,23 @@ export default function AppGenitore({ utente, onLogout }) {
   });
   const notifiedLezioni = useRef(new Set());
 
-  // Recupera i figli e le impostazioni salvate nel primo figlio
+  // Recupera le impostazioni del genitore
   useEffect(() => {
-    if (!utente?.email) return;
-    const unsub = onSnapshot(query(collection(db, 'studenti'), where('genitoreEmail', '==', utente.email)), (snapshot) => {
-      const figli = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setIMieiFigli(figli);
-      
-      if (figli.length > 0) {
-        if (!nuovaRichiesta.studenteId) {
-          setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
-        }
+    if (!utente?.uid) return;
+    const unsub = onSnapshot(doc(db, 'impostazioni_genitori', utente.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const dati = docSnap.data();
+        setImpostazioniForm({
+          notificheAbilitate: dati.notificheAbilitate || false,
+          minutiPreavviso: dati.minutiPreavviso || 30,
+          suonoAbilitato: dati.suonoAbilitato !== false,
+          vibrazioneAbilitata: dati.vibrazioneAbilitata !== false,
+          emailAbilitate: dati.emailAbilitate || false
+        });
+      }
+    });
+    return () => unsub();
+  }, [utente]);
         // Carica le preferenze dal primo figlio
         const primoFiglio = figli[0];
         setImpostazioniForm({
