@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from '../services/firebase';
-import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, updateDoc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Calendar, Plus, UserPlus, Clock, BookOpen, CheckCircle, XCircle, ChevronLeft, Paperclip, Settings, Bell, BellOff, Volume2, Vibrate, Mail, X } from 'lucide-react';
 
@@ -25,38 +25,32 @@ export default function AppGenitore({ utente, onLogout }) {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [impostazioniForm, setImpostazioniForm] = useState({ 
     notificheAbilitate: false, 
-    minutiPreavviso: 30, // Predefinito a 30 minuti!
+    minutiPreavviso: 30, 
     suonoAbilitato: true,
     vibrazioneAbilitata: true,
     emailAbilitate: false
   });
   const notifiedLezioni = useRef(new Set());
 
-  // Recupera i figli
+  // Recupera i figli e le impostazioni salvate nel primo figlio
   useEffect(() => {
     if (!utente?.email) return;
     const unsub = onSnapshot(query(collection(db, 'studenti'), where('genitoreEmail', '==', utente.email)), (snapshot) => {
       const figli = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setIMieiFigli(figli);
-      if (figli.length > 0 && !nuovaRichiesta.studenteId) {
-        setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
-      }
-    });
-    return () => unsub();
-  }, [utente]);
-
-  // Recupera le impostazioni (dal documento Utente)
-  useEffect(() => {
-    if (!utente?.uid) return;
-    const unsub = onSnapshot(doc(db, 'utenti', utente.uid), (docSnap) => {
-      if (docSnap.exists()) {
-        const dati = docSnap.data();
+      
+      if (figli.length > 0) {
+        if (!nuovaRichiesta.studenteId) {
+          setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
+        }
+        // Carica le preferenze dal primo figlio
+        const primoFiglio = figli[0];
         setImpostazioniForm({
-          notificheAbilitate: dati.notificheAbilitate || false,
-          minutiPreavviso: dati.minutiPreavviso || 30,
-          suonoAbilitato: dati.suonoAbilitato !== false,
-          vibrazioneAbilitata: dati.vibrazioneAbilitata !== false,
-          emailAbilitate: dati.emailAbilitate || false
+          notificheAbilitate: primoFiglio.notificheAbilitate || false,
+          minutiPreavviso: primoFiglio.minutiPreavviso || 30,
+          suonoAbilitato: primoFiglio.suonoAbilitato !== false,
+          vibrazioneAbilitata: primoFiglio.vibrazioneAbilitata !== false,
+          emailAbilitate: primoFiglio.emailAbilitate || false
         });
       }
     });
@@ -122,17 +116,12 @@ export default function AppGenitore({ utente, onLogout }) {
           if (startMins - nowMins === preavviso && startMins > nowMins && !notifiedLezioni.current.has(lez.id)) {
             notifiedLezioni.current.add(lez.id);
             
-            // Suono
             if (impostazioniForm.suonoAbilitato) {
               try { new Audio('https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3').play(); } catch(e){}
             }
-            
-            // Vibrazione
             if (impostazioniForm.vibrazioneAbilitata && navigator.vibrate) {
               try { navigator.vibrate([200, 100, 200]); } catch(e){}
             }
-            
-            // Notifica Push
             if (Notification.permission === 'granted') {
               new Notification('Lezione in arrivo!', { body: `Tra ${preavviso} min tuo figlio/a ha lezione di ${lez.materia}`});
             }
@@ -145,33 +134,27 @@ export default function AppGenitore({ utente, onLogout }) {
   }, [impostazioniForm, lezioniProgrammate]);
 
   const salvaImpostazioni = async () => {
+    if (iMieiFigli.length === 0) {
+      alert("Devi prima creare un profilo studente per salvare le impostazioni.");
+      return;
+    }
     try {
-      // Usiamo setDoc con { merge: true }: se il documento non esiste, lo crea in automatico!
-      await setDoc(doc(db, 'utenti', utente.uid), {
-        email: utente.email,
+      // Salviamo le preferenze sul profilo del primo figlio/studente
+      const idStudente = iMieiFigli[0].id;
+      await updateDoc(doc(db, 'studenti', idStudente), {
         notificheAbilitate: impostazioniForm.notificheAbilitate,
         minutiPreavviso: Number(impostazioniForm.minutiPreavviso),
         suonoAbilitato: impostazioniForm.suonoAbilitato,
         vibrazioneAbilitata: impostazioniForm.vibrazioneAbilitata,
         emailAbilitate: impostazioniForm.emailAbilitate
-      }, { merge: true });
+      });
 
       setShowSettingsModal(false);
       
-      // Chiede permessi notifiche browser
       if (impostazioniForm.notificheAbilitate && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
         Notification.requestPermission();
       }
-    } catch (error) {
-      console.error(error);
-      alert("Errore durante il salvataggio delle preferenze.");
-    }
-  };
-      
-      // Chiede permessi notifiche browser
-      if (impostazioniForm.notificheAbilitate && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-        Notification.requestPermission();
-      }
+      alert("✅ Preferenze salvate con successo!");
     } catch (error) {
       console.error(error);
       alert("Errore durante il salvataggio delle preferenze.");
@@ -479,7 +462,6 @@ export default function AppGenitore({ utente, onLogout }) {
             
             <div className="space-y-6">
                
-               {/* SEZIONE SVEGLIA SMARTPHONE */}
                <div>
                   <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Avvisi su Telefono</h4>
                   <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition">
@@ -521,7 +503,6 @@ export default function AppGenitore({ utente, onLogout }) {
                   )}
                </div>
 
-               {/* SEZIONE EMAIL */}
                <div className="pt-2 border-t border-slate-100">
                   <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Ricevi via Email</h4>
                   <label className="flex items-center gap-3 cursor-pointer p-3 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition">
