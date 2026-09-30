@@ -204,6 +204,26 @@ export default function AppInsegnante({ utente, onLogout }) {
                   </div>
                 )}
               </div>
+
+              {/* ZONA SINCRONIZZAZIONE CALENDARIO */}
+              <div className="mt-8 bg-indigo-50 border border-indigo-200 p-5 rounded-2xl">
+                <h3 className="text-sm font-black text-indigo-900 uppercase tracking-wider mb-2 flex items-center gap-2">
+                  🗓️ Sincronizza Calendario
+                </h3>
+                <p className="text-[11px] text-indigo-700 font-bold mb-4">
+                  Collega il tuo Planning in tempo reale a Google Calendar o Apple Calendar. Si aggiornerà automaticamente!
+                </p>
+                <button 
+                  onClick={() => {
+                    const linkMagico = `${window.location.origin}/api/calendario?profId=${insegnanteRef.id}`;
+                    navigator.clipboard.writeText(linkMagico);
+                    alert("✅ Link copiato! \n\nOra apri Google Calendar su PC, vai su 'Altri calendari' -> '+' -> 'Da URL' e incolla questo link.");
+                  }} 
+                  className="w-full bg-indigo-600 text-white font-black py-3 rounded-xl text-xs hover:bg-indigo-700 shadow-sm transition-colors"
+                >
+                  Copia Link Personale
+                </button>
+              </div>
             </>
           )}
 
