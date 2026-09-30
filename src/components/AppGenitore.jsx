@@ -142,27 +142,37 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => clearInterval(interval);
   }, [impostazioniForm, lezioniProgrammate]);
 
-  // SALVATAGGIO IMPOSTAZIONI SICURO
+  // SALVATAGGIO IMPOSTAZIONI BLINDATO PER SAFARI E IPHONE
   const salvaImpostazioni = async () => {
     try {
+      if (!utente?.uid) {
+        alert("Utente non autenticato correttamente.");
+        return;
+      }
+
+      // Salvataggio sicuro su Firestore
       await setDoc(doc(db, 'impostazioni_genitori', utente.uid), {
-        email: utente.email,
-        notificheAbilitate: impostazioniForm.notificheAbilitate,
-        minutiPreavviso: Number(impostazioniForm.minutiPreavviso),
-        suonoAbilitato: impostazioniForm.suonoAbilitato,
-        vibrazioneAbilitata: impostazioniForm.vibrazioneAbilitata,
-        emailAbilitate: impostazioniForm.emailAbilitate
+        email: utente.email || '',
+        notificheAbilitate: Boolean(impostazioniForm.notificheAbilitate),
+        minutiPreavviso: Number(impostazioniForm.minutiPreavviso) || 30,
+        suonoAbilitato: Boolean(impostazioniForm.suonoAbilitato),
+        vibrazioneAbilitata: Boolean(impostazioniForm.vibrazioneAbilitata),
+        emailAbilitate: Boolean(impostazioniForm.emailAbilitate)
       }, { merge: true });
 
       setShowSettingsModal(false);
       
-      if (impostazioniForm.notificheAbilitate && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-        Notification.requestPermission();
+      // Gestione sicura dei permessi di notifica (compatibile con Safari mobile)
+      if (impostazioniForm.notificheAbilitate && typeof window !== 'undefined' && 'Notification' in window) {
+        if (Notification.permission === 'default') {
+          Notification.requestPermission().catch(err => console.log("Permesso notifiche negato da Safari:", err));
+        }
       }
+      
       alert("✅ Preferenze salvate con successo!");
     } catch (error) {
       console.error("Errore salvataggio impostazioni:", error);
-      alert("Errore durante il salvataggio delle preferenze.");
+      alert("Errore durante il salvataggio. Riprova.");
     }
   };
 
