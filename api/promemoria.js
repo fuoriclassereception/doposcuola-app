@@ -5,13 +5,14 @@ import nodemailer from 'nodemailer';
 
 // ⚠️ INCOLLA QUI LA TUA VERA CONFIGURAZIONE DI FIREBASE
 const firebaseConfig = {
-  apiKey: "LA_TUA_API_KEY",
-  authDomain: "...",
-  projectId: "...",
-  storageBucket: "...",
-  messagingSenderId: "...",
-  appId: "..."
-};
+  apiKey: "AIzaSyBvdt-SI07jgrKz7ebw8AD0Sqj-stf5cls",
+  authDomain: "fuoriclasse-app-4dfb9.firebaseapp.com",
+  projectId: "fuoriclasse-app-4dfb9",
+  storageBucket: "fuoriclasse-app-4dfb9.firebasestorage.app",
+  messagingSenderId: "22858064784",
+  appId: "1:22858064784:web:98b33584447c8a0466c915",
+  measurementId: "G-EC3NNQ9FG1"
+  };
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
