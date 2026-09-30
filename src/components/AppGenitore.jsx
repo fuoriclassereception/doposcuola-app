@@ -134,20 +134,26 @@ export default function AppGenitore({ utente, onLogout }) {
   }, [impostazioniForm, lezioniProgrammate]);
 
   const salvaImpostazioni = async () => {
-    if (iMieiFigli.length === 0) {
-      alert("Devi prima creare un profilo studente per salvare le impostazioni.");
-      return;
-    }
     try {
-      // Salviamo le preferenze sul profilo del primo figlio/studente
-      const idStudente = iMieiFigli[0].id;
-      await updateDoc(doc(db, 'studenti', idStudente), {
+      // Metodo sicuro: salviamo le preferenze in una collezione dedicata "impostazioni_genitori" basata sull'UID del genitore
+      const { setDoc, doc } = await import('firebase/firestore');
+      await setDoc(doc(db, 'impostazioni_genitori', utente.uid), {
+        email: utente.email,
         notificheAbilitate: impostazioniForm.notificheAbilitate,
         minutiPreavviso: Number(impostazioniForm.minutiPreavviso),
         suonoAbilitato: impostazioniForm.suonoAbilitato,
         vibrazioneAbilitata: impostazioniForm.vibrazioneAbilitata,
         emailAbilitate: impostazioniForm.emailAbilitate
-      });
+      }, { merge: true });
+
+      // Se ha anche dei figli, salviamo una copia rapida anche lì per comodità del postino email
+      if (iMieiFigli.length > 0) {
+        for (const figlio of iMieiFigli) {
+          await updateDoc(doc(db, 'studenti', figlio.id), {
+            emailAbilitate: impostazioniForm.emailAbilitate
+          }).catch(() => {}); // Ignora eventuali errori minori sul singolo studente
+        }
+      }
 
       setShowSettingsModal(false);
       
@@ -156,8 +162,8 @@ export default function AppGenitore({ utente, onLogout }) {
       }
       alert("✅ Preferenze salvate con successo!");
     } catch (error) {
-      console.error(error);
-      alert("Errore durante il salvataggio delle preferenze.");
+      console.error("Errore dettagliato Firebase:", error);
+      alert("Errore durante il salvataggio. Controlla la console per i dettagli.");
     }
   };
 
