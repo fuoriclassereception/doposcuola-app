@@ -3,18 +3,28 @@
 @import "tailwindcss/utilities";
 
 /* ========================================================
-   MODALITÀ NOTTE NATIVA STILE CHROME / DARK READER
+   MODALITÀ NOTTE STILE CHROME (SMART INVERT)
    ======================================================== */
 
-html.dark {
-  /* Inverte luminosità preservando esattamente la tonalità dei colori */
-  filter: invert(0.92) hue-rotate(180deg);
-  background-color: #ffffff;
+body.dark-mode {
+  background-color: #121212 !important;
 }
 
-/* Evita che le foto degli studenti o icone vengano invertite "a negativo" */
-html.dark img,
-html.dark video,
-html.dark svg {
+/* Inverte solo l'area di lavoro (planning, schede, modali), preservando contrasto e leggibilità */
+body.dark-mode main,
+body.dark-mode .flex-1,
+body.dark-mode [role="dialog"],
+body.dark-mode .fixed.inset-0 > div {
+  filter: invert(0.9) hue-rotate(180deg) brightness(0.95) contrast(0.95);
+}
+
+/* Ripristina immagini, video e avatar in modo che non sembrino negativi fotografici */
+body.dark-mode img,
+body.dark-mode video {
   filter: invert(1) hue-rotate(180deg);
+}
+
+/* La sidebar è già blu scuro, quindi NON deve essere invertita */
+body.dark-mode aside {
+  filter: none !important;
 }
