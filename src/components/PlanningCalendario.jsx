@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft, Paperclip, Edit2, Pin, Sun, Moon } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft, Paperclip, Edit2, Pin } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
@@ -11,25 +11,6 @@ export default function PlanningCalendario({
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
-
- // STATO TEMA NOTTE (LUNA / SOLE)
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    return document.body.classList.contains('dark-mode') || localStorage.getItem('tema_notte') === 'true';
-  });
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.body.classList.add('dark-mode');
-      localStorage.setItem('tema_notte', 'true');
-    } else {
-      document.body.classList.remove('dark-mode');
-      localStorage.setItem('tema_notte', 'false');
-    }
-  }, [isDarkMode]);
-
-  const toggleTema = () => {
-    setIsDarkMode(prev => !prev);
-  };
 
   const insegnantiAttivi = (insegnanti || []).filter(i => i && i.nome && i.attivo !== false);
 
@@ -304,27 +285,10 @@ export default function PlanningCalendario({
     <div className="w-full h-full p-0 flex flex-col space-y-3 select-none" onMouseUp={handleGlobalMouseUp}>
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
         
-        {/* TITOLO + TASTO TEMA NOTTE COMPATTO SUBITO A DESTRA */}
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl"><CalendarIcon className="w-5 h-5"/></div>
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
-              
-              {/* PULSANTE SOLE / LUNA */}
-              <button
-  type="button"
-  onClick={toggleTema}
-  className="p-1.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700 shadow-xs"
-  title={isDarkMode ? "Passa a Tema Giorno" : "Passa a Tema Notte"}
->
-  {isDarkMode ? (
-    <Sun className="w-4 h-4 text-amber-500 fill-amber-500/20" />
-  ) : (
-    <Moon className="w-4 h-4 text-indigo-500 fill-indigo-500/20" />
-  )}
-</button>
-            </div>
+            <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
             <p className="text-xs text-gray-500">Lezioni contemporanee affiancate</p>
           </div>
         </div>
