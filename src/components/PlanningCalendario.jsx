@@ -12,18 +12,18 @@ export default function PlanningCalendario({
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
 
-  // STATO TEMA NOTTE (LUNA / SOLE A DESTRA DEL TITOLO)
+ // STATO TEMA NOTTE (LUNA / SOLE)
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    return localStorage.getItem('tema_scuro') === 'true';
+    return document.body.classList.contains('dark-mode') || localStorage.getItem('tema_notte') === 'true';
   });
 
   useEffect(() => {
     if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('tema_scuro', 'true');
+      document.body.classList.add('dark-mode');
+      localStorage.setItem('tema_notte', 'true');
     } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('tema_scuro', 'false');
+      document.body.classList.remove('dark-mode');
+      localStorage.setItem('tema_notte', 'false');
     }
   }, [isDarkMode]);
 
