@@ -1,9 +1,36 @@
 import React, { useState } from 'react';
-import { Calendar, Users, GraduationCap, Wallet, Search, History, LogOut } from 'lucide-react';
+import { Calendar, Users, GraduationCap, Wallet, Search, History, LogOut, Send, Loader2 } from 'lucide-react';
 import ModaleLog from './ModaleLog';
 
 export default function Sidebar({ activeTab, setActiveTab, searchQuery, setSearchQuery, logs = [], onLogout }) {
   const [mostraLogModal, setMostraLogModal] = useState(false);
+  const [sendingPromemoria, setSendingPromemoria] = useState(false);
+
+  const handleInviaPromemoriaOggi = async () => {
+    const conferma = window.confirm("Vuoi inviare il promemoria email per le lezioni di oggi ai genitori che hanno abilitato gli aggiornamenti?");
+    if (!conferma) return;
+
+    setSendingPromemoria(true);
+    try {
+      const res = await fetch('/api/promemoria', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo: 'manuale_reception' })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(`✅ ${data.message}`);
+      } else {
+        alert(`⚠️ ${data.message || 'Nessuna operazione eseguita.'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Errore di connessione durante l'invio del promemoria.");
+    } finally {
+      setSendingPromemoria(false);
+    }
+  };
 
   return (
     <aside className="w-64 bg-[#0f172a] text-gray-300 flex flex-col h-full border-r border-slate-800 select-none">
@@ -15,7 +42,7 @@ export default function Sidebar({ activeTab, setActiveTab, searchQuery, setSearc
           FuoriClasse
         </h1>
 
-        {/* Bottone Logout elegante sotto il titolo */}
+        {/* Bottone Logout sotto il titolo */}
         {onLogout && (
           <button 
             onClick={onLogout}
@@ -63,9 +90,30 @@ export default function Sidebar({ activeTab, setActiveTab, searchQuery, setSearc
         </nav>
       </div>
 
-      {/* ZONA INFERIORE: PULSANTE LOG + RICERCA */}
+      {/* ZONA INFERIORE: TASTO PROMEMORIA + LOG + RICERCA */}
       <div className="p-4 bg-slate-900/60 border-t border-slate-800/80 space-y-2.5 shrink-0">
         
+        {/* TASTO INVIA PROMEMORIA OGGI */}
+        <button
+          onClick={handleInviaPromemoriaOggi}
+          disabled={sendingPromemoria}
+          className="w-full flex items-center justify-center space-x-2 px-3.5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800/60 text-white rounded-xl text-xs font-black shadow-md transition-all border border-blue-400/30"
+          title="Invia email di riepilogo odierno ai genitori abilitati"
+        >
+          {sendingPromemoria ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin"/>
+              <span>Invio in corso...</span>
+            </>
+          ) : (
+            <>
+              <Send className="w-3.5 h-3.5"/>
+              <span>Invia Promemoria Oggi</span>
+            </>
+          )}
+        </button>
+
+        {/* REGISTRO LOG */}
         <button
           onClick={() => setMostraLogModal(true)}
           className="w-full flex items-center justify-between px-3.5 py-2 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-amber-400 rounded-xl text-xs font-bold border border-slate-700/60 transition-all shadow-sm"
