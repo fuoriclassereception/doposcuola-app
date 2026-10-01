@@ -32,14 +32,43 @@ export default function GestioneStudenti({
     window.open(`https://wa.me/${numeroCompleto}?text=${encodeURIComponent(messaggio)}`, '_blank');
   };
 
-  const handleInviaEmail = (std) => {
-    const targetEmail = std.isMinorenne ? (std.genitoreEmail || std.email) : (std.email || std.genitoreEmail);
-    const targetNome = std.isMinorenne ? `Genitore di ${std.nome}` : std.nome;
+  const [sendingEmailId, setSendingEmailId] = useState(null);
 
-    if (!targetEmail) {
-      alert(`Attenzione: inserisci un'email per ${targetNome} per poter inviare l'invito.`);
-      return;
+const handleInviaEmail = async (std) => {
+  const targetEmail = std.isMinorenne ? (std.genitoreEmail || std.email) : (std.email || std.genitoreEmail);
+  const targetNome = `${std.nome} ${std.cognome || ''}`.trim();
+
+  if (!targetEmail) {
+    alert(`Attenzione: inserisci un'email valida per ${std.nome} per poter inviare l'invito.`);
+    return;
+  }
+
+  setSendingEmailId(std.id);
+
+  try {
+    const res = await fetch('/api/invito', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: targetEmail,
+        nomeStudente: targetNome,
+        linkApp: window.location.origin
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(`✅ Email di invito inviata con successo a ${targetEmail}!`);
+    } else {
+      alert(`❌ Errore nell'invio: ${data.message || 'Riprova più tardi'}`);
     }
+  } catch (err) {
+    console.error(err);
+    alert("Errore di connessione durante l'invio dell'email.");
+  } finally {
+    setSendingEmailId(null);
+  }
+};
 
     const linkApp = typeof window !== 'undefined' ? window.location.origin : 'https://fuoriclasse.vercel.app';
     const oggetto = `Benvenuto a FuoriClasse - Accesso e Profilo di ${std.nome}`;
