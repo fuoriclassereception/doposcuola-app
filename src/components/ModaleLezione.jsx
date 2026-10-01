@@ -3,9 +3,22 @@ import { X, Calendar, Clock, User, BookOpen, CheckCircle, Users, MapPin, AlertTr
 import { db } from '../services/firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
+const MATERIE_RAPIDE = [
+  'Ripasso',
+  'Matematica',
+  'Italiano',
+  'Inglese',
+  'Fisica',
+  'Chimica',
+  'Scienze',
+  'Storia',
+  'Geografia',
+  'Latino'
+];
+
 export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = [], studenti = [], lezioni = [], initialData = null }) {
   const [formData, setFormData] = useState({
-    data: '', oraInizio: '', oraFine: '', materia: '', note: '', isGruppo: false,
+    data: '', oraInizio: '', oraFine: '', materia: 'Ripasso', note: '', isGruppo: false,
     insegnanteId: '', coDocentiIds: [], studentiIds: []
   });
   
@@ -21,18 +34,18 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
           data: initialData.data || new Date().toISOString().split('T')[0],
           oraInizio: initialData.oraInizio || '15:00',
           oraFine: initialData.oraFine || '16:00',
-          materia: initialData.materia || '',
+          materia: initialData.materia?.trim() || 'Ripasso',
           note: initialData.note || '',
           isGruppo: initialData.isGruppo || false,
           insegnanteId: initialData.insegnanteId || '',
           coDocentiIds: initialData.coDocentiIds || [],
           studentiIds: initialData.studentiIds || [],
-          oldLezioneId: initialData.oldLezioneId || null
+          oldLezioneId: initialData.oldLezioneId || initialData.id || null
         });
       } else {
         setFormData({
           data: new Date().toISOString().split('T')[0], oraInizio: '15:00', oraFine: '16:00',
-          materia: '', note: '', isGruppo: false, insegnanteId: '', coDocentiIds: [], studentiIds: []
+          materia: 'Ripasso', note: '', isGruppo: false, insegnanteId: '', coDocentiIds: [], studentiIds: []
         });
       }
       setRicercaStudente('');
@@ -94,11 +107,11 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
     }
   };
 
-  // Controlli anti accavallamento (Solo avviso per la Reception, non bloccante)
+  // Controlli anti-collisione oraria per la Reception
   const checkCollisioni = () => {
     const conflitti = [];
     if (!formData.data || !formData.oraInizio || !formData.oraFine) return conflitti;
-    if (formData.oraInizio >= formData.oraFine) return ["Orari non validi (fine antecedente all'inizio)."];
+    if (formData.oraInizio >= formData.oraFine) return ["Orari non validi (l'orario di fine precede l'inizio)."];
 
     const lezioniGiorno = lezioni.filter(l => l.data === formData.data && l.stato !== 'annullata' && l.id !== formData.oldLezioneId);
     const profDaControllare = [...formData.coDocentiIds];
@@ -110,13 +123,13 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
         profDaControllare.forEach(pId => {
           if (lez.insegnanteId === pId || (lez.coDocentiIds || []).includes(pId)) {
             const profInfo = insegnanti.find(i => i.id === pId);
-            if(profInfo) conflitti.push(`⚠️ Il Prof. ${profInfo.cognome} è già occupato/a in questa fascia oraria.`);
+            if (profInfo) conflitti.push(`⚠️ Il Prof. ${profInfo.cognome} è già impegnato in questa fascia.`);
           }
         });
         formData.studentiIds.forEach(sId => {
           if ((lez.studentiIds || []).includes(sId)) {
             const stdInfo = studenti.find(s => s.id === sId);
-            if(stdInfo) conflitti.push(`⚠️ ${stdInfo.nome} ha già una lezione in questa fascia oraria.`);
+            if (stdInfo) conflitti.push(`⚠️ ${stdInfo.nome} ha già una lezione programmata in questo orario.`);
           }
         });
       }
@@ -132,9 +145,15 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
     if (formNonValido) return;
     setIsSubmitting(true);
     
-    // Assicuriamoci che se ci sono più studenti sia flaggato come gruppo
-    const finalData = { ...formData };
-    if (finalData.studentiIds.length > 1) finalData.isGruppo = true;
+    // Normalizzazione materia di default
+    const finalData = { 
+      ...formData,
+      materia: formData.materia?.trim() || 'Ripasso'
+    };
+
+    if (finalData.studentiIds.length > 1) {
+      finalData.isGruppo = true;
+    }
     
     await onSave(finalData);
     setIsSubmitting(false);
@@ -151,7 +170,7 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
         <div className="bg-slate-900 p-5 flex justify-between items-center sticky top-0 z-10">
           <h2 className="text-lg font-black text-white flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-amber-400"/>
-            {formData.oldLezioneId ? 'Modifica Lezione' : 'Inserisci Nuova Lezione'}
+            {formData.oldLezioneId ? 'Modifica Dettagli Lezione' : 'Inserisci Nuova Lezione'}
           </h2>
           <button onClick={onClose} className="text-slate-400 hover:text-white transition"><X className="w-5 h-5"/></button>
         </div>
@@ -163,7 +182,9 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
             
             {/* Titolare */}
             <div>
-              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><MapPin className="w-3.5 h-3.5"/> Docente Titolare (Colonna Planning)</label>
+              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <MapPin className="w-3.5 h-3.5"/> Docente Titolare (Colonna Planning)
+              </label>
               <select 
                 className="w-full p-2.5 border border-amber-300 rounded-lg text-sm font-black bg-white text-slate-900"
                 value={formData.insegnanteId} 
@@ -184,7 +205,9 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
 
             {/* Co-Docenti */}
             <div className="pt-2 border-t border-amber-200">
-              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Docenti in Compresenza (Co-Docenti)</label>
+              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Users className="w-3.5 h-3.5"/> Docenti in Compresenza (Co-Docenti)
+              </label>
               
               {formData.coDocentiIds.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
@@ -195,29 +218,46 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
                       <span key={prof.id} className="bg-white text-slate-700 border border-slate-300 text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm">
                         {prof.cognome} <button type="button" onClick={() => toggleCoDocente(prof.id)}><X className="w-3 h-3 text-slate-400 hover:text-red-500"/></button>
                       </span>
-                    )
+                    );
                   })}
                 </div>
               )}
               
-              <input type="text" placeholder="Cerca collega..." className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none" value={ricercaDocente} onChange={e => setRicercaDocente(e.target.value)} />
+              <input 
+                type="text" 
+                placeholder="Cerca collega..." 
+                className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none" 
+                value={ricercaDocente} 
+                onChange={e => setRicercaDocente(e.target.value)} 
+              />
               
               {ricercaDocente.trim().length > 0 && (
                 <div className="mt-1 border border-amber-300 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white relative z-30">
-                  {docentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : docentiFiltrati.map(doc => (
-                    <div key={doc.id} onClick={() => toggleCoDocente(doc.id)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-amber-50 cursor-pointer">{doc.nome} {doc.cognome} ({doc.materia})</div>
-                  ))}
+                  {docentiFiltrati.length === 0 ? (
+                    <div className="p-3 text-xs text-slate-400 text-center">Nessun docente trovato</div>
+                  ) : (
+                    docentiFiltrati.map(doc => (
+                      <div key={doc.id} onClick={() => toggleCoDocente(doc.id)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-amber-50 cursor-pointer">
+                        {doc.nome} {doc.cognome} ({doc.materia})
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
 
             <label className="flex items-center gap-2 cursor-pointer pt-2 border-t border-amber-200 mt-2">
-              <input type="checkbox" className="w-4 h-4 text-amber-500 rounded focus:ring-amber-500" checked={formData.isGruppo} onChange={e => setFormData({...formData, isGruppo: e.target.checked})} />
-              <span className="text-xs font-bold text-amber-900">Forza posizionamento in "Gruppo Studio"</span>
+              <input 
+                type="checkbox" 
+                className="w-4 h-4 text-amber-500 rounded focus:ring-amber-500" 
+                checked={formData.isGruppo} 
+                onChange={e => setFormData({...formData, isGruppo: e.target.checked})} 
+              />
+              <span className="text-xs font-bold text-amber-900">Forza visualizzazione in "Gruppo Studio"</span>
             </label>
           </div>
 
-          {/* ALLIEVI (MULTI-SELEZIONE & OSPITE AL VOLO) */}
+          {/* ALLIEVI */}
           <div>
             <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">Allievi Presenti *</label>
             {formData.studentiIds.length > 0 && (
@@ -234,7 +274,13 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
                 })}
               </div>
             )}
-            <input type="text" placeholder="Cerca studente o scrivi per ospite al volo..." className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" value={ricercaStudente} onChange={e => setRicercaStudente(e.target.value)} />
+            <input 
+              type="text" 
+              placeholder="Cerca studente o scrivi per ospite al volo..." 
+              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" 
+              value={ricercaStudente} 
+              onChange={e => setRicercaStudente(e.target.value)} 
+            />
             
             {ricercaStudente.trim().length > 0 && (
               <div className="mt-1 border border-slate-200 rounded-xl max-h-48 overflow-y-auto shadow-lg bg-white relative z-20">
@@ -274,20 +320,70 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
             )}
           </div>
 
-          {/* DATI LEZIONE */}
+          {/* DATI LEZIONE (DATA, ORARI, MATERIA) */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Data *</label><input type="date" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} /></div>
-            <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Dalle *</label><input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.oraInizio} onChange={e => setFormData({...formData, oraInizio: e.target.value})} /></div>
-            <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Alle *</label><input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.oraFine} onChange={e => setFormData({...formData, oraFine: e.target.value})} /></div>
-            <div className="col-span-2"><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Materia</label><input type="text" className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-medium" value={formData.materia} onChange={e => setFormData({...formData, materia: e.target.value})} placeholder="Es. Italiano" /></div>
+            <div className="col-span-2">
+              <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Data *</label>
+              <input type="date" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Dalle *</label>
+              <input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.oraInizio} onChange={e => setFormData({...formData, oraInizio: e.target.value})} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Alle *</label>
+              <input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.oraFine} onChange={e => setFormData({...formData, oraFine: e.target.value})} />
+            </div>
+
+            {/* SELEZIONE E MODIFICA MATERIA */}
+            <div className="col-span-2 space-y-2 pt-1">
+              <div className="flex justify-between items-center">
+                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
+                  Materia / Attività
+                </label>
+                <span className="text-[10px] text-slate-400 font-medium">Se non indicata apparirà "Ripasso"</span>
+              </div>
+
+              {/* Bottoni Rapidi Materie Principali */}
+              <div className="flex flex-wrap gap-1.5">
+                {MATERIE_RAPIDE.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setFormData({ ...formData, materia: m })}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+                      formData.materia?.toLowerCase() === m.toLowerCase()
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+
+              {/* Input manuale se la materia è specifica o diversa */}
+              <input 
+                type="text" 
+                className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" 
+                value={formData.materia} 
+                onChange={e => setFormData({...formData, materia: e.target.value})} 
+                placeholder="Oppure scrivi qui la materia (es. Diritto, Spagnolo, Geometria...)" 
+              />
+            </div>
           </div>
 
-          <div><label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Note (opzionale)</label><textarea rows="2" className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm resize-none" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} placeholder="Dettagli..."></textarea></div>
+          <div>
+            <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Note (opzionale)</label>
+            <textarea rows="2" className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm resize-none" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} placeholder="Dettagli didattici o indicazioni per la segreteria..."></textarea>
+          </div>
 
-          {/* RADAR RECEPTION (Non bloccante, solo avviso) */}
+          {/* RADAR SOVRAPPOSIZIONI */}
           {conflittiAttuali.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl space-y-1">
-              <p className="text-xs font-black text-amber-800 flex items-center gap-1"><AlertTriangle className="w-4 h-4"/> Avviso di Sovrapposizione:</p>
+              <p className="text-xs font-black text-amber-800 flex items-center gap-1">
+                <AlertTriangle className="w-4 h-4"/> Avviso di Sovrapposizione:
+              </p>
               <ul className="text-[11px] font-bold text-amber-700 space-y-1 mt-1">
                 {conflittiAttuali.map((c, i) => <li key={i}>{c}</li>)}
               </ul>
