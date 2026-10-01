@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, User, BookOpen, CheckCircle, Users, MapPin, AlertTriangle } from 'lucide-react';
+import { X, Calendar, Clock, User, BookOpen, CheckCircle, Users, MapPin, AlertTriangle, UserPlus } from 'lucide-react';
+import { db } from '../services/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = [], studenti = [], lezioni = [], initialData = null }) {
   const [formData, setFormData] = useState({
@@ -10,6 +12,7 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [ricercaStudente, setRicercaStudente] = useState('');
   const [ricercaDocente, setRicercaDocente] = useState('');
+  const [isCreandoOspite, setIsCreandoOspite] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -34,6 +37,7 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
       }
       setRicercaStudente('');
       setRicercaDocente('');
+      setIsCreandoOspite(false);
     }
   }, [isOpen, initialData]);
 
@@ -53,6 +57,41 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
       coDocentiIds: prev.coDocentiIds.includes(id) ? prev.coDocentiIds.filter(dId => dId !== id) : [...prev.coDocentiIds, id]
     }));
     setRicercaDocente('');
+  };
+
+  const handleCreaStudenteOspite = async () => {
+    const nomeInserito = ricercaStudente.trim();
+    if (!nomeInserito) return;
+    setIsCreandoOspite(true);
+    try {
+      const parti = nomeInserito.split(' ');
+      const nome = parti[0] || nomeInserito;
+      const cognome = parti.slice(1).join(' ') || '(Ospite / Prova)';
+
+      const docRef = await addDoc(collection(db, 'studenti'), {
+        nome: nome,
+        cognome: cognome,
+        attivo: true,
+        isProvvisorio: true,
+        categoriaTariffaria: 'medie',
+        totaleVersato: 0,
+        totaleConsumato: 0,
+        totalePattuito: 0,
+        storicoRicariche: [],
+        createdAt: serverTimestamp()
+      });
+
+      setFormData(prev => ({
+        ...prev,
+        studentiIds: [...prev.studentiIds, docRef.id]
+      }));
+      setRicercaStudente('');
+    } catch (error) {
+      console.error("Errore creazione allievo ospite:", error);
+      alert("Errore durante la registrazione al volo dell'allievo.");
+    } finally {
+      setIsCreandoOspite(false);
+    }
   };
 
   // Controlli anti accavallamento (Solo avviso per la Reception, non bloccante)
@@ -132,7 +171,7 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
                   setFormData(prev => ({ 
                     ...prev, 
                     insegnanteId: e.target.value,
-                    coDocentiIds: prev.coDocentiIds.filter(id => id !== e.target.value) // Rimuove dai co-docenti se diventa titolare
+                    coDocentiIds: prev.coDocentiIds.filter(id => id !== e.target.value)
                   }));
                 }}
               >
@@ -145,7 +184,7 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
 
             {/* Co-Docenti */}
             <div className="pt-2 border-t border-amber-200">
-              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Aggiungi Co-Docenti (Extra Buste Paga)</label>
+              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Docenti in Compresenza (Co-Docenti)</label>
               
               {formData.coDocentiIds.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-2">
@@ -178,29 +217,59 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
             </label>
           </div>
 
-          {/* ALLIEVI (MULTI-SELEZIONE) */}
+          {/* ALLIEVI (MULTI-SELEZIONE & OSPITE AL VOLO) */}
           <div>
             <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">Allievi Presenti *</label>
             {formData.studentiIds.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
                 {formData.studentiIds.map(stdId => {
                   const std = studenti.find(s => s.id === stdId);
-                  if(!std) return null;
                   return (
-                    <span key={std.id} className="bg-slate-900 text-white text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1">
-                      {std.nome} {std.cognome} <button type="button" onClick={() => toggleStudente(std.id)}><X className="w-3 h-3 text-slate-400 hover:text-white"/></button>
+                    <span key={stdId} className="bg-slate-900 text-white text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-sm">
+                      {std ? `${std.nome} ${std.cognome}` : 'Allievo Ospite'}
+                      {std?.isProvvisorio && <span className="bg-amber-400 text-amber-950 text-[9px] px-1 rounded font-black">OSPITE</span>}
+                      <button type="button" onClick={() => toggleStudente(stdId)}><X className="w-3 h-3 text-slate-400 hover:text-white"/></button>
                     </span>
                   );
                 })}
               </div>
             )}
-            <input type="text" placeholder="Cerca e aggiungi studente..." className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" value={ricercaStudente} onChange={e => setRicercaStudente(e.target.value)} />
+            <input type="text" placeholder="Cerca studente o scrivi per ospite al volo..." className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" value={ricercaStudente} onChange={e => setRicercaStudente(e.target.value)} />
             
             {ricercaStudente.trim().length > 0 && (
-              <div className="mt-1 border border-slate-200 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white relative z-20">
-                {studentiFiltrati.length === 0 ? <div className="p-3 text-xs text-slate-400 text-center">Nessun risultato</div> : studentiFiltrati.map(std => (
-                  <div key={std.id} onClick={() => toggleStudente(std.id)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-50 cursor-pointer">{std.nome} {std.cognome}</div>
-                ))}
+              <div className="mt-1 border border-slate-200 rounded-xl max-h-48 overflow-y-auto shadow-lg bg-white relative z-20">
+                {studentiFiltrati.length === 0 ? (
+                  <div 
+                    onClick={handleCreaStudenteOspite} 
+                    className="p-3 bg-amber-50 hover:bg-amber-100 text-amber-900 cursor-pointer flex items-center justify-between transition"
+                  >
+                    <div>
+                      <p className="text-xs font-black flex items-center gap-1.5">
+                        <UserPlus className="w-4 h-4 text-amber-600"/>
+                        {isCreandoOspite ? 'Creazione in corso...' : `Registra "${ricercaStudente}" come Allievo Ospite / Prova`}
+                      </p>
+                      <p className="text-[10px] text-amber-700 mt-0.5">Crea la scheda anagrafica al volo per salvare subito la lezione</p>
+                    </div>
+                    <span className="text-[10px] font-black uppercase bg-amber-200 text-amber-950 px-2 py-1 rounded shadow-sm">
+                      Crea al Volo
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    {studentiFiltrati.map(std => (
+                      <div key={std.id} onClick={() => toggleStudente(std.id)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-50 cursor-pointer flex justify-between items-center">
+                        <span>{std.nome} {std.cognome}</span>
+                        {std.isProvvisorio && <span className="text-[9px] bg-amber-100 text-amber-800 font-black px-1.5 py-0.5 rounded">OSPITE</span>}
+                      </div>
+                    ))}
+                    <div 
+                      onClick={handleCreaStudenteOspite} 
+                      className="p-2.5 bg-slate-50 hover:bg-amber-50 text-slate-600 hover:text-amber-900 text-xs font-bold border-t border-slate-200 cursor-pointer flex items-center justify-between transition"
+                    >
+                      <span className="flex items-center gap-1">➕ Non è in lista? Aggiungi "{ricercaStudente}" come nuovo ospite</span>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -227,7 +296,7 @@ export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = []
 
           <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
             <button type="button" onClick={onClose} className="px-5 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl text-sm transition">Annulla</button>
-            <button type="submit" disabled={isSubmitting || formNonValido} className={`px-6 py-3 text-white font-black rounded-xl text-sm shadow-lg flex items-center gap-2 transition ${formNonValido ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800'}`}>
+            <button type="submit" disabled={isSubmitting || formNonValido || isCreandoOspite} className={`px-6 py-3 text-white font-black rounded-xl text-sm shadow-lg flex items-center gap-2 transition ${formNonValido ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800'}`}>
               <CheckCircle className="w-4 h-4"/> {isSubmitting ? 'Salvataggio...' : 'Conferma e Salva'}
             </button>
           </div>
