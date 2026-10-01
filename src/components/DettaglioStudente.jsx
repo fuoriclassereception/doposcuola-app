@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   User, Mail, Phone, Calendar, CreditCard, Clock, CheckCircle, 
   AlertCircle, Edit2, X, PlusCircle, History, Printer, Save, 
-  FileText, Paperclip, ShieldCheck, Tag, Euro
+  FileText, Paperclip, ShieldCheck, Tag, Euro, Trash2, ArrowDownRight, ArrowUpRight
 } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
@@ -15,10 +15,9 @@ export default function DettaglioStudente({
   onClose, 
   onUpdateLezioneCompleta, 
   onUpdateLezioneStatus,
-  onRicaricaPacchetto,
   aggiungiLog
 }) {
-  const [activeTab, setActiveTab] = useState('lezioni'); 
+  const [activeTab, setActiveTab] = useState('contabilita'); // Default su contabilità per testare subito
 
   const [editStd, setEditStd] = useState({});
   const [isSavingProfilo, setIsSavingProfilo] = useState(false);
@@ -27,37 +26,68 @@ export default function DettaglioStudente({
     if (studente) setEditStd(studente);
   }, [studente]);
 
-  // Gestione modifica lezione con flessibilità economica
+  // Gestione modifica orari & prezzo lezione
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [editFormData, setEditFormData] = useState({ 
     oraInizio: '', 
     oraFine: '', 
     data: '',
-    tipoTariffazione: 'oraria', // 'oraria' o 'forfettario'
     prezzoPersonalizzato: ''
   });
 
   const [annullaConfig, setAnnullaConfig] = useState({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
   const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
 
-  // Stato Nuova Ricarica Plafond / Pacchetto
+  // Stato Modale / Form Movimento (Entrata / Ricarica)
   const [showRicarica, setShowRicarica] = useState(false);
-  const [ricaricaData, setRicaricaData] = useState({
-    costoDaAggiungere: '', 
-    pagatoDaAggiungere: '', 
-    metodoPagamento: 'Contanti',
-    tipoPacchetto: 'Standard',
+  const [editingMovimentoIndex, setEditingMovimentoIndex] = useState(null);
+  const [movimentoForm, setMovimentoForm] = useState({
+    data: new Date().toISOString().split('T')[0],
+    importo: '',
+    causale: 'Ricarica Plafond',
+    metodo: 'Contanti',
     note: ''
   });
 
   if (!studente) return null;
 
+  // Calcolo ore delle lezioni
+  const calcolaOre = (oraInizio, oraFine) => {
+    if (!oraInizio || !oraFine) return 1;
+    const [hInizio, mInizio] = oraInizio.split(':').map(Number);
+    const [hFine, mFine] = oraFine.split(':').map(Number);
+    const minuti = (hFine * 60 + mFine) - (hInizio * 60 + mInizio);
+    return minuti > 0 ? minuti / 60 : 1;
+  };
+
+  // Tariffa oraria di default dello studente
+  const tariffaBase = studente.haTariffaRiservata 
+    ? Number(studente.tariffaRiservataValore || 18) 
+    : (studente.categoriaTariffaria === 'elementari' ? 18 : studente.categoriaTariffaria === 'superiori' ? 26 : 22);
+
+  // Lezioni dello studente
   const lezioniStudente = lezioni.filter(l => l && (l.studentiIds || []).includes(studente.id));
   const lezioniFuture = lezioniStudente.filter(l => l.stato === 'attiva' || l.stato === 'richiesta');
-  const lezioniPassate = lezioniStudente.filter(l => l.stato !== 'attiva' && l.stato !== 'richiesta');
+  const lezioniSvolte = lezioniStudente.filter(l => l.stato === 'svolta' || l.penaleApplicata);
 
   lezioniFuture.sort((a, b) => a.data.localeCompare(b.data) || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
-  lezioniPassate.sort((a, b) => b.data.localeCompare(a.data) || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
+  lezioniSvolte.sort((a, b) => b.data.localeCompare(a.data) || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
+
+  // 1. Calcolo dinamico del Totale Versato (dallo storico ricariche)
+  const storicoRicariche = studente.storicoRicariche || [];
+  const totaleVersatoCalcolato = storicoRicariche.reduce((acc, mov) => acc + (Number(mov.importo || mov.pagato) || 0), 0);
+
+  // 2. Calcolo dinamico del Totale Consumato (dalle lezioni svolte)
+  const totaleConsumatoCalcolato = lezioniSvolte.reduce((acc, lez) => {
+    if (lez.prezzoPersonalizzato !== undefined && lez.prezzoPersonalizzato !== null && lez.prezzoPersonalizzato !== '') {
+      return acc + Number(lez.prezzoPersonalizzato);
+    }
+    const ore = calcolaOre(lez.oraInizio, lez.oraFine);
+    return acc + (ore * tariffaBase);
+  }, 0);
+
+  // 3. Saldo Effettivo
+  const saldoCalcolato = totaleVersatoCalcolato - totaleConsumatoCalcolato;
 
   const getNomeProf = (lez) => {
     const prof = insegnanti.find(i => i.id === lez.insegnanteId);
@@ -65,36 +95,38 @@ export default function DettaglioStudente({
     return prof ? `${prof.nome} ${prof.cognome}` : 'Da assegnare';
   };
 
+  // Salva Profilo Anagrafico
   const salvaProfilo = async (e) => {
     e.preventDefault();
     setIsSavingProfilo(true);
     try {
       await updateDoc(doc(db, 'studenti', studente.id), {
         ...editStd,
-        totaleVersato: Number(editStd.totaleVersato) || 0,
-        totaleConsumato: Number(editStd.totaleConsumato) || 0
+        totaleVersato: totaleVersatoCalcolato,
+        totaleConsumato: totaleConsumatoCalcolato
       });
-      if (aggiungiLog) aggiungiLog(`Modificata anagrafica studente: ${editStd.nome} ${editStd.cognome}`);
-      alert("Profilo aggiornato con successo!");
+      if (aggiungiLog) aggiungiLog(`Aggiornata anagrafica: ${editStd.nome} ${editStd.cognome}`);
+      alert("✅ Profilo salvato!");
     } catch (error) { 
       console.error(error); 
-      alert("Errore salvataggio profilo."); 
+      alert("Errore salvataggio."); 
     } finally { 
       setIsSavingProfilo(false); 
     }
   };
 
+  // Apertura Modifica Lezione
   const handleStartEdit = (lez) => {
     setEditingLezioneId(lez.id);
     setEditFormData({ 
       oraInizio: lez.oraInizio || '', 
       oraFine: lez.oraFine || '', 
       data: lez.data || '',
-      tipoTariffazione: lez.tipoTariffazione || 'oraria',
-      prezzoPersonalizzato: lez.prezzoPersonalizzato !== undefined ? lez.prezzoPersonalizzato : ''
+      prezzoPersonalizzato: lez.prezzoPersonalizzato !== undefined && lez.prezzoPersonalizzato !== null ? lez.prezzoPersonalizzato : ''
     });
   };
 
+  // Salvataggio Modifica Lezione
   const handleSaveEdit = async () => {
     if (onUpdateLezioneCompleta) {
       await onUpdateLezioneCompleta({ 
@@ -102,14 +134,14 @@ export default function DettaglioStudente({
         oraInizio: editFormData.oraInizio, 
         oraFine: editFormData.oraFine, 
         data: editFormData.data,
-        tipoTariffazione: editFormData.tipoTariffazione,
         prezzoPersonalizzato: editFormData.prezzoPersonalizzato !== '' ? Number(editFormData.prezzoPersonalizzato) : null
       });
-      if (aggiungiLog) aggiungiLog(`Aggiornata lezione del ${editFormData.data} per ${studente.nome}`);
+      if (aggiungiLog) aggiungiLog(`Modificata lezione ${editFormData.data} per ${studente.nome}`);
     }
     setEditingLezioneId(null);
   };
 
+  // Annullamento Lezione
   const avviaAnnullamento = () => {
     setAnnullaConfig(prev => ({ ...prev, isOpen: false }));
     setPinConfig({
@@ -118,47 +150,102 @@ export default function DettaglioStudente({
       actionCallback: async () => {
         if (onUpdateLezioneStatus) {
           await onUpdateLezioneStatus(annullaConfig.lezioneId, 'annullata', annullaConfig.note, annullaConfig.tipo);
-          if (aggiungiLog) aggiungiLog(`Lezione annullata (${annullaConfig.tipo}) per ${studente.nome}. Motivo: ${annullaConfig.note}`);
+          if (aggiungiLog) aggiungiLog(`Lezione annullata per ${studente.nome}`);
         }
       }
     });
   };
 
-  const handleRicaricaSubmit = async (e) => {
+  // GESTIONE MOVIMENTI CONTABILI (AGGIUNGI / MODIFICA)
+  const handleSalvaMovimento = async (e) => {
     e.preventDefault();
-    if (onRicaricaPacchetto) {
-      await onRicaricaPacchetto(studente.id, ricaricaData);
-    } else {
-      // Fallback salvataggio diretto su Firestore se l'handler non è passato dal parent
-      const importo = Number(ricaricaData.pagatoDaAggiungere) || 0;
-      const nuovoMovimento = {
-        data: new Date().toLocaleDateString('it-IT'),
-        pagato: importo,
-        costoTotale: Number(ricaricaData.costoDaAggiungere) || importo,
-        metodo: ricaricaData.metodoPagamento,
-        tipoPacchetto: ricaricaData.tipoPacchetto,
-        note: ricaricaData.note || ''
+    const importoNum = Number(movimentoForm.importo);
+    if (isNaN(importoNum) || importoNum <= 0) return alert("Inserisci un importo valido.");
+
+    const listaAggiornata = [...storicoRicariche];
+
+    if (editingMovimentoIndex !== null) {
+      // Modifica movimento esistente
+      listaAggiornata[editingMovimentoIndex] = {
+        ...listaAggiornata[editingMovimentoIndex],
+        data: movimentoForm.data,
+        importo: importoNum,
+        pagato: importoNum,
+        causale: movimentoForm.causale,
+        metodo: movimentoForm.metodo,
+        note: movimentoForm.note
       };
-      await updateDoc(doc(db, 'studenti', studente.id), {
-        totaleVersato: (Number(studente.totaleVersato) || 0) + importo,
-        storicoRicariche: [...(studente.storicoRicariche || []), nuovoMovimento]
+    } else {
+      // Nuovo movimento
+      listaAggiornata.unshift({
+        id: `mov_${Date.now()}`,
+        data: movimentoForm.data,
+        importo: importoNum,
+        pagato: importoNum,
+        causale: movimentoForm.causale || 'Ricarica Plafond',
+        metodo: movimentoForm.metodo,
+        note: movimentoForm.note || ''
       });
     }
-    setShowRicarica(false);
-    setRicaricaData({ 
-      costoDaAggiungere: '', 
-      pagatoDaAggiungere: '', 
-      metodoPagamento: 'Contanti', 
-      tipoPacchetto: 'Standard', 
-      note: '' 
-    });
+
+    const nuovoTotaleVersato = listaAggiornata.reduce((acc, m) => acc + (Number(m.importo || m.pagato) || 0), 0);
+
+    try {
+      await updateDoc(doc(db, 'studenti', studente.id), {
+        storicoRicariche: listaAggiornata,
+        totaleVersato: nuovoTotaleVersato
+      });
+      setShowRicarica(false);
+      setEditingMovimentoIndex(null);
+      setMovimentoForm({
+        data: new Date().toISOString().split('T')[0],
+        importo: '',
+        causale: 'Ricarica Plafond',
+        metodo: 'Contanti',
+        note: ''
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Errore durante il salvataggio del movimento.");
+    }
   };
 
-  const saldoCalcolato = (Number(studente.totaleVersato) || 0) - (Number(studente.totaleConsumato) || 0);
+  // ELIMINAZIONE MOVIMENTO CONTABILE
+  const handleEliminaMovimento = async (index) => {
+    const mov = storicoRicariche[index];
+    if (!window.confirm(`Vuoi cancellare il versamento di € ${Number(mov.importo || mov.pagato).toFixed(2)} del ${mov.data}?`)) return;
+
+    const listaAggiornata = storicoRicariche.filter((_, i) => i !== index);
+    const nuovoTotaleVersato = listaAggiornata.reduce((acc, m) => acc + (Number(m.importo || m.pagato) || 0), 0);
+
+    try {
+      await updateDoc(doc(db, 'studenti', studente.id), {
+        storicoRicariche: listaAggiornata,
+        totaleVersato: nuovoTotaleVersato
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Errore durante l'eliminazione.");
+    }
+  };
+
+  // APRI FORM MODIFICA MOVIMENTO
+  const handleApriModificaMovimento = (index) => {
+    const mov = storicoRicariche[index];
+    setMovimentoForm({
+      data: mov.data || new Date().toISOString().split('T')[0],
+      importo: mov.importo || mov.pagato || '',
+      causale: mov.causale || mov.tipoPacchetto || 'Ricarica Plafond',
+      metodo: mov.metodo || 'Contanti',
+      note: mov.note || ''
+    });
+    setEditingMovimentoIndex(index);
+    setShowRicarica(true);
+  };
 
   return (
     <div className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex justify-center items-start pt-6 pb-6 overflow-y-auto">
-      <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl relative flex flex-col border border-slate-200 overflow-hidden min-h-[600px] my-auto">
+      <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl relative flex flex-col border border-slate-200 overflow-hidden min-h-[620px] my-auto">
         
         {/* HEADER SCHEDA */}
         <div className="bg-slate-900 text-white p-6 flex justify-between items-start shrink-0">
@@ -170,14 +257,14 @@ export default function DettaglioStudente({
               <h2 className="text-2xl font-black flex items-center gap-3">
                 {studente.nome} {studente.cognome}
                 <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${studente.attivo !== false ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
-                  {studente.attivo !== false ? 'Iscritto / Attivo' : 'Inattivo'}
+                  {studente.attivo !== false ? 'Iscritto' : 'Inattivo'}
                 </span>
               </h2>
               <div className="flex flex-wrap items-center gap-2 mt-2 text-slate-400 text-xs font-medium">
                 <span className="capitalize">{studente.scuola || studente.categoriaTariffaria || 'Primaria'}</span>
                 <span>•</span>
                 <span className="text-amber-400 font-bold bg-amber-400/10 px-2 py-0.5 rounded">
-                  Tariffa base suggerita: {studente.haTariffaRiservata ? studente.tariffaRiservataValore : (studente.categoriaTariffaria === 'elementari' ? 18 : studente.categoriaTariffaria === 'superiori' ? 26 : 22)} €/h
+                  Tariffa base: {tariffaBase} €/h
                 </span>
               </div>
             </div>
@@ -189,30 +276,237 @@ export default function DettaglioStudente({
 
         {/* NAVIGAZIONE TAB */}
         <div className="flex border-b border-gray-200 bg-slate-50 px-6 shrink-0">
+          <button onClick={() => setActiveTab('contabilita')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'contabilita' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
+            <CreditCard className="w-4 h-4 text-emerald-600"/> Contabilità & Estratto Conto
+          </button>
           <button onClick={() => setActiveTab('lezioni')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'lezioni' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
-            <Calendar className="w-4 h-4"/> Lezioni ({lezioniFuture.length})
+            <Calendar className="w-4 h-4"/> Lezioni Future ({lezioniFuture.length})
           </button>
           <button onClick={() => setActiveTab('profilo')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'profilo' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
             <User className="w-4 h-4"/> Profilo, Recapiti & GDPR
-          </button>
-          <button onClick={() => setActiveTab('contabilita')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'contabilita' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
-            <CreditCard className="w-4 h-4"/> Contabilità & Pacchetti
           </button>
         </div>
 
         {/* CONTENUTO TAB */}
         <div className="p-6 overflow-y-auto flex-1 bg-white">
           
-          {/* TAB 1: LEZIONI PROGRAMMATE CON PREZZO FLESSIBILE */}
+          {/* TAB: CONTABILITÀ & ESTRATTO CONTO TRASPARENTE */}
+          {activeTab === 'contabilita' && (
+            <div className="space-y-6">
+              
+              {/* I 3 QUADRANTI DI RIEPILOGO AUTOMATICI */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className={`p-5 rounded-2xl border ${saldoCalcolato < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Saldo Attuale (Credito)</p>
+                  <p className={`text-3xl font-black ${saldoCalcolato < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {saldoCalcolato > 0 ? '+' : ''}{saldoCalcolato.toFixed(2)} €
+                  </p>
+                  <span className="text-[10px] font-semibold text-slate-400">Ricalcolato in tempo reale</span>
+                </div>
+                <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1 text-emerald-700">
+                    <ArrowDownRight className="w-3.5 h-3.5"/> Totale Versato (+)
+                  </p>
+                  <p className="text-2xl font-black text-slate-800">{totaleVersatoCalcolato.toFixed(2)} €</p>
+                  <span className="text-[10px] font-semibold text-slate-400">{storicoRicariche.length} versamenti registrati</span>
+                </div>
+                <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1 text-rose-700">
+                    <ArrowUpRight className="w-3.5 h-3.5"/> Totale Consumato (-)
+                  </p>
+                  <p className="text-2xl font-black text-slate-800">{totaleConsumatoCalcolato.toFixed(2)} €</p>
+                  <span className="text-[10px] font-semibold text-slate-400">{lezioniSvolte.length} lezioni svolte</span>
+                </div>
+              </div>
+
+              {/* BARRA AZIONI CONTABILI */}
+              <div className="flex justify-between items-center bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                <span className="text-xs font-black text-slate-700 uppercase tracking-wide">Registro Pagamenti & Ricariche</span>
+                <button
+                  onClick={() => {
+                    setEditingMovimentoIndex(null);
+                    setMovimentoForm({
+                      data: new Date().toISOString().split('T')[0],
+                      importo: '',
+                      causale: 'Ricarica Plafond',
+                      metodo: 'Contanti',
+                      note: ''
+                    });
+                    setShowRicarica(!showRicarica);
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-black shadow transition flex items-center gap-1.5"
+                >
+                  <PlusCircle className="w-4 h-4"/> + Aggiungi Versamento / Pacchetto
+                </button>
+              </div>
+
+              {/* MODULO INSERIMENTO / MODIFICA MOVIMENTO */}
+              {showRicarica && (
+                <form onSubmit={handleSalvaMovimento} className="bg-emerald-50/70 border border-emerald-200 p-4 rounded-2xl space-y-3">
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-xs font-black text-emerald-900 uppercase">
+                      {editingMovimentoIndex !== null ? '✏️ Modifica Versamento' : '➕ Registra Nuovo Pagamento / Pacchetto'}
+                    </h4>
+                    <button type="button" onClick={() => setShowRicarica(false)} className="text-xs text-slate-400 hover:text-slate-600">Chiudi</button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-emerald-800 mb-1">Data</label>
+                      <input 
+                        type="date" 
+                        required 
+                        className="w-full p-2 text-xs font-bold bg-white border border-emerald-200 rounded-xl"
+                        value={movimentoForm.data} 
+                        onChange={e => setMovimentoForm({...movimentoForm, data: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-emerald-800 mb-1">Importo (€) *</label>
+                      <input 
+                        type="number" 
+                        step="0.5" 
+                        required 
+                        placeholder="Es. 150"
+                        className="w-full p-2 text-xs font-bold bg-white border border-emerald-200 rounded-xl"
+                        value={movimentoForm.importo} 
+                        onChange={e => setMovimentoForm({...movimentoForm, importo: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-emerald-800 mb-1">Causale / Tipo</label>
+                      <input 
+                        type="text" 
+                        placeholder="Es. Pacchetto 10 ore, Acconto..."
+                        className="w-full p-2 text-xs font-medium bg-white border border-emerald-200 rounded-xl"
+                        value={movimentoForm.causale} 
+                        onChange={e => setMovimentoForm({...movimentoForm, causale: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase text-emerald-800 mb-1">Metodo</label>
+                      <select 
+                        className="w-full p-2 text-xs font-bold bg-white border border-emerald-200 rounded-xl"
+                        value={movimentoForm.metodo} 
+                        onChange={e => setMovimentoForm({...movimentoForm, metodo: e.target.value})}
+                      >
+                        <option>Contanti</option>
+                        <option>Bonifico</option>
+                        <option>POS</option>
+                        <option>Assegno</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      placeholder="Note aggiuntive (opzionale)" 
+                      className="flex-1 p-2 text-xs bg-white border border-emerald-200 rounded-xl"
+                      value={movimentoForm.note} 
+                      onChange={e => setMovimentoForm({...movimentoForm, note: e.target.value})}
+                    />
+                    <button type="submit" className="px-5 py-2 bg-slate-900 text-white rounded-xl text-xs font-black shadow hover:bg-slate-800">
+                      {editingMovimentoIndex !== null ? 'Salva Modifica' : 'Conferma'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* LISTA ESTRATTO CONTO MODIFICABILE */}
+              <div className="space-y-2">
+                {storicoRicariche.length === 0 ? (
+                  <div className="p-8 text-center border border-dashed border-slate-200 rounded-2xl bg-slate-50 text-xs text-slate-400">
+                    Nessun versamento registrato. Clicca su "+ Aggiungi Versamento" per ricaricare il credito.
+                  </div>
+                ) : (
+                  storicoRicariche.map((mov, index) => (
+                    <div key={index} className="flex items-center justify-between p-3.5 bg-white border border-slate-200 rounded-2xl hover:border-slate-300 transition text-xs shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-black">
+                          €
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-slate-900 text-sm">+{Number(mov.importo || mov.pagato).toFixed(2)} €</span>
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase">{mov.metodo || 'Contanti'}</span>
+                            <span className="text-slate-600 font-bold">{mov.causale || mov.tipoPacchetto || 'Ricarica Plafond'}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Data: <b>{mov.data}</b> {mov.note && `• "${mov.note}"`}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* PULSANTI MODIFICA ED ELIMINA */}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleApriModificaMovimento(index)}
+                          className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 hover:text-blue-600 transition"
+                          title="Modifica Versamento"
+                        >
+                          <Edit2 className="w-3.5 h-3.5"/>
+                        </button>
+                        <button
+                          onClick={() => handleEliminaMovimento(index)}
+                          className="p-2 hover:bg-rose-50 rounded-lg text-slate-400 hover:text-rose-600 transition"
+                          title="Elimina Versamento"
+                        >
+                          <Trash2 className="w-3.5 h-3.5"/>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* STORICO SCALO LEZIONI SVOLTE */}
+              <div className="pt-4 border-t border-slate-100">
+                <h4 className="text-xs font-black text-slate-700 uppercase mb-3 flex items-center gap-2">
+                  <History className="w-4 h-4 text-blue-500"/> Storico Lezioni Svolte (Addebiti)
+                </h4>
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {lezioniSvolte.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">Nessuna lezione svolta addebitata.</p>
+                  ) : (
+                    lezioniSvolte.map(lez => {
+                      const ore = calcolaOre(lez.oraInizio, lez.oraFine);
+                      const importoScalato = lez.prezzoPersonalizzato !== undefined && lez.prezzoPersonalizzato !== null && lez.prezzoPersonalizzato !== ''
+                        ? Number(lez.prezzoPersonalizzato)
+                        : (ore * tariffaBase);
+
+                      return (
+                        <div key={lez.id} className="flex justify-between items-center p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-black text-slate-800">{lez.materia || 'Lezione'}</span>
+                              <span className="text-[10px] text-slate-500">({ore}h con {getNomeProf(lez)})</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400">{lez.data} • {lez.oraInizio}-{lez.oraFine}</span>
+                          </div>
+                          <span className="font-black text-rose-600 text-sm">
+                            -{importoScalato.toFixed(2)} €
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* TAB: LEZIONI PROGRAMMATE */}
           {activeTab === 'lezioni' && (
             <div className="space-y-4">
               {lezioniFuture.length === 0 ? (
                 <div className="text-center py-10 border border-dashed border-gray-300 rounded-3xl bg-gray-50">
-                  <p className="text-sm font-bold text-gray-500">Nessuna lezione in programma</p>
+                  <p className="text-sm font-bold text-gray-500">Nessuna lezione futura in programma</p>
                 </div>
               ) : (
                 lezioniFuture.map(lez => (
-                  <div key={lez.id} className="flex flex-col p-4 bg-slate-50 border border-slate-200 rounded-2xl gap-3 hover:shadow-md transition-shadow">
+                  <div key={lez.id} className="flex flex-col p-4 bg-slate-50 border border-slate-200 rounded-2xl gap-3">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -223,11 +517,6 @@ export default function DettaglioStudente({
                             <span className="text-[9px] font-black bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded flex items-center gap-1">
                               <Tag className="w-3 h-3"/> Costo concordato: € {Number(lez.prezzoPersonalizzato).toFixed(2)}
                             </span>
-                          )}
-                          {lez.allegatoUrl && (
-                            <a href={lez.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded flex items-center gap-1 hover:bg-blue-100">
-                              <Paperclip className="w-3 h-3"/> Appunti
-                            </a>
                           )}
                         </div>
 
@@ -240,7 +529,6 @@ export default function DettaglioStudente({
                               <input type="time" className="text-xs font-bold bg-slate-50 border border-slate-300 rounded p-2" value={editFormData.oraFine} onChange={(e) => setEditFormData({...editFormData, oraFine: e.target.value})}/>
                             </div>
                             
-                            {/* Personalizzazione economica della lezione */}
                             <div className="flex items-center gap-3 pt-2 border-t border-slate-100">
                               <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
                                 <Euro className="w-3.5 h-3.5 text-emerald-600"/> Importo addebitato (€):
@@ -253,7 +541,6 @@ export default function DettaglioStudente({
                                 value={editFormData.prezzoPersonalizzato}
                                 onChange={(e) => setEditFormData({ ...editFormData, prezzoPersonalizzato: e.target.value })}
                               />
-                              <span className="text-[10px] text-slate-400 italic">(Opzionale: per pacchetti o sconti su ore doppie)</span>
                             </div>
                           </div>
                         ) : (
@@ -285,7 +572,7 @@ export default function DettaglioStudente({
             </div>
           )}
 
-          {/* TAB 2: PROFILO, RECAPITI & MODULO GDPR */}
+          {/* TAB: PROFILO, RECAPITI & GDPR */}
           {activeTab === 'profilo' && (
             <form onSubmit={salvaProfilo} className="space-y-6">
               
@@ -342,7 +629,7 @@ export default function DettaglioStudente({
                 </div>
               </div>
 
-              {/* TARIFFE BASE SUGGERITE */}
+              {/* TARIFFE SUGGERITE */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-2"><CreditCard className="w-4 h-4"/> Inquadramento Tariffario Base</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -377,146 +664,10 @@ export default function DettaglioStudente({
             </form>
           )}
 
-          {/* TAB 3: CONTABILITÀ, PLAFOND & PACCHETTI */}
-          {activeTab === 'contabilita' && (
-            <div className="space-y-6">
-              
-              <div className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                <div>
-                  <h3 className="text-sm font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-emerald-500"/> Situazione Plafond & Pacchetti
-                  </h3>
-                </div>
-                <button onClick={() => setShowRicarica(!showRicarica)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-xs font-black shadow-sm transition-colors flex items-center gap-2">
-                  <PlusCircle className="w-4 h-4"/> + Registra Ricarica / Pacchetto
-                </button>
-              </div>
-
-              {/* FORM RICARICA / PACCHETTO ORE */}
-              {showRicarica && (
-                <form onSubmit={handleRicaricaSubmit} className="bg-emerald-50 p-5 rounded-2xl border border-emerald-200 space-y-4">
-                  <h4 className="text-xs font-black text-emerald-900 uppercase">Nuova Ricarica / Registrazione Pacchetto</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-emerald-800 uppercase mb-1">Tipo Pacchetto / Causale</label>
-                      <input 
-                        type="text" 
-                        placeholder="Es. Pacchetto 10 ore, Acconto..." 
-                        className="w-full p-2.5 text-xs font-bold border border-emerald-200 rounded-xl bg-white"
-                        value={ricaricaData.tipoPacchetto} 
-                        onChange={e => setRicaricaData({...ricaricaData, tipoPacchetto: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-emerald-800 uppercase mb-1">Importo Pagato (€) *</label>
-                      <input 
-                        type="number" 
-                        step="0.01" 
-                        required 
-                        placeholder="Es. 150.00"
-                        className="w-full p-2.5 text-sm font-bold border border-emerald-200 rounded-xl bg-white" 
-                        value={ricaricaData.pagatoDaAggiungere} 
-                        onChange={e => setRicaricaData({...ricaricaData, pagatoDaAggiungere: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-emerald-800 uppercase mb-1">Costo Concordato Totale (€)</label>
-                      <input 
-                        type="number" 
-                        step="0.01" 
-                        placeholder="Opzionale se diverso dal pagato"
-                        className="w-full p-2.5 text-sm font-bold border border-emerald-200 rounded-xl bg-white" 
-                        value={ricaricaData.costoDaAggiungere} 
-                        onChange={e => setRicaricaData({...ricaricaData, costoDaAggiungere: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] font-bold text-emerald-800 uppercase mb-1">Metodo Pagamento</label>
-                      <select className="w-full p-2.5 text-sm font-bold border border-emerald-200 rounded-xl bg-white" value={ricaricaData.metodoPagamento} onChange={e => setRicaricaData({...ricaricaData, metodoPagamento: e.target.value})}>
-                        <option>Contanti</option>
-                        <option>Bonifico</option>
-                        <option>POS</option>
-                        <option>Assegno</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                    <input type="text" className="flex-1 p-2.5 text-xs border border-emerald-200 rounded-xl bg-white" placeholder="Note interne (es. pagato con bonifico del 12/05)" value={ricaricaData.note} onChange={e => setRicaricaData({...ricaricaData, note: e.target.value})}/>
-                    <button type="submit" className="bg-slate-900 text-white px-6 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-800 shadow">Conferma Versamento</button>
-                  </div>
-                </form>
-              )}
-
-              {/* CARD SALDO ATTUALE */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className={`p-6 rounded-2xl border ${saldoCalcolato < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Credito Residuo (Saldo)</p>
-                  <p className={`text-4xl font-black ${saldoCalcolato < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                    {saldoCalcolato > 0 ? '+' : ''}{saldoCalcolato.toFixed(2)} €
-                  </p>
-                </div>
-                <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Totale Versato</p>
-                  <p className="text-2xl font-black text-slate-800">{(Number(studente.totaleVersato) || 0).toFixed(2)} €</p>
-                </div>
-                <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Totale Consumato</p>
-                  <p className="text-2xl font-black text-slate-800">{(Number(studente.totaleConsumato) || 0).toFixed(2)} €</p>
-                </div>
-              </div>
-
-              {/* STORICO MOVIMENTI E RICEVUTE */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 border-t border-slate-100 pt-6">
-                <div>
-                  <h4 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2"><History className="w-4 h-4 text-blue-500"/> Storico Lezioni Svolte</h4>
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                    {lezioniPassate.length === 0 ? <p className="text-xs text-gray-400 italic">Nessuna lezione passata archiviata.</p> : lezioniPassate.map(lez => (
-                      <div key={lez.id} className="flex justify-between items-center p-3 bg-white border border-slate-200 rounded-xl text-xs hover:border-blue-300">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-800 block">{lez.materia || 'Lezione'}</span>
-                            {lez.prezzoPersonalizzato !== undefined && lez.prezzoPersonalizzato !== null && (
-                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-                                € {Number(lez.prezzoPersonalizzato).toFixed(2)}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-slate-500 font-medium">{lez.data} • {lez.oraInizio}-{lez.oraFine}</span><br/>
-                          <span className="text-blue-600 font-bold">{getNomeProf(lez)}</span>
-                        </div>
-                        <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase ${lez.stato === 'svolta' ? 'bg-emerald-100 text-emerald-800' : lez.stato === 'annullata' ? 'bg-red-100 text-red-800' : 'bg-slate-200 text-slate-600'}`}>{lez.stato}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-xs font-black text-slate-800 uppercase mb-4 flex items-center gap-2"><FileText className="w-4 h-4 text-amber-500"/> Registro Ricevute & Versamenti</h4>
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
-                    {(!studente.storicoRicariche || studente.storicoRicariche.length === 0) ? (
-                      <p className="text-xs text-gray-400 italic">Nessun versamento registrato.</p>
-                    ) : (
-                      studente.storicoRicariche.map((r, i) => (
-                        <div key={i} className="flex justify-between items-center p-3 bg-white border border-slate-200 rounded-xl text-xs">
-                          <div>
-                            <p className="font-black text-emerald-700 text-sm">+{Number(r.pagato).toFixed(2)} €</p>
-                            <p className="font-medium text-slate-500 text-[10px]">{r.data} • {r.metodo} {r.tipoPacchetto ? `(${r.tipoPacchetto})` : ''}</p>
-                            {r.note && <p className="text-[10px] text-amber-600 mt-0.5 font-bold italic">"{r.note}"</p>}
-                          </div>
-                          <button className="p-2 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 hover:text-slate-900 transition-colors" title="Stampa Quietanza"><Printer className="w-4 h-4"/></button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          )}
-
         </div>
       </div>
 
+      {/* MODALE CONFERMA ANNULLAMENTO */}
       {annullaConfig.isOpen && (
         <div className="fixed inset-0 z-[60] bg-slate-950/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
