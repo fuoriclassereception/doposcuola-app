@@ -2,31 +2,39 @@ import React, { useState, useEffect } from 'react';
 import { 
   User, Mail, Phone, Calendar, CreditCard, Clock, CheckCircle, 
   AlertCircle, Edit2, X, PlusCircle, History, Printer, Save, 
-  FileText, Paperclip, ShieldCheck, Tag, Euro, Trash2, ArrowDownRight, ArrowUpRight
+  FileText, ShieldCheck, Tag, Euro, Trash2, ArrowDownRight, ArrowUpRight, Lock
 } from 'lucide-react';
-import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function DettaglioStudente({ 
-  studente, 
+  studente: initialStudente, 
   lezioni = [], 
   insegnanti = [], 
   onClose, 
-  onUpdateLezioneCompleta, 
-  onUpdateLezioneStatus,
   aggiungiLog
 }) {
   const [activeTab, setActiveTab] = useState('contabilita');
 
-  const [editStd, setEditStd] = useState({});
+  // STATO STUDENTE IN TEMPO REALE (NIENTE PIÙ F5)
+  const [studente, setStudente] = useState(initialStudente);
+  const [editStd, setEditStd] = useState(initialStudente || {});
   const [isSavingProfilo, setIsSavingProfilo] = useState(false);
 
+  // Listener live sul documento dello studente specifico
   useEffect(() => {
-    if (studente) setEditStd(studente);
-  }, [studente]);
+    if (!initialStudente?.id) return;
+    const unsub = onSnapshot(doc(db, 'studenti', initialStudente.id), (docSnap) => {
+      if (docSnap.exists()) {
+        const liveData = { id: docSnap.id, ...docSnap.data() };
+        setStudente(liveData);
+        setEditStd(liveData);
+      }
+    });
+    return () => unsub();
+  }, [initialStudente?.id]);
 
-  // Gestione modifica orari & prezzo lezione
+  // Gestione modifica lezione
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [editFormData, setEditFormData] = useState({ 
     oraInizio: '', 
@@ -37,9 +45,12 @@ export default function DettaglioStudente({
 
   // Configurazione Annullamento e PIN
   const [annullaConfig, setAnnullaConfig] = useState({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
-  const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
 
-  // Stato Modale / Form Movimento (Entrata / Ricarica)
+  // Form Versamento / Ricarica Plafond
   const [showRicarica, setShowRicarica] = useState(false);
   const [editingMovimentoIndex, setEditingMovimentoIndex] = useState(null);
   const [movimentoForm, setMovimentoForm] = useState({
@@ -61,25 +72,21 @@ export default function DettaglioStudente({
     return minuti > 0 ? minuti / 60 : 1;
   };
 
-  // Tariffa oraria di default dello studente
   const tariffaBase = studente.haTariffaRiservata 
     ? Number(studente.tariffaRiservataValore || 18) 
     : (studente.categoriaTariffaria === 'elementari' ? 18 : studente.categoriaTariffaria === 'superiori' ? 26 : 22);
 
-  // Lezioni dello studente
   const lezioniStudente = lezioni.filter(l => l && (l.studentiIds || []).includes(studente.id));
   const lezioniFuture = lezioniStudente.filter(l => l.stato === 'attiva' || l.stato === 'richiesta');
-  const lezioniPassate = lezioniStudente.filter(l => l.stato !== 'attiva' && l.stato !== 'richiesta');
+  const lezioniDaAddebitare = lezioniStudente.filter(l => l.stato === 'svolta' || (l.stato === 'annullata' && l.tipoAnnullamento === 'penale'));
 
   lezioniFuture.sort((a, b) => (a.data || '').localeCompare(b.data || '') || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
-  lezioniPassate.sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
+  lezioniDaAddebitare.sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
 
-  // 1. Calcolo dinamico del Totale Versato
+  // Calcoli Contabili in tempo reale
   const storicoRicariche = studente.storicoRicariche || [];
-  const totaleVersatoCalcolato = storicoRicariche.reduce((acc, mov) => acc + (Number(mov.importo || mov.pagato) || 0), 0);
+  const totaleVersatoCalcolato = storicoRicariche.reduce((acc, mov) => acc + (Number(mov.importo ?? mov.pagato) || 0), 0);
 
-  // 2. Calcolo dinamico del Totale Consumato (lezioni svolte o annullate con penale)
-  const lezioniDaAddebitare = lezioniStudente.filter(l => l.stato === 'svolta' || (l.stato === 'annullata' && l.tipoAnnullamento === 'penale'));
   const totaleConsumatoCalcolato = lezioniDaAddebitare.reduce((acc, lez) => {
     if (lez.prezzoPersonalizzato !== undefined && lez.prezzoPersonalizzato !== null && lez.prezzoPersonalizzato !== '') {
       return acc + Number(lez.prezzoPersonalizzato);
@@ -88,7 +95,6 @@ export default function DettaglioStudente({
     return acc + (ore * tariffaBase);
   }, 0);
 
-  // 3. Saldo Effettivo
   const saldoCalcolato = totaleVersatoCalcolato - totaleConsumatoCalcolato;
 
   const getNomeProf = (lez) => {
@@ -97,7 +103,7 @@ export default function DettaglioStudente({
     return prof ? `${prof.nome} ${prof.cognome}` : 'Da assegnare';
   };
 
-  // Salva Profilo Anagrafico
+  // Salva Anagrafica Studente
   const salvaProfilo = async (e) => {
     e.preventDefault();
     setIsSavingProfilo(true);
@@ -107,17 +113,17 @@ export default function DettaglioStudente({
         totaleVersato: totaleVersatoCalcolato,
         totaleConsumato: totaleConsumatoCalcolato
       });
-      if (aggiungiLog) aggiungiLog(`Aggiornata anagrafica: ${editStd.nome} ${editStd.cognome}`);
+      if (aggiungiLog) aggiungiLog(`Modificata anagrafica: ${editStd.nome} ${editStd.cognome}`);
       alert("✅ Profilo salvato!");
     } catch (error) { 
       console.error(error); 
-      alert("Errore salvataggio."); 
+      alert("Errore salvataggio profilo."); 
     } finally { 
       setIsSavingProfilo(false); 
     }
   };
 
-  // Apertura Modifica Lezione
+  // Apertura form modifica lezione
   const handleStartEdit = (lez) => {
     setEditingLezioneId(lez.id);
     setEditFormData({ 
@@ -128,68 +134,63 @@ export default function DettaglioStudente({
     });
   };
 
-  // Salvataggio Modifica Lezione (con aggiornamento diretto su Firestore)
+  // Salvataggio modifica lezione
   const handleSaveEdit = async () => {
     try {
-      const datiUpdate = {
+      await updateDoc(doc(db, 'lezioni', editingLezioneId), {
         oraInizio: editFormData.oraInizio, 
         oraFine: editFormData.oraFine, 
         data: editFormData.data,
         prezzoPersonalizzato: editFormData.prezzoPersonalizzato !== '' ? Number(editFormData.prezzoPersonalizzato) : null
-      };
-
-      if (onUpdateLezioneCompleta) {
-        await onUpdateLezioneCompleta({ lezioneId: editingLezioneId, ...datiUpdate });
-      } else {
-        await updateDoc(doc(db, 'lezioni', editingLezioneId), datiUpdate);
-      }
-
+      });
       if (aggiungiLog) aggiungiLog(`Modificata lezione del ${editFormData.data} per ${studente.nome}`);
       setEditingLezioneId(null);
     } catch (err) {
-      console.error("Errore modifica lezione:", err);
-      alert("Errore durante il salvataggio della lezione.");
+      console.error("Errore modifica:", err);
+      alert("Errore durante la modifica della lezione.");
     }
   };
 
-  // PROCEDURA ANNULLAMENTO LEZIONE CON PIN
-  const avviaAnnullamento = () => {
-    const lezioneIdTarget = annullaConfig.lezioneId;
-    const tipoAnnullamento = annullaConfig.tipo;
-    const noteAnnullamento = annullaConfig.note;
-
+  // GESTIONE ANNULLAMENTO & APERTURA PIN
+  const richiediPinPerAnnullamento = () => {
+    const { lezioneId, tipo, note } = annullaConfig;
     setAnnullaConfig(prev => ({ ...prev, isOpen: false }));
 
-    // Apertura finestra inserimento PIN
-    setPinConfig({
-      isOpen: true,
-      description: `Autorizzazione annullamento ${tipoAnnullamento === 'penale' ? 'CON PENALE' : 'GRATUITO'}`,
-      actionCallback: async () => {
-        try {
-          if (onUpdateLezioneStatus) {
-            await onUpdateLezioneStatus(lezioneIdTarget, 'annullata', noteAnnullamento, tipoAnnullamento);
-          } else {
-            // Aggiornamento diretto su Firestore
-            await updateDoc(doc(db, 'lezioni', lezioneIdTarget), {
-              stato: 'annullata',
-              tipoAnnullamento: tipoAnnullamento,
-              penaleApplicata: tipoAnnullamento === 'penale',
-              noteAnnullamento: noteAnnullamento || '',
-              dataAnnullamento: serverTimestamp()
-            });
-          }
-
-          if (aggiungiLog) aggiungiLog(`Lezione annullata (${tipoAnnullamento}) per ${studente.nome}. Motivo: ${noteAnnullamento}`);
-          alert(`✅ Lezione annullata con successo (${tipoAnnullamento === 'penale' ? 'con penale 100%' : 'gratuita'}).`);
-        } catch (err) {
-          console.error("Errore durante l'annullamento:", err);
-          alert("Errore durante l'annullamento della lezione.");
-        }
-      }
+    // Prepara l'azione e apre subito il PIN
+    setPendingAction(() => async () => {
+      await updateDoc(doc(db, 'lezioni', lezioneId), {
+        stato: 'annullata',
+        tipoAnnullamento: tipo,
+        penaleApplicata: tipo === 'penale',
+        noteAnnullamento: note || '',
+        dataAnnullamento: serverTimestamp()
+      });
+      if (aggiungiLog) aggiungiLog(`Lezione annullata (${tipo}) per ${studente.nome}`);
+      alert(`✅ Lezione annullata con successo (${tipo === 'penale' ? 'con addebito penale' : 'gratuita'}).`);
     });
+
+    setPinInput('');
+    setPinError(false);
+    setShowPinModal(true);
   };
 
-  // GESTIONE MOVIMENTI CONTABILI (AGGIUNGI / MODIFICA)
+  // Verifica PIN inserito
+  const handleConfermaPin = async (e) => {
+    e.preventDefault();
+    // Default PIN: 1234 oppure 0000 (modificabile)
+    if (pinInput === '1234' || pinInput === '0000') {
+      setShowPinModal(false);
+      if (pendingAction) {
+        await pendingAction();
+        setPendingAction(null);
+      }
+    } else {
+      setPinError(true);
+      setPinInput('');
+    }
+  };
+
+  // AGGIUNTA / MODIFICA VERSAMENTO IN TEMPO REALE
   const handleSalvaMovimento = async (e) => {
     e.preventDefault();
     const importoNum = Number(movimentoForm.importo);
@@ -219,7 +220,7 @@ export default function DettaglioStudente({
       });
     }
 
-    const nuovoTotaleVersato = listaAggiornata.reduce((acc, m) => acc + (Number(m.importo || m.pagato) || 0), 0);
+    const nuovoTotaleVersato = listaAggiornata.reduce((acc, m) => acc + (Number(m.importo ?? m.pagato) || 0), 0);
 
     try {
       await updateDoc(doc(db, 'studenti', studente.id), {
@@ -237,17 +238,17 @@ export default function DettaglioStudente({
       });
     } catch (err) {
       console.error(err);
-      alert("Errore durante il salvataggio del movimento.");
+      alert("Errore salvataggio movimento.");
     }
   };
 
-  // ELIMINAZIONE MOVIMENTO CONTABILE
+  // ELIMINAZIONE VERSAMENTO IN TEMPO REALE
   const handleEliminaMovimento = async (index) => {
     const mov = storicoRicariche[index];
-    if (!window.confirm(`Vuoi cancellare il versamento di € ${Number(mov.importo || mov.pagato).toFixed(2)} del ${mov.data}?`)) return;
+    if (!window.confirm(`Vuoi cancellare il versamento di € ${Number(mov.importo ?? mov.pagato).toFixed(2)} del ${mov.data}?`)) return;
 
     const listaAggiornata = storicoRicariche.filter((_, i) => i !== index);
-    const nuovoTotaleVersato = listaAggiornata.reduce((acc, m) => acc + (Number(m.importo || m.pagato) || 0), 0);
+    const nuovoTotaleVersato = listaAggiornata.reduce((acc, m) => acc + (Number(m.importo ?? m.pagato) || 0), 0);
 
     try {
       await updateDoc(doc(db, 'studenti', studente.id), {
@@ -260,12 +261,11 @@ export default function DettaglioStudente({
     }
   };
 
-  // APRI FORM MODIFICA MOVIMENTO
   const handleApriModificaMovimento = (index) => {
     const mov = storicoRicariche[index];
     setMovimentoForm({
       data: mov.data || new Date().toISOString().split('T')[0],
-      importo: mov.importo || mov.pagato || '',
+      importo: mov.importo ?? mov.pagato ?? '',
       causale: mov.causale || mov.tipoPacchetto || 'Ricarica Plafond',
       metodo: mov.metodo || 'Contanti',
       note: mov.note || ''
@@ -278,7 +278,7 @@ export default function DettaglioStudente({
     <div className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex justify-center items-start pt-6 pb-6 overflow-y-auto">
       <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl relative flex flex-col border border-slate-200 overflow-hidden min-h-[620px] my-auto">
         
-        {/* HEADER SCHEDA */}
+        {/* HEADER */}
         <div className="bg-slate-900 text-white p-6 flex justify-between items-start shrink-0">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 bg-amber-400 text-slate-900 rounded-2xl flex items-center justify-center font-black text-2xl shadow-inner">
@@ -305,7 +305,7 @@ export default function DettaglioStudente({
           </button>
         </div>
 
-        {/* NAVIGAZIONE TAB */}
+        {/* TAB BUTTONS */}
         <div className="flex border-b border-gray-200 bg-slate-50 px-6 shrink-0">
           <button onClick={() => setActiveTab('contabilita')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'contabilita' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
             <CreditCard className="w-4 h-4 text-emerald-600"/> Contabilità & Estratto Conto
@@ -318,19 +318,21 @@ export default function DettaglioStudente({
           </button>
         </div>
 
-        {/* CONTENUTO DEI TAB */}
+        {/* TAB BODY */}
         <div className="p-6 overflow-y-auto flex-1 bg-white">
           
           {/* TAB 1: CONTABILITÀ */}
           {activeTab === 'contabilita' && (
             <div className="space-y-6">
+              
+              {/* RIEPILOGO AUTOMATICO SALDO */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className={`p-5 rounded-2xl border ${saldoCalcolato < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Saldo Attuale (Credito)</p>
                   <p className={`text-3xl font-black ${saldoCalcolato < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                     {saldoCalcolato > 0 ? '+' : ''}{saldoCalcolato.toFixed(2)} €
                   </p>
-                  <span className="text-[10px] font-semibold text-slate-400">Ricalcolato in tempo reale</span>
+                  <span className="text-[10px] font-semibold text-slate-400">Aggiornato in tempo reale</span>
                 </div>
                 <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50">
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1 text-emerald-700">
@@ -348,6 +350,7 @@ export default function DettaglioStudente({
                 </div>
               </div>
 
+              {/* BARRA AZIONI */}
               <div className="flex justify-between items-center bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                 <span className="text-xs font-black text-slate-700 uppercase tracking-wide">Registro Pagamenti & Ricariche</span>
                 <button
@@ -368,11 +371,12 @@ export default function DettaglioStudente({
                 </button>
               </div>
 
+              {/* MODULO AGGIUNTA / MODIFICA VERSAMENTO */}
               {showRicarica && (
                 <form onSubmit={handleSalvaMovimento} className="bg-emerald-50/70 border border-emerald-200 p-4 rounded-2xl space-y-3">
                   <div className="flex justify-between items-center">
                     <h4 className="text-xs font-black text-emerald-900 uppercase">
-                      {editingMovimentoIndex !== null ? '✏️ Modifica Versamento' : '➕ Registra Nuovo Pagamento / Pacchetto'}
+                      {editingMovimentoIndex !== null ? '✏️️ Modifica Versamento' : '➕ Registra Nuovo Pagamento / Pacchetto'}
                     </h4>
                     <button type="button" onClick={() => setShowRicarica(false)} className="text-xs text-slate-400 hover:text-slate-600">Chiudi</button>
                   </div>
@@ -440,6 +444,7 @@ export default function DettaglioStudente({
                 </form>
               )}
 
+              {/* LISTA MOVIMENTI CON AGGIORNAMENTO LIVE */}
               <div className="space-y-2">
                 {storicoRicariche.length === 0 ? (
                   <div className="p-8 text-center border border-dashed border-slate-200 rounded-2xl bg-slate-50 text-xs text-slate-400">
@@ -454,7 +459,7 @@ export default function DettaglioStudente({
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-black text-slate-900 text-sm">+{Number(mov.importo || mov.pagato).toFixed(2)} €</span>
+                            <span className="font-black text-slate-900 text-sm">+{Number(mov.importo ?? mov.pagato).toFixed(2)} €</span>
                             <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase">{mov.metodo || 'Contanti'}</span>
                             <span className="text-slate-600 font-bold">{mov.causale || mov.tipoPacchetto || 'Ricarica Plafond'}</span>
                           </div>
@@ -485,10 +490,10 @@ export default function DettaglioStudente({
                 )}
               </div>
 
-              {/* STORICO ADDEBITI LEZIONI */}
+              {/* LISTA LEZIONI SCALATE */}
               <div className="pt-4 border-t border-slate-100">
                 <h4 className="text-xs font-black text-slate-700 uppercase mb-3 flex items-center gap-2">
-                  <History className="w-4 h-4 text-blue-500"/> Storico Lezioni Svolte o Annullate con Penale
+                  <History className="w-4 h-4 text-blue-500"/> Storico Lezioni Svolte o con Penale (Addebiti)
                 </h4>
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {lezioniDaAddebitare.length === 0 ? (
@@ -664,11 +669,13 @@ export default function DettaglioStudente({
         </div>
       </div>
 
-      {/* POPUP SELEZIONE TIPO ANNULLAMENTO */}
+      {/* POPUP CONFERMA ANNULLAMENTO */}
       {annullaConfig.isOpen && (
-        <div className="fixed inset-0 z-[60] bg-slate-950/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
-            <h3 className="font-black text-lg text-slate-900 flex items-center gap-2"><AlertCircle className="w-5 h-5 text-rose-600"/> Annulla Lezione</h3>
+        <div className="fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-rose-600"/> Annulla Lezione
+            </h3>
             <div className="space-y-3 text-sm">
               <div>
                 <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Tipo di Annullamento</label>
@@ -679,27 +686,48 @@ export default function DettaglioStudente({
               </div>
               <div>
                 <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Motivazione</label>
-                <input type="text" placeholder="Es. Malattia, assenza..." className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium" value={annullaConfig.note} onChange={(e) => setAnnullaConfig({...annullaConfig, note: e.target.value})}/>
+                <input type="text" placeholder="Es. Malattia, imprevisto..." className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium" value={annullaConfig.note} onChange={(e) => setAnnullaConfig({...annullaConfig, note: e.target.value})}/>
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
               <button onClick={() => setAnnullaConfig({...annullaConfig, isOpen: false})} className="px-4 py-2 bg-gray-100 font-bold rounded-xl text-xs">Indietro</button>
-              <button onClick={avviaAnnullamento} className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs">Procedi all'Annullamento</button>
+              <button onClick={richiediPinPerAnnullamento} className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs">Procedi all'Annullamento</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* POPUP RICHIESTA PIN DI SICUREZZA */}
-      <ModalePin 
-        isOpen={pinConfig.isOpen} 
-        descrizione={pinConfig.description} 
-        onClose={() => setPinConfig({ isOpen: false, actionCallback: null, description: '' })} 
-        onSuccess={() => { 
-          if (pinConfig.actionCallback) pinConfig.actionCallback(); 
-          setPinConfig({ isOpen: false, actionCallback: null, description: '' }); 
-        }} 
-      />
+      {/* POPUP RICHIESTA PIN DIRETTO CON OVERLAY MASSIMO */}
+      {showPinModal && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center">
+            <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto">
+              <Lock className="w-6 h-6"/>
+            </div>
+            <div>
+              <h3 className="font-black text-lg text-slate-900">PIN di Sicurezza</h3>
+              <p className="text-xs text-slate-500 mt-1">Inserisci il codice PIN per confermare l'annullamento della lezione.</p>
+            </div>
+            <form onSubmit={handleConfermaPin} className="space-y-3">
+              <input 
+                type="password" 
+                maxLength="6"
+                autoFocus
+                placeholder="****"
+                className="w-full text-center tracking-widest text-2xl font-black py-3 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white"
+                value={pinInput}
+                onChange={e => setPinInput(e.target.value)}
+              />
+              {pinError && <p className="text-xs text-rose-600 font-bold">PIN errato. Riprova.</p>}
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold">Annulla</button>
+                <button type="submit" className="flex-1 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-black shadow">Conferma</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
