@@ -27,7 +27,25 @@ export default function AppGenitore({ utente, onLogout }) {
     emailMattutinaAbilitata: true,
     emailAggiornamentiAbilitata: true
   });
+  
+// Trova il primo figlio che deve ancora firmare il GDPR
+const figlioInAttesaGdpr = iMieiFigli.find(f => !f.gdprConfermato);
 
+return (
+  <div ...>
+    {/* Se c'è un figlio senza GDPR firmato, compare il modale bloccante */}
+    {figlioInAttesaGdpr && (
+      <ModalePrivacy
+        isOpen={true}
+        utente={utente}
+        studente={figlioInAttesaGdpr}
+        onAccettato={() => {}}
+      />
+    )}
+    
+    {/* resto dell'app... */}
+  </div>
+);
   // 1. Recupera i figli associati al genitore e imposta in automatico "appAttivata: true"
   useEffect(() => {
     if (!utente?.email) return;
