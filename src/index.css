@@ -2,73 +2,19 @@
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
 
-/* =========================================
-   DARK THEME PULITO ED ELEGANTE
-   ========================================= */
+/* ========================================================
+   MODALITÀ NOTTE NATIVA STILE CHROME / DARK READER
+   ======================================================== */
 
-html.dark body {
-  background-color: #0b1329 !important;
-  color: #e2e8f0 !important;
+html.dark {
+  /* Inverte luminosità preservando esattamente la tonalità dei colori */
+  filter: invert(0.92) hue-rotate(180deg);
+  background-color: #ffffff;
 }
 
-/* Modali, schede e card */
-html.dark .bg-white {
-  background-color: #151f38 !important;
-  color: #f8fafc !important;
-  border-color: #233358 !important;
-}
-
-/* Griglia planning e sfondi chiari */
-html.dark .bg-slate-50,
-html.dark .bg-gray-50 {
-  background-color: #1a2744 !important;
-  color: #cbd5e1 !important;
-  border-color: #2a3b61 !important;
-}
-
-/* Righe e celle del planning */
-html.dark table, 
-html.dark tr, 
-html.dark td, 
-html.dark th {
-  border-color: #233358 !important;
-}
-
-/* Box lezioni nel planning: rimangono vivi e leggibili */
-html.dark .bg-emerald-50,
-html.dark .bg-emerald-100 {
-  background-color: rgba(16, 185, 129, 0.25) !important;
-  border-color: #10b981 !important;
-  color: #ffffff !important;
-}
-
-html.dark .bg-amber-50,
-html.dark .bg-amber-100 {
-  background-color: rgba(245, 158, 11, 0.25) !important;
-  border-color: #f59e0b !important;
-  color: #ffffff !important;
-}
-
-/* Testi sempre nitidi e luminosi */
-html.dark .text-slate-900,
-html.dark .text-slate-800,
-html.dark .text-slate-700,
-html.dark .text-gray-900,
-html.dark .text-gray-800 {
-  color: #f8fafc !important;
-}
-
-html.dark .text-slate-600,
-html.dark .text-slate-500,
-html.dark .text-gray-500 {
-  color: #94a3b8 !important;
-}
-
-/* Input form e campi testo */
-html.dark input,
-html.dark select,
-html.dark textarea {
-  background-color: #0f172a !important;
-  color: #ffffff !important;
-  border-color: #334155 !important;
+/* Evita che le foto degli studenti o icone vengano invertite "a negativo" */
+html.dark img,
+html.dark video,
+html.dark svg {
+  filter: invert(1) hue-rotate(180deg);
 }
