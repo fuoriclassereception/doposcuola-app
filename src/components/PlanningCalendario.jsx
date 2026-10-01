@@ -313,17 +313,17 @@ export default function PlanningCalendario({
               
               {/* PULSANTE SOLE / LUNA */}
               <button
-                type="button"
-                onClick={toggleTema}
-                className="p-1.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700 shadow-xs"
-                title={isDarkMode ? "Passa a Tema Giorno" : "Passa a Tema Notte"}
-              >
-                {isDarkMode ? (
-                  <Sun className="w-4 h-4 text-amber-500 fill-amber-500/20" />
-                ) : (
-                  <Moon className="w-4 h-4 text-indigo-500 fill-indigo-500/20" />
-                )}
-              </button>
+  type="button"
+  onClick={toggleTema}
+  className="p-1.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700 shadow-xs"
+  title={isDarkMode ? "Passa a Tema Giorno" : "Passa a Tema Notte"}
+>
+  {isDarkMode ? (
+    <Sun className="w-4 h-4 text-amber-500 fill-amber-500/20" />
+  ) : (
+    <Moon className="w-4 h-4 text-indigo-500 fill-indigo-500/20" />
+  )}
+</button>
             </div>
             <p className="text-xs text-gray-500">Lezioni contemporanee affiancate</p>
           </div>
