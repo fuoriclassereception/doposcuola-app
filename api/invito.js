@@ -2,7 +2,6 @@
 import nodemailer from 'nodemailer';
 
 export default async function handler(req, res) {
-  // Consentiamo solo chiamate POST dal frontend
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Metodo non consentito' });
   }
@@ -14,23 +13,21 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 1. Configurazione dello stesso trasportatore Gmail
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
       secure: true,
       auth: {
-        user: 'fuoriclasse.reception@gmail.com', // ⚠️ Inserisci la tua email Gmail
-        pass: 'ssnbbnnfpwhurwbi'    // ⚠️ Inserisci la tua password per le app di 16 caratteri
+        user: 'fuoriclasse.reception@gmail.com',
+        pass: 'ssnbbnnfpwhurwbi'
       }
     });
 
     const urlPiattaforma = linkApp || 'https://fuoriclasse.vercel.app';
     const allievo = nomeStudente || 'tuo figlio/a';
 
-    // 2. Modello HTML dell'email di benvenuto
     const mailOptions = {
-      from: '"fuoriclasse.reception@gmail.com', // ⚠️ Inserisci la tua email Gmail
+      from: '"FuoriClasse Segreteria" <fuoriclasse.reception@gmail.com>',
       to: email,
       subject: `📚 Benvenuto a FuoriClasse - Accesso e Profilo di ${allievo}`,
       html: `
@@ -53,7 +50,7 @@ export default async function handler(req, res) {
               <p style="margin: 0 0 15px 0; font-size: 14px; color: #334155; font-weight: bold;">
                 Email di accesso: <span style="color: #2563eb;">${email}</span>
               </p>
-              <a href="${urlPiattaforma}" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 12px 24px; rounded: 10px; border-radius: 8px;">
+              <a href="${urlPiattaforma}" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 12px 24px; border-radius: 8px;">
                 🚀 Accedi alla Piattaforma
               </a>
             </div>
@@ -80,7 +77,6 @@ export default async function handler(req, res) {
       `
     };
 
-    // 3. Invio effettivo in background
     await transporter.sendMail(mailOptions);
     return res.status(200).json({ success: true, message: 'Email inviata con successo' });
 
