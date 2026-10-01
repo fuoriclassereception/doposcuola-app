@@ -25,8 +25,8 @@ export default async function handler(req, res) {
       port: 465,
       secure: true,
       auth: {
-        user: 'TUA_EMAIL_GMAIL@gmail.com', // ⚠️ INSERISCI LA TUA EMAIL
-        pass: 'TUA_PASSWORD_PER_LE_APP'    // ⚠️ INSERISCI LA PASSWORD DI 16 CARATTERI
+        user: 'fuoriclasse.reception@gmail.com', // ⚠️ INSERISCI LA TUA EMAIL
+        pass: 'ssnbbnnfpwhurwbi'    // ⚠️ INSERISCI LA PASSWORD DI 16 CARATTERI
       }
     });
 
@@ -83,7 +83,7 @@ export default async function handler(req, res) {
 
         // La vera e propria Email formattata benissimo
         const mailOptions = {
-          from: '"FuoriClasse" <tua_email_gmail@gmail.com>', // ⚠️ INSERISCI LA TUA EMAIL
+          from: '"FuoriClasse" fuoriclasse.reception@gmail.com', // ⚠️ INSERISCI LA TUA EMAIL
           to: genitore.email,
           subject: `📚 Promemoria Lezioni FuoriClasse - ${oggi}`,
           html: `
