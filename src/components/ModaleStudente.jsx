@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, UserPlus, Tag, ShieldCheck } from 'lucide-react';
+import { X, UserPlus, Tag, ShieldCheck, MessageCircle, Mail, Sparkles } from 'lucide-react';
 import { TARIFFE_STANDARD } from '../utils/tariffeConfig';
 
 export default function ModaleStudente({
@@ -11,6 +11,46 @@ export default function ModaleStudente({
   isEditing
 }) {
   if (!isOpen) return null;
+
+  const recapitoTelefono = formData.genitoreTelefono || formData.telefono || '';
+  const recapitoEmail = formData.genitoreEmail || formData.email || '';
+
+  const handleInviaWhatsApp = () => {
+    const tel = recapitoTelefono.replace(/\D/g, '');
+    if (!tel) {
+      alert("Inserisci prima il numero di telefono del genitore o dello studente.");
+      return;
+    }
+    const numeroCompleto = tel.startsWith('39') ? tel : `39${tel}`;
+    const nomeStudente = formData.nome ? `${formData.nome} ${formData.cognome || ''}`.trim() : 'tuo figlio/a';
+    const linkApp = typeof window !== 'undefined' ? window.location.origin : 'https://fuoriclasse.vercel.app';
+    
+    const messaggio = `Ciao! Ti diamo il benvenuto a FuoriClasse 📚\n\nAbbiamo attivato il profilo per *${nomeStudente}*.\nPer visualizzare il calendario lezioni, consultare il saldo ore e impostare i promemoria, puoi accedere alla nostra Web App da questo link:\n${linkApp}\n\nSe è il tuo primo accesso, utilizza questo indirizzo email per impostare la tua password personale tramite 'Primo Accesso / Password dimenticata'. A presto!`;
+
+    window.open(`https://wa.me/${numeroCompleto}?text=${encodeURIComponent(messaggio)}`, '_blank');
+  };
+
+  const handleInviaEmail = () => {
+    if (!recapitoEmail) {
+      alert("Inserisci prima l'indirizzo email del genitore o dello studente.");
+      return;
+    }
+    const nomeStudente = formData.nome ? `${formData.nome} ${formData.cognome || ''}`.trim() : 'lo studente';
+    const linkApp = typeof window !== 'undefined' ? window.location.origin : 'https://fuoriclasse.vercel.app';
+    const oggetto = `Benvenuto a FuoriClasse - Accesso e Profilo di ${nomeStudente}`;
+    const corpo = `Gentile Genitore,\n\nTi diamo il benvenuto a FuoriClasse!\n\nAbbiamo attivato il profilo per ${nomeStudente}.\nPer visualizzare il calendario lezioni, consultare lo stato del plafond ore e salvare le preferenze per le notifiche, puoi collegarti alla nostra piattaforma web all'indirizzo:\n${linkApp}\n\nAl primo accesso ti basterà cliccare su 'Primo Accesso / Password dimenticata' inserendo questo indirizzo email (${recapitoEmail}) per impostare la tua password personale.\n\nRestiamo a disposizione per qualsiasi chiarimento.\n\nCordiali saluti,\nLa Segreteria di FuoriClasse`;
+
+    window.location.href = `mailto:${recapitoEmail}?subject=${encodeURIComponent(oggetto)}&body=${encodeURIComponent(corpo)}`;
+  };
+
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    // Se lo studente era contrassegnato come provvisorio, la compilazione della scheda lo formalizza
+    if (formData.isProvvisorio) {
+      setFormData(prev => ({ ...prev, isProvvisorio: false }));
+    }
+    onSave(e);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -27,7 +67,23 @@ export default function ModaleStudente({
           </button>
         </div>
 
-        <form onSubmit={onSave} className="space-y-4 text-xs">
+        {/* Avviso se il profilo è provvisorio / ospite */}
+        {formData.isProvvisorio && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-amber-950">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-amber-600 shrink-0"/>
+              <div>
+                <p className="text-xs font-black">Allievo Registrato al Volo (Prova)</p>
+                <p className="text-[10px] text-amber-800">Completa i dati del genitore e salva per renderlo un allievo effettivo.</p>
+              </div>
+            </div>
+            <span className="text-[9px] font-black uppercase bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+              Provvisorio
+            </span>
+          </div>
+        )}
+
+        <form onSubmit={handleFormSubmit} className="space-y-4 text-xs">
           {/* Dati Base Studente */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -182,7 +238,7 @@ export default function ModaleStudente({
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-black text-sky-900 uppercase mb-1">Email Genitore (per ricevute)</label>
+                <label className="block text-[10px] font-black text-sky-900 uppercase mb-1">Email Genitore (per ricevute e app)</label>
                 <input
                   type="email"
                   value={formData.genitoreEmail || ''}
@@ -190,6 +246,32 @@ export default function ModaleStudente({
                   className="w-full p-2 bg-white border border-sky-300 rounded-xl font-medium text-slate-900 focus:outline-none"
                 />
               </div>
+            </div>
+
+            {/* SEZIONE INVITO RAPIDO WHATSAPP ED EMAIL */}
+            <div className="pt-2 border-t border-sky-200/60 space-y-1.5">
+              <label className="block text-[10px] font-black text-sky-900 uppercase">
+                Invio Accesso & Istruzioni Password
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={handleInviaWhatsApp}
+                  className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95"
+                >
+                  <MessageCircle className="w-3.5 h-3.5"/> Invia WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={handleInviaEmail}
+                  className="w-full py-2 px-3 bg-sky-700 hover:bg-sky-800 text-white font-extrabold rounded-xl flex items-center justify-center gap-1.5 shadow-sm transition active:scale-95"
+                >
+                  <Mail className="w-3.5 h-3.5"/> Invia Email
+                </button>
+              </div>
+              <p className="text-[9px] text-sky-700 leading-tight">
+                Genera un messaggio formattato con link all'app e istruzioni per configurare la password.
+              </p>
             </div>
           </div>
 
