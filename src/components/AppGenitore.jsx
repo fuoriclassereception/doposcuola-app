@@ -3,6 +3,7 @@ import { db, storage } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Settings, Mail, X, CheckCircle, Paperclip, Sun, Send } from 'lucide-react';
+import ModalePrivacy from './ModalePrivacy';
 
 export default function AppGenitore({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
@@ -27,25 +28,7 @@ export default function AppGenitore({ utente, onLogout }) {
     emailMattutinaAbilitata: true,
     emailAggiornamentiAbilitata: true
   });
-  
-// Trova il primo figlio che deve ancora firmare il GDPR
-const figlioInAttesaGdpr = iMieiFigli.find(f => !f.gdprConfermato);
 
-return (
-  <div ...>
-    {/* Se c'è un figlio senza GDPR firmato, compare il modale bloccante */}
-    {figlioInAttesaGdpr && (
-      <ModalePrivacy
-        isOpen={true}
-        utente={utente}
-        studente={figlioInAttesaGdpr}
-        onAccettato={() => {}}
-      />
-    )}
-    
-    {/* resto dell'app... */}
-  </div>
-);
   // 1. Recupera i figli associati al genitore e imposta in automatico "appAttivata: true"
   useEffect(() => {
     if (!utente?.email) return;
@@ -219,7 +202,8 @@ return (
         totalePattuito: 0, 
         storicoRicariche: [], 
         categoriaTariffaria: 'medie', 
-        isMinorenne: true
+        isMinorenne: true,
+        gdprConfermato: false
       });
       setNuovoFiglio({ nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' });
       setVistaAttiva('dashboard');
@@ -236,8 +220,22 @@ return (
     return `${d}/${m}/${y}`;
   };
 
+  // VERIFICA SE ESISTE UN FIGLIO CHE DEVE ANCORA FIRMARE IL GDPR
+  const figlioDaFirmare = iMieiFigli.find(f => !f.gdprConfermato);
+
   return (
     <div className="min-h-screen bg-gray-100 flex justify-center font-sans">
+      
+      {/* MODALE BLOCCANTE GDPR PRIVACY */}
+      {figlioDaFirmare && (
+        <ModalePrivacy
+          isOpen={true}
+          utente={utente}
+          studente={figlioDaFirmare}
+          onAccettato={() => {}}
+        />
+      )}
+
       <div className="w-full max-w-md bg-white shadow-2xl flex flex-col h-screen relative">
 
         <header className="bg-blue-600 text-white p-5 shadow-md shrink-0 flex flex-col gap-3 relative z-10">
@@ -274,7 +272,7 @@ return (
 
                       return (
                         <div key={lez.id} className="bg-gradient-to-r from-blue-600 to-blue-500 rounded-2xl p-4 text-white shadow-md relative overflow-hidden">
-                          <p className="font-black text-lg mb-1">{lez.materia}</p>
+                          <p className="font-black text-lg mb-1">{lez.materia || 'Ripasso'}</p>
                           <p className="text-blue-100 font-bold text-sm mb-3">👤 {nomiStudenti || 'Studente'}</p>
                           
                           <div className="flex gap-4 bg-white/20 p-2.5 rounded-xl backdrop-blur-sm">
@@ -398,7 +396,7 @@ return (
                             </span>
                             <span className="text-xs font-bold text-slate-500">
                               {req.studente} • {req.ore}h 
-                              {req.dataPreferita && ` • 🗓️ ${formatDataLezione(req.dataPreferita)}`}
+                              {req.dataPreferita && ` • 🗓️️ ${formatDataLezione(req.dataPreferita)}`}
                               {req.orarioPreferito && ` (${req.orarioPreferito})`}
                             </span>
                           </div>
@@ -484,7 +482,7 @@ return (
         </main>
       </div>
 
-      {/* MODALE IMPOSTAZIONI PROMEMORIA EMAIL CHIARO E TRASPARENTE */}
+      {/* MODALE IMPOSTAZIONI PROMEMORIA EMAIL */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
