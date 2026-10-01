@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft, Paperclip, Edit2, Pin } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Users, X, User, Info, AlertOctagon, RotateCcw, Bell, Check, MessageSquare, ArrowRightLeft, Paperclip, Edit2, Pin, Sun, Moon } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
@@ -11,6 +11,25 @@ export default function PlanningCalendario({
 }) {
   const [dataSelezionata, setDataSelezionata] = useState(new Date().toISOString().split('T')[0]);
   const [currentTimeMinutes, setCurrentTimeMinutes] = useState(0);
+
+  // STATO TEMA NOTTE (LUNA / SOLE A DESTRA DEL TITOLO)
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return localStorage.getItem('tema_scuro') === 'true';
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('tema_scuro', 'true');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('tema_scuro', 'false');
+    }
+  }, [isDarkMode]);
+
+  const toggleTema = () => {
+    setIsDarkMode(prev => !prev);
+  };
 
   const insegnantiAttivi = (insegnanti || []).filter(i => i && i.nome && i.attivo !== false);
 
@@ -55,7 +74,7 @@ export default function PlanningCalendario({
           audio.volume = 0.5;
           audio.play();
         } catch (e) {
-          console.error("Audio blockato dal browser", e);
+          console.error("Audio bloccato dal browser", e);
         }
       }
       richiestePrecedenti.current = data.length;
@@ -104,9 +123,8 @@ export default function PlanningCalendario({
 
   const lezioniAttive = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato !== 'annullata' && l.stato !== 'richiesta');
   const lezioniAnnullateOggi = (lezioni || []).filter(l => l && l.data === dataSelezionata && l.stato === 'annullata');
- const lezioniGruppoOggi = lezioniAttive.filter(l => l && l.isGruppo);
+  const lezioniGruppoOggi = lezioniAttive.filter(l => l && l.isGruppo);
 
-  // IL CERVELLO POTENZIATO: Prende lezioni senza prof OPPURE con prof che sono stati cancellati
   const idInsegnantiAttivi = insegnantiAttivi.map(i => i.id);
   const lezioniSenzaProf = lezioniAttive.filter(l => 
     !l.isGruppo && (!l.insegnanteId || !idInsegnantiAttivi.includes(l.insegnanteId))
@@ -223,7 +241,6 @@ export default function PlanningCalendario({
 
       if (conflitto) return alert(`Attenzione: uno o più studenti hanno già un'altra lezione tra le ${conflitto.oraInizio} e le ${conflitto.oraFine}!`);
 
-      // Se drop nella colonna "Da assegnare", l'id insegnante diventa nullo!
       const finalDocenteId = targetInsegnanteId === 'DA_ASSEGNARE' ? '' : targetInsegnanteId;
 
       const payloadAggiornato = {
@@ -281,16 +298,33 @@ export default function PlanningCalendario({
     }
   };
 
-  // AGGIUNTA LA COLONNA "DA ASSEGNARE" COME ULTIMA COLONNA
   const gridTemplateColumns = `60px repeat(${insegnantiAttivi.length}, minmax(170px, 1fr)) 170px 170px`;
 
   return (
     <div className="w-full h-full p-0 flex flex-col space-y-3 select-none" onMouseUp={handleGlobalMouseUp}>
       <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 mx-4 mt-4 rounded-3xl border border-gray-200 shadow-sm gap-4">
+        
+        {/* TITOLO + TASTO TEMA NOTTE COMPATTO SUBITO A DESTRA */}
         <div className="flex items-center space-x-3">
           <div className="p-2.5 bg-slate-900 text-amber-400 rounded-2xl"><CalendarIcon className="w-5 h-5"/></div>
           <div>
-            <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-black text-gray-900 tracking-tight">Planning Lezioni</h2>
+              
+              {/* PULSANTE SOLE / LUNA */}
+              <button
+                type="button"
+                onClick={toggleTema}
+                className="p-1.5 rounded-xl border transition-all flex items-center justify-center cursor-pointer bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-700 shadow-xs"
+                title={isDarkMode ? "Passa a Tema Giorno" : "Passa a Tema Notte"}
+              >
+                {isDarkMode ? (
+                  <Sun className="w-4 h-4 text-amber-500 fill-amber-500/20" />
+                ) : (
+                  <Moon className="w-4 h-4 text-indigo-500 fill-indigo-500/20" />
+                )}
+              </button>
+            </div>
             <p className="text-xs text-gray-500">Lezioni contemporanee affiancate</p>
           </div>
         </div>
@@ -501,7 +535,7 @@ export default function PlanningCalendario({
                     });
                   }
                 }} 
-                className="px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm"
+                className="px-4 py-2 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm"
               >
                 <Edit2 className="w-3.5 h-3.5"/> Modifica Giorno/Ora
               </button>
@@ -539,7 +573,6 @@ export default function PlanningCalendario({
                       </div>
                     </div>
                     
-                    {/* ZONA BOTTONI AGGIORNATA */}
                     <div className="flex gap-2 justify-end border-t border-amber-200/50 pt-2">
                       <button 
                         onClick={() => { 
@@ -555,7 +588,7 @@ export default function PlanningCalendario({
                         }} 
                         className="px-3 py-1.5 bg-amber-400 hover:bg-amber-500 transition-colors text-amber-950 font-bold rounded-lg text-[10px] shadow-sm flex items-center gap-1"
                       >
-                        <Edit2 className="w-3 h-3"/> Modifica Lezione
+                        <Edit2 className="w-3.5 h-3.5"/> Modifica Lezione
                       </button>
                       <button onClick={() => { setGroupModalData(null); if (onSelectStudent && lez.studentiIds?.[0]) onSelectStudent(lez.studentiIds[0]); }} className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 transition-colors text-white font-bold rounded-lg text-[10px] shadow-sm">
                         Apri Scheda
@@ -589,7 +622,7 @@ export default function PlanningCalendario({
                           <span>👤 {req.studente}</span>
                           {req.allegatoUrl && (
                             <a href={req.allegatoUrl} target="_blank" rel="noreferrer" className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold hover:bg-blue-200 flex items-center gap-1 shadow-sm">
-                              <Paperclip className="w-3 h-3"/> Vedi Allegato
+                              <Paperclip className="w-3.5 h-3.5"/> Vedi Allegato
                             </a>
                           )}
                         </h4>
