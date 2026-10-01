@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db, storage } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Settings, Mail, X, CheckCircle, Paperclip, MailCheck } from 'lucide-react';
+import { Settings, Mail, X, CheckCircle, Paperclip, BellRing, Sun } from 'lucide-react';
 
 export default function AppGenitore({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
@@ -21,9 +21,13 @@ export default function AppGenitore({ utente, onLogout }) {
     nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' 
   });
 
-  // STATI PER IMPOSTAZIONI NOTIFICHE EMAIL GENITORE
+  // STATI IMPOSTAZIONI PROMEMORIA EMAIL (Mattutino + Recall)
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [emailAbilitate, setEmailAbilitate] = useState(false);
+  const [impostazioniForm, setImpostazioniForm] = useState({
+    emailMattutinaAbilitata: true,
+    emailRecallAbilitata: false,
+    preavvisoMinuti: 60 // 30, 60, o 120 minuti
+  });
 
   // 1. Recupera i figli associati al genitore e imposta in automatico "appAttivata: true"
   useEffect(() => {
@@ -36,7 +40,7 @@ export default function AppGenitore({ utente, onLogout }) {
         setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
       }
 
-      // Attivazione automatica del profilo in Reception
+      // Attiva automaticamente il badge per la reception
       figli.forEach(async (figlio) => {
         if (!figlio.appAttivata) {
           try {
@@ -45,7 +49,7 @@ export default function AppGenitore({ utente, onLogout }) {
               ultimoAccessoApp: serverTimestamp()
             });
           } catch (err) {
-            console.error("Errore aggiornamento stato app:", figlio.nome, err);
+            console.error("Errore attivazione profilo:", figlio.nome, err);
           }
         }
       });
@@ -59,7 +63,11 @@ export default function AppGenitore({ utente, onLogout }) {
     const unsub = onSnapshot(doc(db, 'impostazioni_genitori', utente.uid), (docSnap) => {
       if (docSnap.exists()) {
         const dati = docSnap.data();
-        setEmailAbilitate(Boolean(dati.emailAbilitate));
+        setImpostazioniForm({
+          emailMattutinaAbilitata: dati.emailMattutinaAbilitata !== false,
+          emailRecallAbilitata: Boolean(dati.emailRecallAbilitata),
+          preavvisoMinuti: Number(dati.preavvisoMinuti) || 60
+        });
       }
     }, (error) => {
       console.error("Errore lettura impostazioni:", error);
@@ -118,12 +126,14 @@ export default function AppGenitore({ utente, onLogout }) {
 
       await setDoc(doc(db, 'impostazioni_genitori', utente.uid), {
         email: utente.email || '',
-        emailAbilitate: Boolean(emailAbilitate),
+        emailMattutinaAbilitata: Boolean(impostazioniForm.emailMattutinaAbilitata),
+        emailRecallAbilitata: Boolean(impostazioniForm.emailRecallAbilitata),
+        preavvisoMinuti: Number(impostazioniForm.preavvisoMinuti) || 60,
         dataAggiornamento: serverTimestamp()
       }, { merge: true });
 
       setShowSettingsModal(false);
-      alert("✅ Preferenze salvate con successo!");
+      alert("✅ Preferenze promemoria salvate con successo!");
     } catch (error) {
       console.error("Errore salvataggio impostazioni:", error);
       alert("Errore durante il salvataggio. Riprova.");
@@ -269,20 +279,31 @@ export default function AppGenitore({ utente, onLogout }) {
                 </div>
               )}
 
-              {/* STATO PROMEMORIA EMAIL */}
+              {/* CARD STATO PROMEMORIA EMAIL */}
               <div 
-                className={`p-4 border rounded-2xl flex items-center justify-between cursor-pointer transition shadow-sm ${emailAbilitate ? 'bg-sky-50 border-sky-200' : 'bg-slate-50 border-slate-200'}`} 
+                className={`p-4 border rounded-2xl flex items-center justify-between cursor-pointer transition shadow-sm ${
+                  impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailRecallAbilitata 
+                    ? 'bg-sky-50 border-sky-200' 
+                    : 'bg-slate-50 border-slate-200'
+                }`} 
                 onClick={() => setShowSettingsModal(true)}
               >
                  <div>
-                    <h3 className={`text-sm font-black flex items-center gap-1.5 ${emailAbilitate ? 'text-sky-900' : 'text-slate-500'}`}>
-                      {emailAbilitate ? <MailCheck className="w-4 h-4 text-sky-600"/> : <Mail className="w-4 h-4 text-slate-400"/>} 
-                      {emailAbilitate ? 'Promemoria Giornaliero Attivo' : 'Promemoria Email Disattivato'}
+                    <h3 className={`text-sm font-black flex items-center gap-1.5 ${
+                      impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailRecallAbilitata 
+                        ? 'text-sky-900' 
+                        : 'text-slate-500'
+                    }`}>
+                      <Mail className="w-4 h-4 text-sky-600"/> 
+                      {impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailRecallAbilitata
+                        ? 'Promemoria Email Attivi' 
+                        : 'Promemoria Email Disattivati'}
                     </h3>
                     <p className="text-[10px] text-slate-500 font-medium mt-0.5">
-                      {emailAbilitate 
-                        ? 'Riceverai un riepilogo via email la mattina delle lezioni in programma.' 
-                        : 'Clicca per attivare il riepilogo automatico via email.'}
+                      {impostazioniForm.emailMattutinaAbilitata && '☀️ Mattina (08:00) '}
+                      {impostazioniForm.emailMattutinaAbilitata && impostazioniForm.emailRecallAbilitata && '• '}
+                      {impostazioniForm.emailRecallAbilitata && `🔔 Recall (${impostazioniForm.preavvisoMinuti} min prima)`}
+                      {!impostazioniForm.emailMattutinaAbilitata && !impostazioniForm.emailRecallAbilitata && 'Clicca per configurare gli avvisi via email.'}
                     </p>
                  </div>
               </div>
@@ -362,7 +383,7 @@ export default function AppGenitore({ utente, onLogout }) {
                             </span>
                             <span className="text-xs font-bold text-slate-500">
                               {req.studente} • {req.ore}h 
-                              {req.dataPreferita && ` • 🗓️ ${formatDataLezione(req.dataPreferita)}`}
+                              {req.data布局Preferita && ` • 🗓️ ${formatDataLezione(req.dataPreferita)}`}
                               {req.orarioPreferito && ` (${req.orarioPreferito})`}
                             </span>
                           </div>
@@ -448,14 +469,14 @@ export default function AppGenitore({ utente, onLogout }) {
         </main>
       </div>
 
-      {/* MODALE IMPOSTAZIONI EMAIL SEMPLIFICATA */}
+      {/* MODALE IMPOSTAZIONI PROMEMORIA EMAIL COMPLETO */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
             
             <div className="flex justify-between items-center mb-5">
               <h3 className="font-black text-lg text-slate-800 flex items-center gap-2">
-                <Settings className="w-5 h-5 text-blue-600"/> Impostazioni Promemoria
+                <Settings className="w-5 h-5 text-blue-600"/> Promemoria Lezioni
               </h3>
               <button onClick={() => setShowSettingsModal(false)}>
                 <X className="w-5 h-5 text-slate-400 hover:text-slate-600"/>
@@ -463,29 +484,64 @@ export default function AppGenitore({ utente, onLogout }) {
             </div>
             
             <div className="space-y-4">
-               <div>
-                  <label className="flex items-start gap-3 cursor-pointer p-4 bg-sky-50 border border-sky-200 rounded-2xl hover:bg-sky-100/70 transition">
-                    <input 
-                      type="checkbox" 
-                      className="w-5 h-5 mt-0.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500" 
-                      checked={emailAbilitate} 
-                      onChange={e => setEmailAbilitate(e.target.checked)} 
-                    />
-                    <div className="flex-1">
-                      <span className="font-black text-slate-900 flex items-center gap-2 text-sm">
-                        <Mail className="w-4 h-4 text-blue-600"/> 
-                        Riepilogo giornaliero via Email
-                      </span>
-                      <p className="text-[11px] text-slate-600 font-medium mt-1 leading-snug">
-                        Riceverai un'email ogni mattina alle <b>08:00</b> con il dettaglio degli orari, materie e allievi per le lezioni in programma nella giornata.
-                      </p>
-                    </div>
-                  </label>
+               {/* 1. OPZIONE EMAIL DEL MATTINO (08:00) */}
+               <label className="flex items-start gap-3 cursor-pointer p-4 bg-amber-50/60 border border-amber-200 rounded-2xl hover:bg-amber-100/50 transition">
+                 <input 
+                   type="checkbox" 
+                   className="w-5 h-5 mt-0.5 text-amber-600 rounded border-slate-300 focus:ring-amber-500" 
+                   checked={impostazioniForm.emailMattutinaAbilitata} 
+                   onChange={e => setImpostazioniForm({ ...impostazioniForm, emailMattutinaAbilitata: e.target.checked })} 
+                 />
+                 <div className="flex-1">
+                   <span className="font-black text-slate-900 flex items-center gap-1.5 text-sm">
+                     <Sun className="w-4 h-4 text-amber-600"/> Riepilogo Mattutino (08:00)
+                   </span>
+                   <p className="text-[11px] text-slate-600 font-medium mt-1 leading-snug">
+                     Ricevi ogni mattina l'elenco completo delle lezioni fissate per la giornata.
+                   </p>
+                 </div>
+               </label>
+
+               {/* 2. OPZIONE RECALL PRIMA DELLA LEZIONE */}
+               <div className="p-4 bg-sky-50/60 border border-sky-200 rounded-2xl space-y-3">
+                 <label className="flex items-start gap-3 cursor-pointer">
+                   <input 
+                     type="checkbox" 
+                     className="w-5 h-5 mt-0.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500" 
+                     checked={impostazioniForm.emailRecallAbilitata} 
+                     onChange={e => setImpostazioniForm({ ...impostazioniForm, emailRecallAbilitata: e.target.checked })} 
+                   />
+                   <div className="flex-1">
+                     <span className="font-black text-slate-900 flex items-center gap-1.5 text-sm">
+                       <BellRing className="w-4 h-4 text-blue-600"/> Recall prima della Lezione
+                     </span>
+                     <p className="text-[11px] text-slate-600 font-medium mt-0.5 leading-snug">
+                       Un promemoria immediato poco prima dell'inizio.
+                     </p>
+                   </div>
+                 </label>
+
+                 {impostazioniForm.emailRecallAbilitata && (
+                   <div className="pt-2 border-t border-sky-200/60 space-y-1.5">
+                     <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider">
+                       Anticipo di preavviso:
+                     </label>
+                     <select
+                       value={impostazioniForm.preavvisoMinuti}
+                       onChange={e => setImpostazioniForm({ ...impostazioniForm, preavvisoMinuti: Number(e.target.value) })}
+                       className="w-full p-2.5 bg-white border border-sky-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                     >
+                       <option value={30}>⏱️ 30 minuti prima</option>
+                       <option value={60}>⏱️ 1 ora prima (60 min)</option>
+                       <option value={120}>⏱️ 2 ore prima (120 min)</option>
+                     </select>
+                   </div>
+                 )}
                </div>
 
                <button 
                  onClick={salvaImpostazioni} 
-                 className="w-full py-3.5 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg transition"
+                 className="w-full py-3.5 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg transition text-sm"
                >
                  Salva Preferenze
                </button>
