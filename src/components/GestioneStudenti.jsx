@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Plus, Phone, Mail, Trash2, CheckCircle2, AlertCircle, UserCheck, KeyRound, User, MessageCircle, Sparkles } from 'lucide-react';
 
 export default function GestioneStudenti({
@@ -9,6 +9,8 @@ export default function GestioneStudenti({
   onToggleStato,
   onDelete
 }) {
+  const [sendingEmailId, setSendingEmailId] = useState(null);
+
   const filteredStudenti = studenti.filter(s =>
     `${s.nome} ${s.cognome} ${s.scuola || ''} ${s.genitoreNome || ''}`.toLowerCase().includes((searchQuery || '').toLowerCase())
   );
@@ -32,49 +34,40 @@ export default function GestioneStudenti({
     window.open(`https://wa.me/${numeroCompleto}?text=${encodeURIComponent(messaggio)}`, '_blank');
   };
 
-  const [sendingEmailId, setSendingEmailId] = useState(null);
+  const handleInviaEmail = async (std) => {
+    const targetEmail = std.isMinorenne ? (std.genitoreEmail || std.email) : (std.email || std.genitoreEmail);
+    const targetNome = `${std.nome} ${std.cognome || ''}`.trim();
 
-const handleInviaEmail = async (std) => {
-  const targetEmail = std.isMinorenne ? (std.genitoreEmail || std.email) : (std.email || std.genitoreEmail);
-  const targetNome = `${std.nome} ${std.cognome || ''}`.trim();
-
-  if (!targetEmail) {
-    alert(`Attenzione: inserisci un'email valida per ${std.nome} per poter inviare l'invito.`);
-    return;
-  }
-
-  setSendingEmailId(std.id);
-
-  try {
-    const res = await fetch('/api/invito', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: targetEmail,
-        nomeStudente: targetNome,
-        linkApp: window.location.origin
-      })
-    });
-
-    const data = await res.json();
-    if (res.ok && data.success) {
-      alert(`✅ Email di invito inviata con successo a ${targetEmail}!`);
-    } else {
-      alert(`❌ Errore nell'invio: ${data.message || 'Riprova più tardi'}`);
+    if (!targetEmail) {
+      alert(`Attenzione: inserisci un'email valida per ${std.nome} per poter inviare l'invito.`);
+      return;
     }
-  } catch (err) {
-    console.error(err);
-    alert("Errore di connessione durante l'invio dell'email.");
-  } finally {
-    setSendingEmailId(null);
-  }
-};
 
-    const linkApp = typeof window !== 'undefined' ? window.location.origin : 'https://fuoriclasse.vercel.app';
-    const oggetto = `Benvenuto a FuoriClasse - Accesso e Profilo di ${std.nome}`;
-    const corpo = `Gentile ${targetNome},\n\nTi diamo il benvenuto a FuoriClasse!\n\nAbbiamo attivato il profilo per ${std.nome}.\nPer visualizzare il calendario lezioni, consultare lo stato del plafond ore e salvare le preferenze, puoi collegarti alla nostra piattaforma web all'indirizzo:\n${linkApp}\n\nAl primo accesso ti basterà cliccare su 'Primo Accesso / Password dimenticata' inserendo questo indirizzo email (${targetEmail}) per impostare la tua password personale.\n\nRestiamo a disposizione per qualsiasi chiarimento.\n\nCordiali saluti,\nLa Segreteria di FuoriClasse`;
+    setSendingEmailId(std.id);
 
-    window.location.href = `mailto:${targetEmail}?subject=${encodeURIComponent(oggetto)}&body=${encodeURIComponent(corpo)}`;
+    try {
+      const res = await fetch('/api/invito', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: targetEmail,
+          nomeStudente: targetNome,
+          linkApp: typeof window !== 'undefined' ? window.location.origin : 'https://fuoriclasse.vercel.app'
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(`✅ Email di invito inviata con successo a ${targetEmail}!`);
+      } else {
+        alert(`❌ Errore nell'invio: ${data.message || 'Riprova più tardi'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Errore di connessione durante l'invio dell'email.");
+    } finally {
+      setSendingEmailId(null);
+    }
   };
 
   return (
@@ -236,11 +229,13 @@ const handleInviaEmail = async (std) => {
 
                     <button
                       type="button"
+                      disabled={sendingEmailId === std.id}
                       onClick={() => handleInviaEmail(std)}
-                      className="p-1.5 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold px-2.5 border border-sky-300 flex items-center transition-all bg-sky-50 shadow-sm"
-                      title="Invia credenziali via Email"
+                      className="p-1.5 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold px-2.5 border border-sky-300 flex items-center transition-all bg-sky-50 shadow-sm disabled:opacity-50"
+                      title="Invia credenziali via Email in automatico"
                     >
-                      <Mail className="w-3.5 h-3.5 mr-1 text-sky-600"/> Email
+                      <Mail className="w-3.5 h-3.5 mr-1 text-sky-600"/> 
+                      {sendingEmailId === std.id ? 'Invio in corso...' : 'Email'}
                     </button>
                   </div>
 
