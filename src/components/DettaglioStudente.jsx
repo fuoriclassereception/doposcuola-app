@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function DettaglioStudente({ 
   studente, 
@@ -17,7 +17,7 @@ export default function DettaglioStudente({
   onUpdateLezioneStatus,
   aggiungiLog
 }) {
-  const [activeTab, setActiveTab] = useState('contabilita'); // Default su contabilità per testare subito
+  const [activeTab, setActiveTab] = useState('contabilita');
 
   const [editStd, setEditStd] = useState({});
   const [isSavingProfilo, setIsSavingProfilo] = useState(false);
@@ -35,6 +35,7 @@ export default function DettaglioStudente({
     prezzoPersonalizzato: ''
   });
 
+  // Configurazione Annullamento e PIN
   const [annullaConfig, setAnnullaConfig] = useState({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
   const [pinConfig, setPinConfig] = useState({ isOpen: false, actionCallback: null, description: '' });
 
@@ -68,17 +69,18 @@ export default function DettaglioStudente({
   // Lezioni dello studente
   const lezioniStudente = lezioni.filter(l => l && (l.studentiIds || []).includes(studente.id));
   const lezioniFuture = lezioniStudente.filter(l => l.stato === 'attiva' || l.stato === 'richiesta');
-  const lezioniSvolte = lezioniStudente.filter(l => l.stato === 'svolta' || l.penaleApplicata);
+  const lezioniPassate = lezioniStudente.filter(l => l.stato !== 'attiva' && l.stato !== 'richiesta');
 
-  lezioniFuture.sort((a, b) => a.data.localeCompare(b.data) || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
-  lezioniSvolte.sort((a, b) => b.data.localeCompare(a.data) || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
+  lezioniFuture.sort((a, b) => (a.data || '').localeCompare(b.data || '') || (a.oraInizio || '').localeCompare(b.oraInizio || ''));
+  lezioniPassate.sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.oraInizio || '').localeCompare(a.oraInizio || ''));
 
-  // 1. Calcolo dinamico del Totale Versato (dallo storico ricariche)
+  // 1. Calcolo dinamico del Totale Versato
   const storicoRicariche = studente.storicoRicariche || [];
   const totaleVersatoCalcolato = storicoRicariche.reduce((acc, mov) => acc + (Number(mov.importo || mov.pagato) || 0), 0);
 
-  // 2. Calcolo dinamico del Totale Consumato (dalle lezioni svolte)
-  const totaleConsumatoCalcolato = lezioniSvolte.reduce((acc, lez) => {
+  // 2. Calcolo dinamico del Totale Consumato (lezioni svolte o annullate con penale)
+  const lezioniDaAddebitare = lezioniStudente.filter(l => l.stato === 'svolta' || (l.stato === 'annullata' && l.tipoAnnullamento === 'penale'));
+  const totaleConsumatoCalcolato = lezioniDaAddebitare.reduce((acc, lez) => {
     if (lez.prezzoPersonalizzato !== undefined && lez.prezzoPersonalizzato !== null && lez.prezzoPersonalizzato !== '') {
       return acc + Number(lez.prezzoPersonalizzato);
     }
@@ -126,31 +128,62 @@ export default function DettaglioStudente({
     });
   };
 
-  // Salvataggio Modifica Lezione
+  // Salvataggio Modifica Lezione (con aggiornamento diretto su Firestore)
   const handleSaveEdit = async () => {
-    if (onUpdateLezioneCompleta) {
-      await onUpdateLezioneCompleta({ 
-        lezioneId: editingLezioneId, 
+    try {
+      const datiUpdate = {
         oraInizio: editFormData.oraInizio, 
         oraFine: editFormData.oraFine, 
         data: editFormData.data,
         prezzoPersonalizzato: editFormData.prezzoPersonalizzato !== '' ? Number(editFormData.prezzoPersonalizzato) : null
-      });
-      if (aggiungiLog) aggiungiLog(`Modificata lezione ${editFormData.data} per ${studente.nome}`);
+      };
+
+      if (onUpdateLezioneCompleta) {
+        await onUpdateLezioneCompleta({ lezioneId: editingLezioneId, ...datiUpdate });
+      } else {
+        await updateDoc(doc(db, 'lezioni', editingLezioneId), datiUpdate);
+      }
+
+      if (aggiungiLog) aggiungiLog(`Modificata lezione del ${editFormData.data} per ${studente.nome}`);
+      setEditingLezioneId(null);
+    } catch (err) {
+      console.error("Errore modifica lezione:", err);
+      alert("Errore durante il salvataggio della lezione.");
     }
-    setEditingLezioneId(null);
   };
 
-  // Annullamento Lezione
+  // PROCEDURA ANNULLAMENTO LEZIONE CON PIN
   const avviaAnnullamento = () => {
+    const lezioneIdTarget = annullaConfig.lezioneId;
+    const tipoAnnullamento = annullaConfig.tipo;
+    const noteAnnullamento = annullaConfig.note;
+
     setAnnullaConfig(prev => ({ ...prev, isOpen: false }));
+
+    // Apertura finestra inserimento PIN
     setPinConfig({
       isOpen: true,
-      description: `Annullamento ${annullaConfig.tipo === 'penale' ? 'CON PENALE' : 'GRATUITO'}`,
+      description: `Autorizzazione annullamento ${tipoAnnullamento === 'penale' ? 'CON PENALE' : 'GRATUITO'}`,
       actionCallback: async () => {
-        if (onUpdateLezioneStatus) {
-          await onUpdateLezioneStatus(annullaConfig.lezioneId, 'annullata', annullaConfig.note, annullaConfig.tipo);
-          if (aggiungiLog) aggiungiLog(`Lezione annullata per ${studente.nome}`);
+        try {
+          if (onUpdateLezioneStatus) {
+            await onUpdateLezioneStatus(lezioneIdTarget, 'annullata', noteAnnullamento, tipoAnnullamento);
+          } else {
+            // Aggiornamento diretto su Firestore
+            await updateDoc(doc(db, 'lezioni', lezioneIdTarget), {
+              stato: 'annullata',
+              tipoAnnullamento: tipoAnnullamento,
+              penaleApplicata: tipoAnnullamento === 'penale',
+              noteAnnullamento: noteAnnullamento || '',
+              dataAnnullamento: serverTimestamp()
+            });
+          }
+
+          if (aggiungiLog) aggiungiLog(`Lezione annullata (${tipoAnnullamento}) per ${studente.nome}. Motivo: ${noteAnnullamento}`);
+          alert(`✅ Lezione annullata con successo (${tipoAnnullamento === 'penale' ? 'con penale 100%' : 'gratuita'}).`);
+        } catch (err) {
+          console.error("Errore durante l'annullamento:", err);
+          alert("Errore durante l'annullamento della lezione.");
         }
       }
     });
@@ -165,7 +198,6 @@ export default function DettaglioStudente({
     const listaAggiornata = [...storicoRicariche];
 
     if (editingMovimentoIndex !== null) {
-      // Modifica movimento esistente
       listaAggiornata[editingMovimentoIndex] = {
         ...listaAggiornata[editingMovimentoIndex],
         data: movimentoForm.data,
@@ -176,7 +208,6 @@ export default function DettaglioStudente({
         note: movimentoForm.note
       };
     } else {
-      // Nuovo movimento
       listaAggiornata.unshift({
         id: `mov_${Date.now()}`,
         data: movimentoForm.data,
@@ -287,14 +318,12 @@ export default function DettaglioStudente({
           </button>
         </div>
 
-        {/* CONTENUTO TAB */}
+        {/* CONTENUTO DEI TAB */}
         <div className="p-6 overflow-y-auto flex-1 bg-white">
           
-          {/* TAB: CONTABILITÀ & ESTRATTO CONTO TRASPARENTE */}
+          {/* TAB 1: CONTABILITÀ */}
           {activeTab === 'contabilita' && (
             <div className="space-y-6">
-              
-              {/* I 3 QUADRANTI DI RIEPILOGO AUTOMATICI */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className={`p-5 rounded-2xl border ${saldoCalcolato < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Saldo Attuale (Credito)</p>
@@ -315,11 +344,10 @@ export default function DettaglioStudente({
                     <ArrowUpRight className="w-3.5 h-3.5"/> Totale Consumato (-)
                   </p>
                   <p className="text-2xl font-black text-slate-800">{totaleConsumatoCalcolato.toFixed(2)} €</p>
-                  <span className="text-[10px] font-semibold text-slate-400">{lezioniSvolte.length} lezioni svolte</span>
+                  <span className="text-[10px] font-semibold text-slate-400">{lezioniDaAddebitare.length} lezioni addebitate</span>
                 </div>
               </div>
 
-              {/* BARRA AZIONI CONTABILI */}
               <div className="flex justify-between items-center bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                 <span className="text-xs font-black text-slate-700 uppercase tracking-wide">Registro Pagamenti & Ricariche</span>
                 <button
@@ -340,7 +368,6 @@ export default function DettaglioStudente({
                 </button>
               </div>
 
-              {/* MODULO INSERIMENTO / MODIFICA MOVIMENTO */}
               {showRicarica && (
                 <form onSubmit={handleSalvaMovimento} className="bg-emerald-50/70 border border-emerald-200 p-4 rounded-2xl space-y-3">
                   <div className="flex justify-between items-center">
@@ -413,7 +440,6 @@ export default function DettaglioStudente({
                 </form>
               )}
 
-              {/* LISTA ESTRATTO CONTO MODIFICABILE */}
               <div className="space-y-2">
                 {storicoRicariche.length === 0 ? (
                   <div className="p-8 text-center border border-dashed border-slate-200 rounded-2xl bg-slate-50 text-xs text-slate-400">
@@ -438,7 +464,6 @@ export default function DettaglioStudente({
                         </div>
                       </div>
 
-                      {/* PULSANTI MODIFICA ED ELIMINA */}
                       <div className="flex items-center gap-1.5">
                         <button
                           onClick={() => handleApriModificaMovimento(index)}
@@ -460,16 +485,16 @@ export default function DettaglioStudente({
                 )}
               </div>
 
-              {/* STORICO SCALO LEZIONI SVOLTE */}
+              {/* STORICO ADDEBITI LEZIONI */}
               <div className="pt-4 border-t border-slate-100">
                 <h4 className="text-xs font-black text-slate-700 uppercase mb-3 flex items-center gap-2">
-                  <History className="w-4 h-4 text-blue-500"/> Storico Lezioni Svolte (Addebiti)
+                  <History className="w-4 h-4 text-blue-500"/> Storico Lezioni Svolte o Annullate con Penale
                 </h4>
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {lezioniSvolte.length === 0 ? (
-                    <p className="text-xs text-slate-400 italic">Nessuna lezione svolta addebitata.</p>
+                  {lezioniDaAddebitare.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">Nessun addebito registrato.</p>
                   ) : (
-                    lezioniSvolte.map(lez => {
+                    lezioniDaAddebitare.map(lez => {
                       const ore = calcolaOre(lez.oraInizio, lez.oraFine);
                       const importoScalato = lez.prezzoPersonalizzato !== undefined && lez.prezzoPersonalizzato !== null && lez.prezzoPersonalizzato !== ''
                         ? Number(lez.prezzoPersonalizzato)
@@ -481,6 +506,9 @@ export default function DettaglioStudente({
                             <div className="flex items-center gap-2">
                               <span className="font-black text-slate-800">{lez.materia || 'Lezione'}</span>
                               <span className="text-[10px] text-slate-500">({ore}h con {getNomeProf(lez)})</span>
+                              {lez.stato === 'annullata' && (
+                                <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-black uppercase">Penale 100%</span>
+                              )}
                             </div>
                             <span className="text-[11px] text-slate-400">{lez.data} • {lez.oraInizio}-{lez.oraFine}</span>
                           </div>
@@ -497,7 +525,7 @@ export default function DettaglioStudente({
             </div>
           )}
 
-          {/* TAB: LEZIONI PROGRAMMATE */}
+          {/* TAB 2: LEZIONI FUTURE */}
           {activeTab === 'lezioni' && (
             <div className="space-y-4">
               {lezioniFuture.length === 0 ? (
@@ -572,11 +600,9 @@ export default function DettaglioStudente({
             </div>
           )}
 
-          {/* TAB: PROFILO, RECAPITI & GDPR */}
+          {/* TAB 3: PROFILO & GDPR */}
           {activeTab === 'profilo' && (
             <form onSubmit={salvaProfilo} className="space-y-6">
-              
-              {/* BOX CONSENSO PRIVACY & GDPR */}
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${studente.gdprConfermato ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -605,7 +631,6 @@ export default function DettaglioStudente({
                 )}
               </div>
 
-              {/* DATI ANAGRAFICI STUDENTE */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
                 <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-2"><User className="w-4 h-4"/> Anagrafica Studente</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -618,46 +643,18 @@ export default function DettaglioStudente({
                 </div>
               </div>
 
-              {/* DATI GENITORE / PAGATORE */}
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
                 <h3 className="text-xs font-black text-blue-600 uppercase tracking-wider flex items-center gap-2 mb-2"><User className="w-4 h-4"/> Intestatario Pagamenti (Genitore)</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Nome e Cognome Genitore</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.genitoreNome || ''} onChange={e => setEditStd({...editStd, genitoreNome: e.target.value})}/></div>
+                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Nome Genitore</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.genitoreNome || ''} onChange={e => setEditStd({...editStd, genitoreNome: e.target.value})}/></div>
                   <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Codice Fiscale Genitore</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm uppercase bg-white" value={editStd.codiceFiscale || ''} onChange={e => setEditStd({...editStd, codiceFiscale: e.target.value})}/></div>
                   <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Cellulare Genitore</label><input type="tel" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.genitoreTelefono || ''} onChange={e => setEditStd({...editStd, genitoreTelefono: e.target.value})}/></div>
                   <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Email App & Ricevute</label><input type="email" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm text-blue-700 bg-white" value={editStd.genitoreEmail || ''} onChange={e => setEditStd({...editStd, genitoreEmail: e.target.value})}/></div>
                 </div>
               </div>
 
-              {/* TARIFFE SUGGERITE */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-2"><CreditCard className="w-4 h-4"/> Inquadramento Tariffario Base</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Categoria Scolastica</label>
-                    <select className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.categoriaTariffaria || 'elementari'} onChange={e => setEditStd({...editStd, categoriaTariffaria: e.target.value})}>
-                      <option value="elementari">Primaria (18 €/h)</option>
-                      <option value="medie">Secondaria I grado (22 €/h)</option>
-                      <option value="superiori">Secondaria II grado (26 €/h)</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col justify-end">
-                    <label className="flex items-center space-x-2 p-2.5 bg-white border border-gray-200 rounded-xl cursor-pointer">
-                      <input type="checkbox" className="w-4 h-4 text-amber-500 rounded focus:ring-amber-500" checked={editStd.haTariffaRiservata || false} onChange={e => setEditStd({...editStd, haTariffaRiservata: e.target.checked})}/>
-                      <span className="text-xs font-bold text-slate-700">Applica Tariffa Oraria Riservata</span>
-                    </label>
-                  </div>
-                  {editStd.haTariffaRiservata && (
-                    <div className="col-span-1 md:col-span-2">
-                      <label className="block text-[10px] font-bold text-amber-600 uppercase mb-1">Tariffa Oraria Convenzionata (€/h)</label>
-                      <input type="number" step="0.5" className="w-full md:w-1/2 p-2.5 rounded-xl border border-amber-300 bg-amber-50 font-black text-sm text-slate-900" value={editStd.tariffaRiservataValore || ''} onChange={e => setEditStd({...editStd, tariffaRiservataValore: e.target.value})}/>
-                    </div>
-                  )}
-                </div>
-              </div>
-
               <div className="flex justify-end pt-4 border-t border-gray-100">
-                <button type="submit" disabled={isSavingProfilo} className="px-6 py-3 bg-slate-900 text-white font-black text-sm rounded-xl hover:bg-slate-800 transition-colors shadow-lg flex items-center gap-2">
+                <button type="submit" disabled={isSavingProfilo} className="px-6 py-3 bg-slate-900 text-white font-black text-sm rounded-xl hover:bg-slate-800 transition shadow flex items-center gap-2">
                   <Save className="w-4 h-4"/> Salva Modifiche Profilo
                 </button>
               </div>
@@ -667,7 +664,7 @@ export default function DettaglioStudente({
         </div>
       </div>
 
-      {/* MODALE CONFERMA ANNULLAMENTO */}
+      {/* POPUP SELEZIONE TIPO ANNULLAMENTO */}
       {annullaConfig.isOpen && (
         <div className="fixed inset-0 z-[60] bg-slate-950/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-gray-100 space-y-4">
@@ -693,7 +690,16 @@ export default function DettaglioStudente({
         </div>
       )}
 
-      <ModalePin isOpen={pinConfig.isOpen} descrizione={pinConfig.description} onClose={() => setPinConfig({ isOpen: false, actionCallback: null, description: '' })} onSuccess={() => { if (pinConfig.actionCallback) pinConfig.actionCallback(); setPinConfig({ isOpen: false, actionCallback: null, description: '' }); }} />
+      {/* POPUP RICHIESTA PIN DI SICUREZZA */}
+      <ModalePin 
+        isOpen={pinConfig.isOpen} 
+        descrizione={pinConfig.description} 
+        onClose={() => setPinConfig({ isOpen: false, actionCallback: null, description: '' })} 
+        onSuccess={() => { 
+          if (pinConfig.actionCallback) pinConfig.actionCallback(); 
+          setPinConfig({ isOpen: false, actionCallback: null, description: '' }); 
+        }} 
+      />
     </div>
   );
 }
