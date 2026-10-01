@@ -220,7 +220,7 @@ export default function AppGenitore({ utente, onLogout }) {
     return `${d}/${m}/${y}`;
   };
 
-  // VERIFICA SE ESISTE UN FIGLIO CHE DEVE ANCORA FIRMARE IL GDPR
+  // IDENTIFICA SE ESISTE UN FIGLIO CHE DEVE ANCORA FIRMARE IL GDPR
   const figlioDaFirmare = iMieiFigli.find(f => !f.gdprConfermato);
 
   return (
@@ -396,7 +396,7 @@ export default function AppGenitore({ utente, onLogout }) {
                             </span>
                             <span className="text-xs font-bold text-slate-500">
                               {req.studente} • {req.ore}h 
-                              {req.dataPreferita && ` • 🗓️️ ${formatDataLezione(req.dataPreferita)}`}
+                              {req.dataPreferita && ` • 🗓 ${formatDataLezione(req.dataPreferita)}`}
                               {req.orarioPreferito && ` (${req.orarioPreferito})`}
                             </span>
                           </div>
