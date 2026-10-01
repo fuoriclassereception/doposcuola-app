@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   User, Mail, Phone, Calendar, CreditCard, Clock, CheckCircle, 
-  AlertCircle, Edit2, X, PlusCircle, History, Printer, Save, 
-  FileText, ShieldCheck, Tag, Euro, Trash2, ArrowDownRight, ArrowUpRight, Lock
+  AlertCircle, Edit2, X, PlusCircle, History, Save, 
+  FileText, ShieldCheck, Tag, Euro, Trash2, ArrowDownRight, ArrowUpRight
 } from 'lucide-react';
+import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
 import { doc, onSnapshot, updateDoc, serverTimestamp } from 'firebase/firestore';
 
@@ -21,7 +22,7 @@ export default function DettaglioStudente({
   const [editStd, setEditStd] = useState(initialStudente || {});
   const [isSavingProfilo, setIsSavingProfilo] = useState(false);
 
-  // Listener live sul documento dello studente specifico
+  // Listener live sul documento dello studente
   useEffect(() => {
     if (!initialStudente?.id) return;
     const unsub = onSnapshot(doc(db, 'studenti', initialStudente.id), (docSnap) => {
@@ -43,12 +44,9 @@ export default function DettaglioStudente({
     prezzoPersonalizzato: ''
   });
 
-  // Configurazione Annullamento e PIN
+  // Configurazione Annullamento e ModalePin
   const [annullaConfig, setAnnullaConfig] = useState({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null);
+  const [pinConfig, setPinConfig] = useState({ isOpen: false, description: '', actionCallback: null });
 
   // Form Versamento / Ricarica Plafond
   const [showRicarica, setShowRicarica] = useState(false);
@@ -151,46 +149,39 @@ export default function DettaglioStudente({
     }
   };
 
-  // GESTIONE ANNULLAMENTO & APERTURA PIN
-  const richiediPinPerAnnullamento = () => {
+  // APERTURA MODALE PIN CENTRALIZZATA
+  const apriRichiestaPinAnnullamento = () => {
     const { lezioneId, tipo, note } = annullaConfig;
-    setAnnullaConfig(prev => ({ ...prev, isOpen: false }));
+    if (!lezioneId) return;
 
-    // Prepara l'azione e apre subito il PIN
-    setPendingAction(() => async () => {
-      await updateDoc(doc(db, 'lezioni', lezioneId), {
-        stato: 'annullata',
-        tipoAnnullamento: tipo,
-        penaleApplicata: tipo === 'penale',
-        noteAnnullamento: note || '',
-        dataAnnullamento: serverTimestamp()
-      });
-      if (aggiungiLog) aggiungiLog(`Lezione annullata (${tipo}) per ${studente.nome}`);
-      alert(`✅ Lezione annullata con successo (${tipo === 'penale' ? 'con addebito penale' : 'gratuita'}).`);
-    });
+    // Chiude prima il modale di conferma
+    setAnnullaConfig({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
 
-    setPinInput('');
-    setPinError(false);
-    setShowPinModal(true);
-  };
+    // Configura e apre ModalePin
+    setPinConfig({
+      isOpen: true,
+      description: `Annullamento ${tipo === 'penale' ? 'CON PENALE' : 'GRATUITO'}`,
+      actionCallback: async () => {
+        try {
+          await updateDoc(doc(db, 'lezioni', lezioneId), {
+            stato: 'annullata',
+            tipoAnnullamento: tipo,
+            penaleApplicata: tipo === 'penale',
+            noteAnnullamento: note || '',
+            dataAnnullamento: serverTimestamp()
+          });
 
-  // Verifica PIN inserito
-  const handleConfermaPin = async (e) => {
-    e.preventDefault();
-    // Default PIN: 1234 oppure 0000 (modificabile)
-    if (pinInput === '1234' || pinInput === '0000') {
-      setShowPinModal(false);
-      if (pendingAction) {
-        await pendingAction();
-        setPendingAction(null);
+          if (aggiungiLog) aggiungiLog(`Lezione annullata (${tipo}) per ${studente.nome}`);
+          alert(`✅ Lezione annullata con successo (${tipo === 'penale' ? 'con penale 100%' : 'gratuita'}).`);
+        } catch (err) {
+          console.error("Errore annullamento:", err);
+          alert("Errore durante la cancellazione su Firebase.");
+        }
       }
-    } else {
-      setPinError(true);
-      setPinInput('');
-    }
+    });
   };
 
-  // AGGIUNTA / MODIFICA VERSAMENTO IN TEMPO REALE
+  // GESTIONE VERSAMENTO (AGGIUNGI / MODIFICA)
   const handleSalvaMovimento = async (e) => {
     e.preventDefault();
     const importoNum = Number(movimentoForm.importo);
@@ -242,7 +233,7 @@ export default function DettaglioStudente({
     }
   };
 
-  // ELIMINAZIONE VERSAMENTO IN TEMPO REALE
+  // ELIMINAZIONE VERSAMENTO
   const handleEliminaMovimento = async (index) => {
     const mov = storicoRicariche[index];
     if (!window.confirm(`Vuoi cancellare il versamento di € ${Number(mov.importo ?? mov.pagato).toFixed(2)} del ${mov.data}?`)) return;
@@ -325,7 +316,6 @@ export default function DettaglioStudente({
           {activeTab === 'contabilita' && (
             <div className="space-y-6">
               
-              {/* RIEPILOGO AUTOMATICO SALDO */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className={`p-5 rounded-2xl border ${saldoCalcolato < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Saldo Attuale (Credito)</p>
@@ -350,7 +340,6 @@ export default function DettaglioStudente({
                 </div>
               </div>
 
-              {/* BARRA AZIONI */}
               <div className="flex justify-between items-center bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                 <span className="text-xs font-black text-slate-700 uppercase tracking-wide">Registro Pagamenti & Ricariche</span>
                 <button
@@ -371,12 +360,11 @@ export default function DettaglioStudente({
                 </button>
               </div>
 
-              {/* MODULO AGGIUNTA / MODIFICA VERSAMENTO */}
               {showRicarica && (
                 <form onSubmit={handleSalvaMovimento} className="bg-emerald-50/70 border border-emerald-200 p-4 rounded-2xl space-y-3">
                   <div className="flex justify-between items-center">
                     <h4 className="text-xs font-black text-emerald-900 uppercase">
-                      {editingMovimentoIndex !== null ? '✏️️ Modifica Versamento' : '➕ Registra Nuovo Pagamento / Pacchetto'}
+                      {editingMovimentoIndex !== null ? '✏️ Modifica Versamento' : '➕ Registra Nuovo Pagamento / Pacchetto'}
                     </h4>
                     <button type="button" onClick={() => setShowRicarica(false)} className="text-xs text-slate-400 hover:text-slate-600">Chiudi</button>
                   </div>
@@ -444,7 +432,6 @@ export default function DettaglioStudente({
                 </form>
               )}
 
-              {/* LISTA MOVIMENTI CON AGGIORNAMENTO LIVE */}
               <div className="space-y-2">
                 {storicoRicariche.length === 0 ? (
                   <div className="p-8 text-center border border-dashed border-slate-200 rounded-2xl bg-slate-50 text-xs text-slate-400">
@@ -490,7 +477,7 @@ export default function DettaglioStudente({
                 )}
               </div>
 
-              {/* LISTA LEZIONI SCALATE */}
+              {/* LISTA ADDEBITI */}
               <div className="pt-4 border-t border-slate-100">
                 <h4 className="text-xs font-black text-slate-700 uppercase mb-3 flex items-center gap-2">
                   <History className="w-4 h-4 text-blue-500"/> Storico Lezioni Svolte o con Penale (Addebiti)
@@ -669,9 +656,9 @@ export default function DettaglioStudente({
         </div>
       </div>
 
-      {/* POPUP CONFERMA ANNULLAMENTO */}
+      {/* POPUP SCELTA TIPO ANNULLAMENTO (z-50) */}
       {annullaConfig.isOpen && (
-        <div className="fixed inset-0 z-[80] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-rose-600"/> Annulla Lezione
@@ -690,43 +677,23 @@ export default function DettaglioStudente({
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
-              <button onClick={() => setAnnullaConfig({...annullaConfig, isOpen: false})} className="px-4 py-2 bg-gray-100 font-bold rounded-xl text-xs">Indietro</button>
-              <button onClick={richiediPinPerAnnullamento} className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs">Procedi all'Annullamento</button>
+              <button onClick={() => setAnnullaConfig({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' })} className="px-4 py-2 bg-gray-100 font-bold rounded-xl text-xs">Indietro</button>
+              <button onClick={apriRichiestaPinAnnullamento} className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs">Procedi con il PIN ➔</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* POPUP RICHIESTA PIN DIRETTO CON OVERLAY MASSIMO */}
-      {showPinModal && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-xs w-full p-6 shadow-2xl border border-slate-200 space-y-4 text-center">
-            <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto">
-              <Lock className="w-6 h-6"/>
-            </div>
-            <div>
-              <h3 className="font-black text-lg text-slate-900">PIN di Sicurezza</h3>
-              <p className="text-xs text-slate-500 mt-1">Inserisci il codice PIN per confermare l'annullamento della lezione.</p>
-            </div>
-            <form onSubmit={handleConfermaPin} className="space-y-3">
-              <input 
-                type="password" 
-                maxLength="6"
-                autoFocus
-                placeholder="****"
-                className="w-full text-center tracking-widest text-2xl font-black py-3 border border-slate-300 rounded-xl bg-slate-50 focus:bg-white"
-                value={pinInput}
-                onChange={e => setPinInput(e.target.value)}
-              />
-              {pinError && <p className="text-xs text-rose-600 font-bold">PIN errato. Riprova.</p>}
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowPinModal(false)} className="flex-1 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-bold">Annulla</button>
-                <button type="submit" className="flex-1 py-2.5 bg-slate-900 text-white rounded-xl text-xs font-black shadow">Conferma</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* MODALEPIN CENTRALIZZATA (z-[100]) */}
+      <ModalePin
+        isOpen={pinConfig.isOpen}
+        descrizione={pinConfig.description}
+        onClose={() => setPinConfig({ isOpen: false, description: '', actionCallback: null })}
+        onSuccess={() => {
+          if (pinConfig.actionCallback) pinConfig.actionCallback();
+          setPinConfig({ isOpen: false, description: '', actionCallback: null });
+        }}
+      />
 
     </div>
   );
