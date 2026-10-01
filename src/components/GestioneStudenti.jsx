@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { Plus, Phone, Mail, Trash2, CheckCircle2, AlertCircle, UserCheck, KeyRound, User, MessageCircle, Sparkles } from 'lucide-react';
+import { Plus, Phone, Mail, Trash2, CheckCircle2, AlertCircle, UserCheck, KeyRound, User, MessageCircle, Sparkles, ChevronDown } from 'lucide-react';
 
 export default function GestioneStudenti({
   studenti,
   searchQuery,
-  onOpenModal, // Per il pulsante "+ Nuovo Studente"
-  onSelectStudent, // Per aprire la Scheda Completa dello studente
+  onOpenModal,
+  onSelectStudent,
   onToggleStato,
   onDelete
 }) {
-  const [sendingEmailId, setSendingEmailId] = useState(null);
+  const [sendingEmailKey, setSendingEmailKey] = useState(null); // formato: `${id}_genitore` o `${id}_studente`
+  const [openDropdownId, setOpenDropdownId] = useState(null);
 
   const filteredStudenti = studenti.filter(s =>
     `${s.nome} ${s.cognome} ${s.scuola || ''} ${s.genitoreNome || ''}`.toLowerCase().includes((searchQuery || '').toLowerCase())
@@ -20,7 +21,7 @@ export default function GestioneStudenti({
     const tel = (rawTel || '').replace(/\D/g, '');
 
     if (!tel) {
-      alert(`Attenzione: inserisci un recapito telefonico per ${std.nome} o per il genitore prima di inviare via WhatsApp.`);
+      alert(`Attenzione: inserisci un recapito telefonico valido prima di inviare via WhatsApp.`);
       return;
     }
 
@@ -34,16 +35,24 @@ export default function GestioneStudenti({
     window.open(`https://wa.me/${numeroCompleto}?text=${encodeURIComponent(messaggio)}`, '_blank');
   };
 
-  const handleInviaEmail = async (std) => {
-    const targetEmail = std.isMinorenne ? (std.genitoreEmail || std.email) : (std.email || std.genitoreEmail);
-    const targetNome = `${std.nome} ${std.cognome || ''}`.trim();
+  const handleInviaEmail = async (std, tipoDestinatario) => {
+    // tipoDestinatario: 'genitore' | 'studente'
+    const targetEmail = tipoDestinatario === 'genitore' ? std.genitoreEmail : std.email;
+    const destinatarioDescrizione = tipoDestinatario === 'genitore' 
+      ? `al genitore (${std.genitoreEmail})` 
+      : `allo studente (${std.email})`;
 
     if (!targetEmail) {
-      alert(`Attenzione: inserisci un'email valida per ${std.nome} per poter inviare l'invito.`);
+      alert(`Attenzione: nessun indirizzo email trovato per ${tipoDestinatario}.`);
       return;
     }
 
-    setSendingEmailId(std.id);
+    const targetNome = tipoDestinatario === 'genitore'
+      ? (std.genitoreNome || `Famiglia di ${std.nome}`)
+      : std.nome;
+
+    setSendingEmailKey(`${std.id}_${tipoDestinatario}`);
+    setOpenDropdownId(null);
 
     try {
       const res = await fetch('/api/invito', {
@@ -51,14 +60,16 @@ export default function GestioneStudenti({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: targetEmail,
-          nomeStudente: targetNome,
+          nomeStudente: `${std.nome} ${std.cognome || ''}`.trim(),
+          nomeDestinatario: targetNome,
+          tipoRuolo: tipoDestinatario,
           linkApp: typeof window !== 'undefined' ? window.location.origin : 'https://fuoriclasse.vercel.app'
         })
       });
 
       const data = await res.json();
       if (res.ok && data.success) {
-        alert(`✅ Email di invito inviata con successo a ${targetEmail}!`);
+        alert(`✅ Email di invito inviata con successo ${destinatarioDescrizione}!`);
       } else {
         alert(`❌ Errore nell'invio: ${data.message || 'Riprova più tardi'}`);
       }
@@ -66,7 +77,7 @@ export default function GestioneStudenti({
       console.error(err);
       alert("Errore di connessione durante l'invio dell'email.");
     } finally {
-      setSendingEmailId(null);
+      setSendingEmailKey(null);
     }
   };
 
@@ -76,7 +87,7 @@ export default function GestioneStudenti({
       <div className="flex justify-between items-center bg-white p-6 rounded-3xl border border-gray-200 shadow-sm">
         <div>
           <h2 className="text-xl font-black text-gray-900 tracking-tight">Anagrafica Studenti & Genitori</h2>
-          <p className="text-xs text-gray-500 mt-1">Gestione allievi, recapiti e invio credenziali App</p>
+          <p className="text-xs text-gray-500 mt-1">Gestione allievi, recapiti e invio accessi personali</p>
         </div>
         <button
           onClick={() => onOpenModal()}
@@ -99,9 +110,11 @@ export default function GestioneStudenti({
             const versato = Number(std.totaleVersato || 0);
             const consumato = Number(std.totaleConsumato || 0);
             const saldo = versato - consumato;
+            const haEmailStudente = Boolean(std.email && std.email.trim() && std.email.trim() !== std.genitoreEmail?.trim());
+            const haEmailGenitore = Boolean(std.genitoreEmail && std.genitoreEmail.trim());
 
             return (
-              <div key={std.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between">
+              <div key={std.id} className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col justify-between relative">
                 <div>
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center space-x-3">
@@ -158,8 +171,10 @@ export default function GestioneStudenti({
                     </div>
                   </div>
 
+                  {/* DATI CONTATTO E RECAPITI */}
                   <div className="space-y-2 pt-3 border-t border-gray-100 text-xs text-gray-600">
-                    {std.isMinorenne ? (
+                    {/* Sezione Genitore */}
+                    {haEmailGenitore && (
                       <div className="bg-amber-50/60 p-2.5 rounded-xl border border-amber-200/60 text-xs space-y-1">
                         <p className="font-bold text-amber-900 flex items-center">
                           <UserCheck className="w-3.5 h-3.5 mr-1 text-amber-700"/> Genitore: {std.genitoreNome || 'Da specificare'}
@@ -170,21 +185,25 @@ export default function GestioneStudenti({
                         </div>
                         <div className="flex items-center space-x-2 text-amber-800">
                           <Mail className="w-3 h-3 text-amber-600"/>
-                          <span>{std.genitoreEmail || 'Email non inserita'}</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-1">
-                        <div className="flex items-center space-x-2">
-                          <Phone className="w-3.5 h-3.5 text-gray-400"/>
-                          <span>{std.telefono || 'Telefono non inserito'}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <Mail className="w-3.5 h-3.5 text-gray-400"/>
-                          <span>{std.email || 'Email non inserita'}</span>
+                          <span>{std.genitoreEmail}</span>
                         </div>
                       </div>
                     )}
+
+                    {/* Sezione Contatto Studente */}
+                    <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/70 text-xs space-y-1">
+                      <p className="font-bold text-slate-700 flex items-center">
+                        <User className="w-3.5 h-3.5 mr-1 text-slate-500"/> Contatto Studente:
+                      </p>
+                      <div className="flex items-center space-x-2 text-slate-600">
+                        <Phone className="w-3 h-3 text-slate-400"/>
+                        <span>{std.telefono || 'Cellulare studente non specificato'}</span>
+                      </div>
+                      <div className="flex items-center space-x-2 text-slate-600">
+                        <Mail className="w-3 h-3 text-slate-400"/>
+                        <span>{std.email || 'Email studente non specificata'}</span>
+                      </div>
+                    </div>
 
                     <div className="pt-2 flex flex-col space-y-1 text-[11px]">
                       <div className="flex items-center space-x-1.5">
@@ -216,8 +235,7 @@ export default function GestioneStudenti({
 
                 {/* PULSANTI DI AZIONE CARD */}
                 <div className="pt-4 mt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2">
-                  {/* Tasti Rapidi Invito */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 relative">
                     <button
                       type="button"
                       onClick={() => handleInviaWhatsApp(std)}
@@ -227,16 +245,52 @@ export default function GestioneStudenti({
                       <MessageCircle className="w-3.5 h-3.5 mr-1 text-emerald-600"/> WhatsApp
                     </button>
 
-                    <button
-                      type="button"
-                      disabled={sendingEmailId === std.id}
-                      onClick={() => handleInviaEmail(std)}
-                      className="p-1.5 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold px-2.5 border border-sky-300 flex items-center transition-all bg-sky-50 shadow-sm disabled:opacity-50"
-                      title="Invia credenziali via Email in automatico"
-                    >
-                      <Mail className="w-3.5 h-3.5 mr-1 text-sky-600"/> 
-                      {sendingEmailId === std.id ? 'Invio in corso...' : 'Email'}
-                    </button>
+                    {/* MENU TENDINA INVIO EMAIL (GENITORE O STUDENTE) */}
+                    <div className="relative">
+                      {haEmailStudente && haEmailGenitore ? (
+                        <div>
+                          <button
+                            type="button"
+                            onClick={() => setOpenDropdownId(openDropdownId === std.id ? null : std.id)}
+                            className="p-1.5 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold px-2.5 border border-sky-300 flex items-center transition-all bg-sky-50 shadow-sm"
+                          >
+                            <Mail className="w-3.5 h-3.5 mr-1 text-sky-600"/>
+                            Email <ChevronDown className="w-3 h-3 ml-1 text-sky-600"/>
+                          </button>
+
+                          {openDropdownId === std.id && (
+                            <div className="absolute left-0 bottom-full mb-1 w-44 bg-white border border-slate-200 rounded-xl shadow-xl z-20 p-1 space-y-1">
+                              <button
+                                type="button"
+                                disabled={Boolean(sendingEmailKey)}
+                                onClick={() => handleInviaEmail(std, 'genitore')}
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:bg-sky-50 hover:text-sky-800 transition"
+                              >
+                                {sendingEmailKey === `${std.id}_genitore` ? 'Invio in corso...' : 'Invia al Genitore'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={Boolean(sendingEmailKey)}
+                                onClick={() => handleInviaEmail(std, 'studente')}
+                                className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:bg-sky-50 hover:text-sky-800 transition"
+                              >
+                                {sendingEmailKey === `${std.id}_studente` ? 'Invio in corso...' : 'Invia allo Studente'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={Boolean(sendingEmailKey)}
+                          onClick={() => handleInviaEmail(std, haEmailGenitore ? 'genitore' : 'studente')}
+                          className="p-1.5 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold px-2.5 border border-sky-300 flex items-center transition-all bg-sky-50 shadow-sm disabled:opacity-50"
+                        >
+                          <Mail className="w-3.5 h-3.5 mr-1 text-sky-600"/> 
+                          {sendingEmailKey?.startsWith(std.id) ? 'Invio...' : 'Email'}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Tasti Gestione */}
