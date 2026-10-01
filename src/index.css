@@ -3,28 +3,97 @@
 @import "tailwindcss/utilities";
 
 /* ========================================================
-   MODALITÀ NOTTE STILE CHROME (SMART INVERT)
+   TEMA NOTTE DEFINITIVO AD ALTO CONTRASTO
    ======================================================== */
 
 body.dark-mode {
-  background-color: #121212 !important;
+  background-color: #0b1329 !important;
+  color: #f8fafc !important;
 }
 
-/* Inverte solo l'area di lavoro (planning, schede, modali), preservando contrasto e leggibilità */
-body.dark-mode main,
-body.dark-mode .flex-1,
-body.dark-mode [role="dialog"],
-body.dark-mode .fixed.inset-0 > div {
-  filter: invert(0.9) hue-rotate(180deg) brightness(0.95) contrast(0.95);
+/* 1. Sfondo del Planning, Header e Card */
+body.dark-mode .bg-white {
+  background-color: #131d36 !important;
+  border-color: #1e2d52 !important;
+  color: #ffffff !important;
 }
 
-/* Ripristina immagini, video e avatar in modo che non sembrino negativi fotografici */
-body.dark-mode img,
-body.dark-mode video {
-  filter: invert(1) hue-rotate(180deg);
+/* 2. Intestazioni colonne orari e docenti */
+body.dark-mode .bg-gray-50,
+body.dark-mode .bg-gray-50\/90,
+body.dark-mode .bg-slate-50,
+body.dark-mode .bg-gray-100 {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+  color: #94a3b8 !important;
 }
 
-/* La sidebar è già blu scuro, quindi NON deve essere invertita */
-body.dark-mode aside {
-  filter: none !important;
+/* 3. Linee della griglia oraria ben visibili */
+body.dark-mode .divide-gray-100,
+body.dark-mode .divide-gray-100\/60,
+body.dark-mode .border-gray-100,
+body.dark-mode .border-gray-200 {
+  border-color: #1f2f54 !important;
+}
+
+/* Hover sugli slot orari quando passi il mouse */
+body.dark-mode .hover\:bg-amber-50\/50:hover,
+body.dark-mode .hover\:bg-gray-200\/60:hover {
+  background-color: #1e2c4f !important;
+}
+
+/* 4. Testi sempre bianchi e luminosi */
+body.dark-mode h1,
+body.dark-mode h2,
+body.dark-mode h3,
+body.dark-mode .text-slate-900,
+body.dark-mode .text-gray-900,
+body.dark-mode .text-slate-800 {
+  color: #ffffff !important;
+}
+
+body.dark-mode .text-gray-500,
+body.dark-mode .text-gray-600,
+body.dark-mode .text-slate-500,
+body.dark-mode .text-slate-600 {
+  color: #94a3b8 !important;
+}
+
+/* 5. BLOCCHI LEZIONI: luminosi, leggibili e con testo bianco in risalto */
+body.dark-mode [draggable="true"] {
+  background-color: #1e3a5f !important;
+  border-left-width: 4px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+}
+
+body.dark-mode [draggable="true"] .text-slate-900,
+body.dark-mode [draggable="true"] .font-black {
+  color: #38bdf8 !important; /* Nome studente azzurro acceso */
+}
+
+body.dark-mode [draggable="true"] .text-gray-700,
+body.dark-mode [draggable="true"] .text-gray-500 {
+  color: #e2e8f0 !important; /* Materia e orario bianchi */
+}
+
+/* Colonna da assegnare */
+body.dark-mode .bg-gray-200\/50,
+body.dark-mode .bg-gray-100\/30 {
+  background-color: #151e33 !important;
+  border-color: #24355a !important;
+}
+
+/* Colonna gruppo */
+body.dark-mode .bg-amber-100\/60,
+body.dark-mode .bg-amber-50\/30 {
+  background-color: #241a06 !important;
+  border-color: #78350f !important;
+}
+
+/* Input data */
+body.dark-mode input[type="date"] {
+  color: #f8fafc !important;
+  background-color: #1e293b !important;
+  border-radius: 8px;
+  padding: 2px 6px;
 }
