@@ -1,6 +1,6 @@
 // File: api/promemoria.js
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
 import nodemailer from 'nodemailer';
 
 const firebaseConfig = {
@@ -18,7 +18,7 @@ const db = getFirestore(app);
 
 export default async function handler(req, res) {
   try {
-    // 1. Configurazione del mittente con Gmail
+    // 1. Configurazione del mittente con Gmail e credenziali fornite
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
@@ -29,81 +29,92 @@ export default async function handler(req, res) {
       }
     });
 
-    // 2. Data di oggi in formato YYYY-MM-DD (fuso orario italiano)
-    const formatter = new Intl.DateTimeFormat('it-IT', {
+    // 2. Calcolo Data e Ora Italiana
+    const formatterData = new Intl.DateTimeFormat('it-IT', {
       timeZone: 'Europe/Rome',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
+      year: 'numeric', month: '2-digit', day: '2-digit'
     });
-    const [{ value: g }, , { value: m }, , { value: a }] = formatter.formatToParts(new Date());
+    const [{ value: g }, , { value: m }, , { value: a }] = formatterData.formatToParts(new Date());
     const dataOggiDb = `${a}-${m}-${g}`;
     const dataVisiva = `${g}/${m}/${a}`;
 
-    // 3. Recupero lezioni attive della giornata
+    const formatterOra = new Intl.DateTimeFormat('it-IT', {
+      timeZone: 'Europe/Rome',
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    const oraAttualeStr = formatterOra.format(new Date());
+    const [hNow, mNow] = oraAttualeStr.split(':').map(Number);
+    const minutiAttuali = hNow * 60 + mNow;
+
+    // 3. Recupero lezioni attive del giorno
     const lezioniSnap = await getDocs(
       query(collection(db, 'lezioni'), where('data', '==', dataOggiDb), where('stato', '==', 'attiva'))
     );
 
     if (lezioniSnap.empty) {
-      return res.status(200).json({ success: true, message: `Nessuna lezione attiva trovata per oggi (${dataVisiva}).` });
+      return res.status(200).json({ success: true, message: `Nessuna lezione in programma per oggi (${dataVisiva}).` });
     }
 
-    // 4. Recupero preferenze genitori e anagrafica allievi
-    const impostazioniSnap = await getDocs(
-      query(collection(db, 'impostazioni_genitori'), where('emailAbilitate', '==', true))
-    );
-
+    // 4. Recupero impostazioni genitori
+    const impostazioniSnap = await getDocs(collection(db, 'impostazioni_genitori'));
     if (impostazioniSnap.empty) {
-      return res.status(200).json({ success: true, message: 'Nessun genitore ha attivato la spunta email.' });
+      return res.status(200).json({ success: true, message: 'Nessun genitore presente nel database impostazioni.' });
     }
 
     const studentiSnap = await getDocs(collection(db, 'studenti'));
-
-    const lezioniOggi = lezioniSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const genitoriAbilitati = impostazioniSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const studenti = studentiSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const tutteLezioni = lezioniSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    let emailInviate = 0;
+    let inviiMattutini = 0;
+    let inviiRecall = 0;
 
-    // 5. Ciclo sui genitori con notifiche abilitate
-    for (const genitore of genitoriAbilitati) {
+    // Consideriamo finestra mattutina tra le 07:30 e le 09:15
+    const isOrarioMattino = (minutiAttuali >= 450 && minutiAttuali <= 555);
+
+    for (const genitoreDoc of impostazioniSnap.docs) {
+      const genitore = genitoreDoc.data();
       const emailDestinatario = genitore.email?.trim().toLowerCase();
       if (!emailDestinatario) continue;
 
-      // Trova gli studenti collegati alla mail di questo genitore
       const figli = studenti.filter(s => (s.genitoreEmail || '').trim().toLowerCase() === emailDestinatario);
       const idsFigli = figli.map(f => f.id);
+      if (idsFigli.length === 0) continue;
 
-      // Trova le lezioni di oggi in cui è presente almeno un figlio
-      const lezioniDelGenitore = lezioniOggi.filter(lez =>
+      const lezioniDelGenitore = tutteLezioni.filter(lez =>
         (lez.studentiIds || []).some(id => idsFigli.includes(id))
       );
+      if (lezioniDelGenitore.length === 0) continue;
 
-      if (lezioniDelGenitore.length > 0) {
-        lezioniDelGenitore.sort((a, b) => (a.oraInizio || '').localeCompare(b.oraInizio || ''));
+      // ==========================================
+      // A) RIEPILOGO DEL MATTINO (Se abilitato e in orario mattutino o forzato)
+      // ==========================================
+      const mattutinaAbilitata = genitore.emailMattutinaAbilitata !== false;
+      const chiaveMattinaGiaInviata = `mattinaInviata_${dataOggiDb}`;
 
-        let lezioniHtml = '';
+      if (mattutinaAbilitata && isOrarioMattino && !genitore[chiaveMattinaGiaInviata]) {
+        lezioniDelGenitore.sort((x, y) => (x.oraInizio || '').localeCompare(y.oraInizio || ''));
+
+        let blocchiHtml = '';
         lezioniDelGenitore.forEach(lez => {
-          const nomiAllievi = (lez.studentiIds || [])
+          const nomi = (lez.studentiIds || [])
             .filter(id => idsFigli.includes(id))
             .map(id => studenti.find(s => s.id === id)?.nome)
             .filter(Boolean)
             .join(', ') || 'Allievo';
 
-          lezioniHtml += `
+          blocchiHtml += `
             <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 14px; margin-bottom: 12px; border-radius: 8px;">
               <p style="margin: 0; color: #0f172a; font-size: 16px; font-weight: bold;">${lez.materia || 'Lezione'}</p>
-              <p style="margin: 4px 0 0 0; color: #475569; font-size: 13px;">👤 Studente: <b>${nomiAllievi}</b></p>
+              <p style="margin: 4px 0 0 0; color: #475569; font-size: 13px;">👤 Studente: <b>${nomi}</b></p>
               <p style="margin: 4px 0 0 0; color: #d97706; font-size: 13px; font-weight: bold;">⏰ Dalle ${lez.oraInizio} alle ${lez.oraFine}</p>
             </div>
           `;
         });
 
-        const mailOptions = {
+        await transporter.sendMail({
           from: '"FuoriClasse Promemoria" <fuoriclasse.reception@gmail.com>',
           to: emailDestinatario,
-          subject: `📚 Promemoria Lezioni FuoriClasse - ${dataVisiva}`,
+          subject: `☀️ Promemoria Lezioni FuoriClasse - ${dataVisiva}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
               <div style="background-color: #2563eb; padding: 20px; text-align: center;">
@@ -115,33 +126,94 @@ export default async function handler(req, res) {
                   Ecco il riepilogo delle lezioni previste per oggi (<b>${dataVisiva}</b>):
                 </p>
                 <div style="margin: 20px 0;">
-                  ${lezioniHtml}
+                  ${blocchiHtml}
                 </div>
-                <p style="color: #64748b; font-size: 13px; line-height: 1.5;">
-                  Per variazioni o comunicazioni urgenti contatta pure la Reception.
-                </p>
-              </div>
-              <div style="background-color: #f1f5f9; padding: 12px; text-align: center;">
-                <p style="margin: 0; color: #94a3b8; font-size: 11px;">
-                  Ricevi questa notifica in quanto abilitata nelle impostazioni dell'App Genitore.
+                <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin-bottom: 0;">
+                  Per variazioni o comunicazioni urgenti puoi contattare la Reception.<br>Buona giornata!
                 </p>
               </div>
             </div>
           `
-        };
+        });
 
-        await transporter.sendMail(mailOptions);
-        emailInviate++;
+        await updateDoc(doc(db, 'impostazioni_genitori', genitoreDoc.id), {
+          [chiaveMattinaGiaInviata]: true
+        });
+
+        inviiMattutini++;
+      }
+
+      // ==========================================
+      // B) RECALL AD ORARIO PRECEDENTE (30, 60, 120 min prima)
+      // ==========================================
+      const recallAbilitato = Boolean(genitore.emailRecallAbilitata);
+      const preavvisoMinuti = Number(genitore.preavvisoMinuti) || 60;
+
+      if (recallAbilitato) {
+        for (const lez of lezioniDelGenitore) {
+          const chiaveRecallGiaInviata = `recallInviato_${genitoreDoc.id}`;
+          if (lez[chiaveRecallGiaInviata]) continue;
+
+          const [hInizio, mInizio] = (lez.oraInizio || '00:00').split(':').map(Number);
+          const minutiInizio = hInizio * 60 + mInizio;
+          const delta = minutiInizio - minutiAttuali;
+
+          // Se la lezione è imminente nella finestra di preavviso
+          if (delta > 0 && delta <= preavvisoMinuti) {
+            const nomi = (lez.studentiIds || [])
+              .filter(id => idsFigli.includes(id))
+              .map(id => studenti.find(s => s.id === id)?.nome)
+              .filter(Boolean)
+              .join(', ') || 'Allievo';
+
+            await transporter.sendMail({
+              from: '"FuoriClasse Promemoria" <fuoriclasse.reception@gmail.com>',
+              to: emailDestinatario,
+              subject: `🔔 Promemoria: Lezione di ${lez.materia} tra poco (${lez.oraInizio})`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                  <div style="background-color: #2563eb; padding: 20px; text-align: center;">
+                    <h1 style="color: #ffffff; margin: 0; font-size: 22px;">📚 FuoriClasse</h1>
+                  </div>
+                  <div style="padding: 24px; background-color: #ffffff;">
+                    <h2 style="color: #0f172a; margin-top: 0; font-size: 18px;">Promemoria Lezione Imminente ⏰</h2>
+                    <p style="color: #475569; font-size: 14px; line-height: 1.5;">
+                      Ti ricordiamo che <b>${nomi}</b> ha lezione tra circa <b>${delta} minuti</b>:
+                    </p>
+                    <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 16px; margin: 18px 0; border-radius: 10px;">
+                      <p style="margin: 0; font-size: 18px; font-weight: 800; color: #1e293b;">${lez.materia}</p>
+                      <p style="margin: 6px 0 0 0; font-size: 14px; color: #d97706; font-weight: bold;">
+                        ⏰ Orario: ${lez.oraInizio} - ${lez.oraFine}
+                      </p>
+                    </div>
+                    <p style="color: #64748b; font-size: 13px; margin-bottom: 0;">
+                      A presto!<br>La Segreteria di FuoriClasse
+                    </p>
+                  </div>
+                </div>
+              `
+            });
+
+            await updateDoc(doc(db, 'lezioni', lez.id), {
+              [chiaveRecallGiaInviata]: true
+            });
+
+            inviiRecall++;
+          }
+        }
       }
     }
 
     return res.status(200).json({
       success: true,
-      message: `Elaborazione completata. Inviate ${emailInviate} email per la data odierna (${dataVisiva}).`
+      orarioEsecuzione: oraAttualeStr,
+      data: dataVisiva,
+      inviiMattutini,
+      inviiRecall
     });
 
   } catch (error) {
-    console.error("Errore esecuzione promemoria:", error);
+    console.error("Errore elaborazione promemoria:", error);
     return res.status(500).json({ success: false, error: error.message });
   }
 }
