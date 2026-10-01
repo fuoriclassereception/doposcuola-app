@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { db, storage } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Calendar, Plus, UserPlus, Clock, BookOpen, CheckCircle, XCircle, ChevronLeft, Paperclip, Settings, Bell, BellOff, Volume2, Vibrate, Mail, X } from 'lucide-react';
+import { Settings, Mail, X, CheckCircle, Paperclip, MailCheck } from 'lucide-react';
 
 export default function AppGenitore({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
@@ -21,16 +21,9 @@ export default function AppGenitore({ utente, onLogout }) {
     nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' 
   });
 
-  // STATI PER IMPOSTAZIONI SVEGLIA E NOTIFICHE GENITORE
+  // STATI PER IMPOSTAZIONI NOTIFICHE EMAIL GENITORE
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [impostazioniForm, setImpostazioniForm] = useState({ 
-    notificheAbilitate: false, 
-    minutiPreavviso: 30, 
-    suonoAbilitato: true,
-    vibrazioneAbilitata: true,
-    emailAbilitate: false
-  });
-  const notifiedLezioni = useRef(new Set());
+  const [emailAbilitate, setEmailAbilitate] = useState(false);
 
   // 1. Recupera i figli associati al genitore e imposta in automatico "appAttivata: true"
   useEffect(() => {
@@ -43,7 +36,7 @@ export default function AppGenitore({ utente, onLogout }) {
         setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
       }
 
-      // Attivazione automatica dell'App per i profili dei figli collegati
+      // Attivazione automatica del profilo in Reception
       figli.forEach(async (figlio) => {
         if (!figlio.appAttivata) {
           try {
@@ -52,7 +45,7 @@ export default function AppGenitore({ utente, onLogout }) {
               ultimoAccessoApp: serverTimestamp()
             });
           } catch (err) {
-            console.error("Errore nell'aggiornamento dello stato app per:", figlio.nome, err);
+            console.error("Errore aggiornamento stato app:", figlio.nome, err);
           }
         }
       });
@@ -60,19 +53,13 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [utente]);
 
-  // 2. Recupera le impostazioni salvate del genitore in modo sicuro
+  // 2. Recupera le impostazioni email salvate del genitore
   useEffect(() => {
     if (!utente?.uid) return;
     const unsub = onSnapshot(doc(db, 'impostazioni_genitori', utente.uid), (docSnap) => {
       if (docSnap.exists()) {
         const dati = docSnap.data();
-        setImpostazioniForm({
-          notificheAbilitate: dati.notificheAbilitate || false,
-          minutiPreavviso: dati.minutiPreavviso || 30,
-          suonoAbilitato: dati.suonoAbilitato !== false,
-          vibrazioneAbilitata: dati.vibrazioneAbilitata !== false,
-          emailAbilitate: dati.emailAbilitate || false
-        });
+        setEmailAbilitate(Boolean(dati.emailAbilitate));
       }
     }, (error) => {
       console.error("Errore lettura impostazioni:", error);
@@ -98,7 +85,7 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [utente]);
 
-  // Recupera Lezioni dei figli
+  // Recupera Lezioni future dei figli
   useEffect(() => {
     if (iMieiFigli.length === 0) {
       setLezioniProgrammate([]);
@@ -121,42 +108,7 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => unsub();
   }, [iMieiFigli]);
 
-  // --- MOTORE SVEGLIA E NOTIFICHE GENITORE ---
-  useEffect(() => {
-    if (!impostazioniForm.notificheAbilitate || lezioniProgrammate.length === 0) return;
-
-    const interval = setInterval(() => {
-      const now = new Date();
-      const nowMins = now.getHours() * 60 + now.getMinutes();
-      const todayStr = new Date().toISOString().split('T')[0];
-      const preavviso = Number(impostazioniForm.minutiPreavviso) || 30;
-
-      lezioniProgrammate.forEach(lez => {
-        if (lez.data === todayStr && lez.stato !== 'annullata') {
-          const [h, m] = (lez.oraInizio || '00:00').split(':').map(Number);
-          const startMins = h * 60 + m;
-          
-          if (startMins - nowMins === preavviso && startMins > nowMins && !notifiedLezioni.current.has(lez.id)) {
-            notifiedLezioni.current.add(lez.id);
-            
-            if (impostazioniForm.suonoAbilitato) {
-              try { new Audio('https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3').play(); } catch(e){}
-            }
-            if (impostazioniForm.vibrazioneAbilitata && navigator.vibrate) {
-              try { navigator.vibrate([200, 100, 200]); } catch(e){}
-            }
-            if (Notification.permission === 'granted') {
-              new Notification('Lezione in arrivo!', { body: `Tra ${preavviso} min tuo figlio/a ha lezione di ${lez.materia}`});
-            }
-          }
-        }
-      });
-    }, 30000);
-
-    return () => clearInterval(interval);
-  }, [impostazioniForm, lezioniProgrammate]);
-
-  // SALVATAGGIO IMPOSTAZIONI COMPATIBILE CON SAFARI E IPHONE
+  // SALVATAGGIO IMPOSTAZIONI EMAIL
   const salvaImpostazioni = async () => {
     try {
       if (!utente?.uid) {
@@ -166,21 +118,11 @@ export default function AppGenitore({ utente, onLogout }) {
 
       await setDoc(doc(db, 'impostazioni_genitori', utente.uid), {
         email: utente.email || '',
-        notificheAbilitate: Boolean(impostazioniForm.notificheAbilitate),
-        minutiPreavviso: Number(impostazioniForm.minutiPreavviso) || 30,
-        suonoAbilitato: Boolean(impostazioniForm.suonoAbilitato),
-        vibrazioneAbilitata: Boolean(impostazioniForm.vibrazioneAbilitata),
-        emailAbilitate: Boolean(impostazioniForm.emailAbilitate)
+        emailAbilitate: Boolean(emailAbilitate),
+        dataAggiornamento: serverTimestamp()
       }, { merge: true });
 
       setShowSettingsModal(false);
-      
-      if (impostazioniForm.notificheAbilitate && typeof window !== 'undefined' && 'Notification' in window) {
-        if (Notification.permission === 'default') {
-          Notification.requestPermission().catch(err => console.log("Permesso notifiche negato da Safari:", err));
-        }
-      }
-      
       alert("✅ Preferenze salvate con successo!");
     } catch (error) {
       console.error("Errore salvataggio impostazioni:", error);
@@ -277,7 +219,13 @@ export default function AppGenitore({ utente, onLogout }) {
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-black flex items-center gap-2">📚 FuoriClasse</h1>
             <div className="flex items-center gap-2">
-              <button onClick={() => setShowSettingsModal(true)} className="p-1.5 bg-blue-700 border border-blue-500 rounded-lg text-blue-100 hover:text-white transition"><Settings className="w-4 h-4"/></button>
+              <button 
+                onClick={() => setShowSettingsModal(true)} 
+                className="p-1.5 bg-blue-700 border border-blue-500 rounded-lg text-blue-100 hover:text-white transition shadow-sm"
+                title="Impostazioni Promemoria"
+              >
+                <Settings className="w-4 h-4"/>
+              </button>
               <button onClick={onLogout} className="text-xs bg-blue-700 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-800 transition">Esci</button>
             </div>
           </div>
@@ -321,13 +269,21 @@ export default function AppGenitore({ utente, onLogout }) {
                 </div>
               )}
 
-              <div className={`p-4 border rounded-2xl flex items-center justify-between cursor-pointer transition shadow-sm ${impostazioniForm.notificheAbilitate ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`} onClick={() => setShowSettingsModal(true)}>
+              {/* STATO PROMEMORIA EMAIL */}
+              <div 
+                className={`p-4 border rounded-2xl flex items-center justify-between cursor-pointer transition shadow-sm ${emailAbilitate ? 'bg-sky-50 border-sky-200' : 'bg-slate-50 border-slate-200'}`} 
+                onClick={() => setShowSettingsModal(true)}
+              >
                  <div>
-                    <h3 className={`text-sm font-black flex items-center gap-1.5 ${impostazioniForm.notificheAbilitate ? 'text-emerald-800' : 'text-slate-500'}`}>
-                      {impostazioniForm.notificheAbilitate ? <Bell className="w-4 h-4"/> : <BellOff className="w-4 h-4"/>} 
-                      {impostazioniForm.notificheAbilitate ? 'Promemoria Lezioni Attivo' : 'Promemoria Disattivati'}
+                    <h3 className={`text-sm font-black flex items-center gap-1.5 ${emailAbilitate ? 'text-sky-900' : 'text-slate-500'}`}>
+                      {emailAbilitate ? <MailCheck className="w-4 h-4 text-sky-600"/> : <Mail className="w-4 h-4 text-slate-400"/>} 
+                      {emailAbilitate ? 'Promemoria Giornaliero Attivo' : 'Promemoria Email Disattivato'}
                     </h3>
-                    <p className="text-[10px] text-slate-500 font-bold mt-0.5">{impostazioniForm.notificheAbilitate ? `Ti avviseremo ${impostazioniForm.minutiPreavviso} minuti prima su questo telefono.` : 'Clicca per configurare la sveglia.'}</p>
+                    <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+                      {emailAbilitate 
+                        ? 'Riceverai un riepilogo via email la mattina delle lezioni in programma.' 
+                        : 'Clicca per attivare il riepilogo automatico via email.'}
+                    </p>
                  </div>
               </div>
 
@@ -367,9 +323,9 @@ export default function AppGenitore({ utente, onLogout }) {
                             </div>
                           </div>
                           
-                          <div className={`mt-3 ml-2 p-2.5 rounded-xl text-center font-black text-sm ${saldo < 0 ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-green-50 text-green-700 border border-green-100'}`}>
+                          <div className={`mt-3 ml-2 p-2.5 rounded-xl text-center font-black text-sm ${saldo < 0 ? 'bg-red-500 text-white font-black' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'}`}>
                             Saldo Attuale: {saldo > 0 ? '+' : ''}€ {saldo.toFixed(2)}
-                            {saldo < 0 && <span className="block text-xs font-bold mt-1 text-red-500">Ricarica in Reception</span>}
+                            {saldo < 0 && <span className="block text-xs font-bold mt-1 text-white">Ricarica in Reception</span>}
                           </div>
                         </div>
                       );
@@ -492,74 +448,47 @@ export default function AppGenitore({ utente, onLogout }) {
         </main>
       </div>
 
-      {/* MODALE IMPOSTAZIONI SVEGLIA E EMAIL GENITORE */}
+      {/* MODALE IMPOSTAZIONI EMAIL SEMPLIFICATA */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 max-h-[85vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
             
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-black text-lg text-slate-800 flex items-center gap-2"><Settings className="w-5 h-5 text-blue-600"/> Impostazioni</h3>
-              <button onClick={() => setShowSettingsModal(false)}><X className="w-5 h-5 text-slate-400 hover:text-slate-600"/></button>
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="font-black text-lg text-slate-800 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-blue-600"/> Impostazioni Promemoria
+              </h3>
+              <button onClick={() => setShowSettingsModal(false)}>
+                <X className="w-5 h-5 text-slate-400 hover:text-slate-600"/>
+              </button>
             </div>
             
-            <div className="space-y-6">
-               
+            <div className="space-y-4">
                <div>
-                  <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Avvisi su Telefono</h4>
-                  <label className="flex items-center gap-3 cursor-pointer p-3 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition">
-                    <input type="checkbox" className="w-5 h-5 text-emerald-500 rounded border-slate-300" checked={impostazioniForm.notificheAbilitate} onChange={e => setImpostazioniForm({...impostazioniForm, notificheAbilitate: e.target.checked})} />
+                  <label className="flex items-start gap-3 cursor-pointer p-4 bg-sky-50 border border-sky-200 rounded-2xl hover:bg-sky-100/70 transition">
+                    <input 
+                      type="checkbox" 
+                      className="w-5 h-5 mt-0.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500" 
+                      checked={emailAbilitate} 
+                      onChange={e => setEmailAbilitate(e.target.checked)} 
+                    />
                     <div className="flex-1">
-                      <span className="font-black text-slate-800 flex items-center gap-2">
-                         {impostazioniForm.notificheAbilitate ? <Bell className="w-4 h-4 text-emerald-500"/> : <BellOff className="w-4 h-4 text-slate-400"/>} 
-                         Sveglia Attiva
+                      <span className="font-black text-slate-900 flex items-center gap-2 text-sm">
+                        <Mail className="w-4 h-4 text-blue-600"/> 
+                        Riepilogo giornaliero via Email
                       </span>
-                      <p className="text-[10px] text-slate-500 font-medium mt-0.5">Tieni l'app aperta o in background per far suonare l'avviso.</p>
-                    </div>
-                  </label>
-
-                  {impostazioniForm.notificheAbilitate && (
-                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl mt-3 space-y-4">
-                       <div className="flex items-center justify-between gap-3">
-                          <span className="text-xs font-bold text-emerald-900 w-full">Minuti di preavviso:</span>
-                          <input type="number" min="5" max="120" className="w-16 p-2 text-center font-black bg-white border border-emerald-300 rounded-lg text-slate-900 shadow-inner" value={impostazioniForm.minutiPreavviso} onChange={e => setImpostazioniForm({...impostazioniForm, minutiPreavviso: e.target.value})} />
-                       </div>
-                       
-                       <div className="border-t border-emerald-200/60 pt-3 space-y-3">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded" checked={impostazioniForm.suonoAbilitato} onChange={e => setImpostazioniForm({...impostazioniForm, suonoAbilitato: e.target.checked})} />
-                            <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5"><Volume2 className="w-3.5 h-3.5"/> Riproduci Suono</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" className="w-4 h-4 text-emerald-600 rounded" checked={impostazioniForm.vibrazioneAbilitata} onChange={e => setImpostazioniForm({...impostazioniForm, vibrazioneAbilitata: e.target.checked})} />
-                            <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5"><Vibrate className="w-3.5 h-3.5"/> Vibrazione</span>
-                          </label>
-                       </div>
-                       
-                       <button type="button" onClick={() => { 
-                         if(impostazioniForm.suonoAbilitato) { try { new Audio('https://assets.mixkit.co/active_storage/sfx/2866/2866-preview.mp3').play(); } catch(e){} }
-                         if(impostazioniForm.vibrazioneAbilitata && navigator.vibrate) { navigator.vibrate([200, 100, 200]); }
-                       }} className="w-full py-2 bg-emerald-200 hover:bg-emerald-300 text-emerald-900 font-black text-xs rounded-lg transition shadow-sm">
-                          Testa Avviso
-                       </button>
-                    </div>
-                  )}
-               </div>
-
-               <div className="pt-2 border-t border-slate-100">
-                  <h4 className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider mb-2">Ricevi via Email</h4>
-                  <label className="flex items-center gap-3 cursor-pointer p-3 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition">
-                    <input type="checkbox" className="w-5 h-5 text-blue-600 rounded border-blue-300" checked={impostazioniForm.emailAbilitate} onChange={e => setImpostazioniForm({...impostazioniForm, emailAbilitate: e.target.checked})} />
-                    <div className="flex-1">
-                      <span className="font-black text-blue-900 flex items-center gap-2">
-                         <Mail className="w-4 h-4"/> 
-                         Invia promemoria via Email
-                      </span>
-                      <p className="text-[10px] text-blue-700 font-medium mt-0.5">Ricevi una email automatica con il riepilogo della lezione.</p>
+                      <p className="text-[11px] text-slate-600 font-medium mt-1 leading-snug">
+                        Riceverai un'email ogni mattina alle <b>08:00</b> con il dettaglio degli orari, materie e allievi per le lezioni in programma nella giornata.
+                      </p>
                     </div>
                   </label>
                </div>
 
-               <button onClick={salvaImpostazioni} className="w-full py-3.5 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg mt-2">Salva e Chiudi</button>
+               <button 
+                 onClick={salvaImpostazioni} 
+                 className="w-full py-3.5 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg transition"
+               >
+                 Salva Preferenze
+               </button>
             </div>
           </div>
         </div>
