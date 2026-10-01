@@ -5,6 +5,8 @@ import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import jsPDF from 'jspdf';
 
+const GOOGLE_DRIVE_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwMoPHN4E-lDG90FTj15ZP3LEE0HK9GyaJuSeKGVNanOJP7hmEWTX_ClcCCadLEZzkZaA/exec';
+
 export default function ModalePrivacy({ isOpen, utente, studente, onAccettato }) {
   const [consensoServizio, setConsensoServizio] = useState(false);
   const [consensoNotificheEmail, setConsensoNotificheEmail] = useState(true);
@@ -97,6 +99,23 @@ export default function ModalePrivacy({ isOpen, utente, studente, onAccettato })
     try {
       const { pdfBase64, nomeFile } = await generaEArchiviaPdf();
 
+      // 1. Archiviazione parallela su Google Drive tramite Webhook
+      try {
+        await fetch(GOOGLE_DRIVE_WEBHOOK_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pdfBase64: pdfBase64,
+            nomeFile: nomeFile,
+            emailFirmatario: utente?.email || studente.genitoreEmail || ''
+          })
+        });
+      } catch (errDrive) {
+        console.warn("Invio Webhook Google Drive non riuscito:", errDrive);
+      }
+
+      // 2. Archiviazione sicura su Firebase Storage
       let downloadUrl = '';
       try {
         const storageRef = ref(storage, `consensi_gdpr/${nomeFile}`);
@@ -106,6 +125,7 @@ export default function ModalePrivacy({ isOpen, utente, studente, onAccettato })
         console.warn("Archiviazione storage:", errStorage);
       }
 
+      // 3. Aggiornamento Firestore
       const datiFirma = {
         gdprConfermato: true,
         gdprDataFirma: serverTimestamp(),
