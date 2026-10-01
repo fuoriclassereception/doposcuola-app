@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db, storage } from '../services/firebase';
 import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Settings, Mail, X, CheckCircle, Paperclip, BellRing, Sun } from 'lucide-react';
+import { Settings, Mail, X, CheckCircle, Paperclip, Sun, Send } from 'lucide-react';
 
 export default function AppGenitore({ utente, onLogout }) {
   const [vistaAttiva, setVistaAttiva] = useState('dashboard');
@@ -21,12 +21,11 @@ export default function AppGenitore({ utente, onLogout }) {
     nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' 
   });
 
-  // STATI IMPOSTAZIONI PROMEMORIA EMAIL (Mattutino + Recall)
+  // STATI IMPOSTAZIONI PROMEMORIA EMAIL
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [impostazioniForm, setImpostazioniForm] = useState({
     emailMattutinaAbilitata: true,
-    emailRecallAbilitata: false,
-    preavvisoMinuti: 60 // 30, 60, o 120 minuti
+    emailAggiornamentiAbilitata: true
   });
 
   // 1. Recupera i figli associati al genitore e imposta in automatico "appAttivata: true"
@@ -40,7 +39,7 @@ export default function AppGenitore({ utente, onLogout }) {
         setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
       }
 
-      // Attiva automaticamente il badge per la reception
+      // Attiva automaticamente il profilo per la reception
       figli.forEach(async (figlio) => {
         if (!figlio.appAttivata) {
           try {
@@ -65,8 +64,7 @@ export default function AppGenitore({ utente, onLogout }) {
         const dati = docSnap.data();
         setImpostazioniForm({
           emailMattutinaAbilitata: dati.emailMattutinaAbilitata !== false,
-          emailRecallAbilitata: Boolean(dati.emailRecallAbilitata),
-          preavvisoMinuti: Number(dati.preavvisoMinuti) || 60
+          emailAggiornamentiAbilitata: dati.emailAggiornamentiAbilitata !== false
         });
       }
     }, (error) => {
@@ -127,8 +125,7 @@ export default function AppGenitore({ utente, onLogout }) {
       await setDoc(doc(db, 'impostazioni_genitori', utente.uid), {
         email: utente.email || '',
         emailMattutinaAbilitata: Boolean(impostazioniForm.emailMattutinaAbilitata),
-        emailRecallAbilitata: Boolean(impostazioniForm.emailRecallAbilitata),
-        preavvisoMinuti: Number(impostazioniForm.preavvisoMinuti) || 60,
+        emailAggiornamentiAbilitata: Boolean(impostazioniForm.emailAggiornamentiAbilitata),
         dataAggiornamento: serverTimestamp()
       }, { merge: true });
 
@@ -232,7 +229,7 @@ export default function AppGenitore({ utente, onLogout }) {
               <button 
                 onClick={() => setShowSettingsModal(true)} 
                 className="p-1.5 bg-blue-700 border border-blue-500 rounded-lg text-blue-100 hover:text-white transition shadow-sm"
-                title="Impostazioni Promemoria"
+                title="Impostazioni Notifiche"
               >
                 <Settings className="w-4 h-4"/>
               </button>
@@ -282,7 +279,7 @@ export default function AppGenitore({ utente, onLogout }) {
               {/* CARD STATO PROMEMORIA EMAIL */}
               <div 
                 className={`p-4 border rounded-2xl flex items-center justify-between cursor-pointer transition shadow-sm ${
-                  impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailRecallAbilitata 
+                  impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailAggiornamentiAbilitata 
                     ? 'bg-sky-50 border-sky-200' 
                     : 'bg-slate-50 border-slate-200'
                 }`} 
@@ -290,20 +287,20 @@ export default function AppGenitore({ utente, onLogout }) {
               >
                  <div>
                     <h3 className={`text-sm font-black flex items-center gap-1.5 ${
-                      impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailRecallAbilitata 
+                      impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailAggiornamentiAbilitata 
                         ? 'text-sky-900' 
                         : 'text-slate-500'
                     }`}>
                       <Mail className="w-4 h-4 text-sky-600"/> 
-                      {impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailRecallAbilitata
+                      {impostazioniForm.emailMattutinaAbilitata || impostazioniForm.emailAggiornamentiAbilitata
                         ? 'Promemoria Email Attivi' 
                         : 'Promemoria Email Disattivati'}
                     </h3>
                     <p className="text-[10px] text-slate-500 font-medium mt-0.5">
                       {impostazioniForm.emailMattutinaAbilitata && '☀️ Mattina (08:00) '}
-                      {impostazioniForm.emailMattutinaAbilitata && impostazioniForm.emailRecallAbilitata && '• '}
-                      {impostazioniForm.emailRecallAbilitata && `🔔 Recall (${impostazioniForm.preavvisoMinuti} min prima)`}
-                      {!impostazioniForm.emailMattutinaAbilitata && !impostazioniForm.emailRecallAbilitata && 'Clicca per configurare gli avvisi via email.'}
+                      {impostazioniForm.emailMattutinaAbilitata && impostazioniForm.emailAggiornamentiAbilitata && '• '}
+                      {impostazioniForm.emailAggiornamentiAbilitata && '📩 Da Reception '}
+                      {!impostazioniForm.emailMattutinaAbilitata && !impostazioniForm.emailAggiornamentiAbilitata && 'Clicca per configurare la ricezione email.'}
                     </p>
                  </div>
               </div>
@@ -383,7 +380,7 @@ export default function AppGenitore({ utente, onLogout }) {
                             </span>
                             <span className="text-xs font-bold text-slate-500">
                               {req.studente} • {req.ore}h 
-                              {req.data布局Preferita && ` • 🗓️ ${formatDataLezione(req.dataPreferita)}`}
+                              {req.dataPreferita && ` • 🗓️ ${formatDataLezione(req.dataPreferita)}`}
                               {req.orarioPreferito && ` (${req.orarioPreferito})`}
                             </span>
                           </div>
@@ -469,14 +466,14 @@ export default function AppGenitore({ utente, onLogout }) {
         </main>
       </div>
 
-      {/* MODALE IMPOSTAZIONI PROMEMORIA EMAIL COMPLETO */}
+      {/* MODALE IMPOSTAZIONI PROMEMORIA EMAIL CHIARO E TRASPARENTE */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
             
             <div className="flex justify-between items-center mb-5">
               <h3 className="font-black text-lg text-slate-800 flex items-center gap-2">
-                <Settings className="w-5 h-5 text-blue-600"/> Promemoria Lezioni
+                <Settings className="w-5 h-5 text-blue-600"/> Promemoria Email
               </h3>
               <button onClick={() => setShowSettingsModal(false)}>
                 <X className="w-5 h-5 text-slate-400 hover:text-slate-600"/>
@@ -485,7 +482,7 @@ export default function AppGenitore({ utente, onLogout }) {
             
             <div className="space-y-4">
                {/* 1. OPZIONE EMAIL DEL MATTINO (08:00) */}
-               <label className="flex items-start gap-3 cursor-pointer p-4 bg-amber-50/60 border border-amber-200 rounded-2xl hover:bg-amber-100/50 transition">
+               <label className="flex items-start gap-3 cursor-pointer p-4 bg-amber-50/70 border border-amber-200 rounded-2xl hover:bg-amber-100/60 transition">
                  <input 
                    type="checkbox" 
                    className="w-5 h-5 mt-0.5 text-amber-600 rounded border-slate-300 focus:ring-amber-500" 
@@ -494,54 +491,35 @@ export default function AppGenitore({ utente, onLogout }) {
                  />
                  <div className="flex-1">
                    <span className="font-black text-slate-900 flex items-center gap-1.5 text-sm">
-                     <Sun className="w-4 h-4 text-amber-600"/> Riepilogo Mattutino (08:00)
+                     <Sun className="w-4 h-4 text-amber-600"/> Riepilogo del Mattino (08:00)
                    </span>
                    <p className="text-[11px] text-slate-600 font-medium mt-1 leading-snug">
-                     Ricevi ogni mattina l'elenco completo delle lezioni fissate per la giornata.
+                     Ricevi ogni mattina alle ore 08:00 l'elenco delle lezioni in programma per la giornata.
                    </p>
                  </div>
                </label>
 
-               {/* 2. OPZIONE RECALL PRIMA DELLA LEZIONE */}
-               <div className="p-4 bg-sky-50/60 border border-sky-200 rounded-2xl space-y-3">
-                 <label className="flex items-start gap-3 cursor-pointer">
-                   <input 
-                     type="checkbox" 
-                     className="w-5 h-5 mt-0.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500" 
-                     checked={impostazioniForm.emailRecallAbilitata} 
-                     onChange={e => setImpostazioniForm({ ...impostazioniForm, emailRecallAbilitata: e.target.checked })} 
-                   />
-                   <div className="flex-1">
-                     <span className="font-black text-slate-900 flex items-center gap-1.5 text-sm">
-                       <BellRing className="w-4 h-4 text-blue-600"/> Recall prima della Lezione
-                     </span>
-                     <p className="text-[11px] text-slate-600 font-medium mt-0.5 leading-snug">
-                       Un promemoria immediato poco prima dell'inizio.
-                     </p>
-                   </div>
-                 </label>
-
-                 {impostazioniForm.emailRecallAbilitata && (
-                   <div className="pt-2 border-t border-sky-200/60 space-y-1.5">
-                     <label className="block text-[10px] font-black text-slate-600 uppercase tracking-wider">
-                       Anticipo di preavviso:
-                     </label>
-                     <select
-                       value={impostazioniForm.preavvisoMinuti}
-                       onChange={e => setImpostazioniForm({ ...impostazioniForm, preavvisoMinuti: Number(e.target.value) })}
-                       className="w-full p-2.5 bg-white border border-sky-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                     >
-                       <option value={30}>⏱️ 30 minuti prima</option>
-                       <option value={60}>⏱️ 1 ora prima (60 min)</option>
-                       <option value={120}>⏱️ 2 ore prima (120 min)</option>
-                     </select>
-                   </div>
-                 )}
-               </div>
+               {/* 2. OPZIONE RECEPTION / AGGIORNAMENTI POMERIDIANI */}
+               <label className="flex items-start gap-3 cursor-pointer p-4 bg-sky-50/70 border border-sky-200 rounded-2xl hover:bg-sky-100/60 transition">
+                 <input 
+                   type="checkbox" 
+                   className="w-5 h-5 mt-0.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500" 
+                   checked={impostazioniForm.emailAggiornamentiAbilitata} 
+                   onChange={e => setImpostazioniForm({ ...impostazioniForm, emailAggiornamentiAbilitata: e.target.checked })} 
+                 />
+                 <div className="flex-1">
+                   <span className="font-black text-slate-900 flex items-center gap-1.5 text-sm">
+                     <Send className="w-4 h-4 text-blue-600"/> Aggiornamenti da Reception
+                   </span>
+                   <p className="text-[11px] text-slate-600 font-medium mt-1 leading-snug">
+                     Ricevi il promemoria e le eventuali aggiunte di lezioni inviate direttamente dalla segreteria durante il turno.
+                   </p>
+                 </div>
+               </label>
 
                <button 
                  onClick={salvaImpostazioni} 
-                 className="w-full py-3.5 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg transition text-sm"
+                 className="w-full py-3.5 bg-blue-600 text-white font-black rounded-xl hover:bg-blue-700 shadow-lg transition text-sm mt-2"
                >
                  Salva Preferenze
                </button>
