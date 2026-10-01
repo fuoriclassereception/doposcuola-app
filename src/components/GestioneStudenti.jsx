@@ -1,22 +1,39 @@
-import React, { useState } from 'react';
-import { Plus, Phone, Mail, Trash2, CheckCircle2, AlertCircle, UserCheck, Send, KeyRound, User } from 'lucide-react';
+import React from 'react';
+import { Plus, Phone, Mail, Trash2, CheckCircle2, AlertCircle, UserCheck, KeyRound, User, MessageCircle, Sparkles } from 'lucide-react';
 
 export default function GestioneStudenti({
   studenti,
   searchQuery,
-  onOpenModal, // Lo usiamo SOLO per il pulsante "+ Nuovo Studente"
-  onSelectStudent, // NUOVO: Lo usiamo per aprire la Scheda Completa dello studente
+  onOpenModal, // Per il pulsante "+ Nuovo Studente"
+  onSelectStudent, // Per aprire la Scheda Completa dello studente
   onToggleStato,
   onDelete
 }) {
-  const [invitedIds, setInvitedIds] = useState({});
-
   const filteredStudenti = studenti.filter(s =>
-    `${s.nome} ${s.cognome} ${s.scuola || ''} ${s.genitoreNome || ''}`.toLowerCase().includes(searchQuery.toLowerCase())
+    `${s.nome} ${s.cognome} ${s.scuola || ''} ${s.genitoreNome || ''}`.toLowerCase().includes((searchQuery || '').toLowerCase())
   );
 
-  const handleSendInvite = (std) => {
-    const targetEmail = std.isMinorenne ? std.genitoreEmail : std.email;
+  const handleInviaWhatsApp = (std) => {
+    const rawTel = std.isMinorenne ? (std.genitoreTelefono || std.telefono) : (std.telefono || std.genitoreTelefono);
+    const tel = (rawTel || '').replace(/\D/g, '');
+
+    if (!tel) {
+      alert(`Attenzione: inserisci un recapito telefonico per ${std.nome} o per il genitore prima di inviare via WhatsApp.`);
+      return;
+    }
+
+    const numeroCompleto = tel.startsWith('39') ? tel : `39${tel}`;
+    const nomeDest = std.isMinorenne ? `Genitore di ${std.nome}` : std.nome;
+    const linkApp = typeof window !== 'undefined' ? window.location.origin : 'https://fuoriclasse.vercel.app';
+    const emailRif = (std.isMinorenne ? std.genitoreEmail : std.email) || 'la tua email';
+
+    const messaggio = `Ciao ${nomeDest}! Ti diamo il benvenuto a FuoriClasse 📚\n\nAbbiamo attivato il profilo per *${std.nome}*.\nPer visualizzare il calendario lezioni, consultare il saldo ore e verificare le presenze, puoi accedere alla nostra Web App da questo link:\n${linkApp}\n\nAl primo accesso inserisci l'email *${emailRif}* e imposta la tua password personale cliccando su 'Primo Accesso / Password dimenticata'.\n\nA presto!\nLa Segreteria di FuoriClasse`;
+
+    window.open(`https://wa.me/${numeroCompleto}?text=${encodeURIComponent(messaggio)}`, '_blank');
+  };
+
+  const handleInviaEmail = (std) => {
+    const targetEmail = std.isMinorenne ? (std.genitoreEmail || std.email) : (std.email || std.genitoreEmail);
     const targetNome = std.isMinorenne ? `Genitore di ${std.nome}` : std.nome;
 
     if (!targetEmail) {
@@ -24,8 +41,11 @@ export default function GestioneStudenti({
       return;
     }
 
-    setInvitedIds(prev => ({ ...prev, [std.id]: true }));
-    alert(`Email di invito per l'accesso all'App inviata con successo a ${targetNome} (${targetEmail})!`);
+    const linkApp = typeof window !== 'undefined' ? window.location.origin : 'https://fuoriclasse.vercel.app';
+    const oggetto = `Benvenuto a FuoriClasse - Accesso e Profilo di ${std.nome}`;
+    const corpo = `Gentile ${targetNome},\n\nTi diamo il benvenuto a FuoriClasse!\n\nAbbiamo attivato il profilo per ${std.nome}.\nPer visualizzare il calendario lezioni, consultare lo stato del plafond ore e salvare le preferenze, puoi collegarti alla nostra piattaforma web all'indirizzo:\n${linkApp}\n\nAl primo accesso ti basterà cliccare su 'Primo Accesso / Password dimenticata' inserendo questo indirizzo email (${targetEmail}) per impostare la tua password personale.\n\nRestiamo a disposizione per qualsiasi chiarimento.\n\nCordiali saluti,\nLa Segreteria di FuoriClasse`;
+
+    window.location.href = `mailto:${targetEmail}?subject=${encodeURIComponent(oggetto)}&body=${encodeURIComponent(corpo)}`;
   };
 
   return (
@@ -37,7 +57,7 @@ export default function GestioneStudenti({
           <p className="text-xs text-gray-500 mt-1">Gestione allievi, recapiti e invio credenziali App</p>
         </div>
         <button
-          onClick={() => onOpenModal()} // Apre la modale vuota per CREARE un nuovo studente
+          onClick={() => onOpenModal()}
           className="flex items-center space-x-2 px-4 py-2.5 bg-amber-400 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-bold shadow-sm transition-all"
         >
           <Plus className="w-4 h-4"/>
@@ -54,8 +74,6 @@ export default function GestioneStudenti({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {filteredStudenti.map((std) => {
-            const isInvited = invitedIds[std.id] || std.invitoInviato;
-            
             const versato = Number(std.totaleVersato || 0);
             const consumato = Number(std.totaleConsumato || 0);
             const saldo = versato - consumato;
@@ -69,7 +87,14 @@ export default function GestioneStudenti({
                         {std.nome?.[0]}{std.cognome?.[0]}
                       </div>
                       <div>
-                        <h3 className="font-extrabold text-base text-gray-900">{std.nome} {std.cognome}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-extrabold text-base text-gray-900">{std.nome} {std.cognome}</h3>
+                          {std.isProvvisorio && (
+                            <span className="text-[9px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded flex items-center gap-1">
+                              <Sparkles className="w-2.5 h-2.5"/> Prova
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center space-x-2 mt-0.5">
                           <span className="text-[10px] font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
                             {std.scuola || 'Scuola non spec.'}
@@ -141,9 +166,9 @@ export default function GestioneStudenti({
 
                     <div className="pt-2 flex flex-col space-y-1 text-[11px]">
                       <div className="flex items-center space-x-1.5">
-                        {isInvited ? (
-                          <span className="text-amber-700 font-bold flex items-center">
-                            <KeyRound className="w-3.5 h-3.5 mr-1 text-amber-600"/> Invito App Inviato
+                        {std.appAttivata ? (
+                          <span className="text-emerald-700 font-bold flex items-center">
+                            <KeyRound className="w-3.5 h-3.5 mr-1 text-emerald-600"/> App Attivata
                           </span>
                         ) : (
                           <span className="text-gray-400 font-medium flex items-center">
@@ -167,25 +192,42 @@ export default function GestioneStudenti({
                   </div>
                 </div>
 
-                <div className="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between">
-                  <button
-                    onClick={() => handleSendInvite(std)}
-                    className="p-1.5 text-amber-800 hover:bg-amber-100 rounded-lg text-xs font-bold px-2.5 border border-amber-300 flex items-center transition-all bg-amber-50"
-                  >
-                    <Send className="w-3.5 h-3.5 mr-1.5"/> {isInvited ? 'Reinvia Invito' : 'Invia Invito'}
-                  </button>
+                {/* PULSANTI DI AZIONE CARD */}
+                <div className="pt-4 mt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2">
+                  {/* Tasti Rapidi Invito */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleInviaWhatsApp(std)}
+                      className="p-1.5 text-emerald-800 hover:bg-emerald-100 rounded-lg text-xs font-bold px-2.5 border border-emerald-300 flex items-center transition-all bg-emerald-50 shadow-sm"
+                      title="Invia link e invito via WhatsApp"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5 mr-1 text-emerald-600"/> WhatsApp
+                    </button>
 
+                    <button
+                      type="button"
+                      onClick={() => handleInviaEmail(std)}
+                      className="p-1.5 text-sky-800 hover:bg-sky-100 rounded-lg text-xs font-bold px-2.5 border border-sky-300 flex items-center transition-all bg-sky-50 shadow-sm"
+                      title="Invia credenziali via Email"
+                    >
+                      <Mail className="w-3.5 h-3.5 mr-1 text-sky-600"/> Email
+                    </button>
+                  </div>
+
+                  {/* Tasti Gestione */}
                   <div className="flex space-x-2">
                     <button
+                      type="button"
                       onClick={() => onDelete(std.id)}
-                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold px-2.5 border border-rose-200 flex items-center"
+                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold px-2.5 border border-rose-200 flex items-center transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5 mr-1"/> Elimina
                     </button>
-                    {/* IL NUOVO TASTO CHE APRE LA SCHEDA COMPLETA */}
                     <button
+                      type="button"
                       onClick={() => onSelectStudent && onSelectStudent(std.id)}
-                      className="p-1.5 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-xs font-bold px-3 flex items-center shadow-sm"
+                      className="p-1.5 bg-slate-900 text-white hover:bg-slate-800 rounded-lg text-xs font-bold px-3 flex items-center shadow-sm transition-colors"
                     >
                       <User className="w-3.5 h-3.5 mr-1"/> Apri Scheda
                     </button>
