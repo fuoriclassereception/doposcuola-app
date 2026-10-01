@@ -3,9 +3,8 @@ import { db } from '../services/firebase';
 import { 
   collection, 
   onSnapshot, 
-  doc, 
-  updateDoc, 
   deleteDoc, 
+  doc, 
   addDoc, 
   serverTimestamp 
 } from 'firebase/firestore';
@@ -21,18 +20,20 @@ import {
   Mail, 
   FileText, 
   User, 
-  School, 
   Phone, 
-  Euro,
   KeyRound
 } from 'lucide-react';
+import DettaglioStudente from './DettaglioStudente';
 
 export default function GestioneStudenti() {
   const [studenti, setStudenti] = useState([]);
+  const [lezioni, setLezioni] = useState([]);
+  const [insegnanti, setInsegnanti] = useState([]);
   const [filtroRicerca, setFiltroRicerca] = useState('');
+  
+  // Studente selezionato per la modale completa
   const [studenteSelezionato, setStudenteSelezionato] = useState(null);
   const [showModalNuovo, setShowModalNuovo] = useState(false);
-  const [showModalScheda, setShowModalScheda] = useState(false);
 
   // Form nuovo studente
   const [nuovoStudente, setNuovoStudente] = useState({
@@ -42,26 +43,37 @@ export default function GestioneStudenti() {
     genitoreNome: '',
     genitoreTelefono: '',
     genitoreEmail: '',
-    studenteTelefono: '',
-    studenteEmail: '',
+    telefono: '',
+    email: '',
     totaleVersato: 0,
-    totaleConsumato: 0,
     categoriaTariffaria: 'elementari',
     isMinorenne: true,
     attivo: true
   });
 
-  // Caricamento studenti in tempo reale
+  // Caricamento Dati in tempo reale
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'studenti'), (snapshot) => {
+    const unsubStd = onSnapshot(collection(db, 'studenti'), (snapshot) => {
       const lista = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       lista.sort((a, b) => (a.cognome || '').localeCompare(b.cognome || ''));
       setStudenti(lista);
     });
-    return () => unsub();
+
+    const unsubLez = onSnapshot(collection(db, 'lezioni'), (snapshot) => {
+      setLezioni(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    const unsubIns = onSnapshot(collection(db, 'insegnanti'), (snapshot) => {
+      setInsegnanti(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => {
+      unsubStd();
+      unsubLez();
+      unsubIns();
+    };
   }, []);
 
-  // Filtro ricerca
   const studentiFiltrati = studenti.filter(s => {
     const query = filtroRicerca.toLowerCase();
     const nomeCompleto = `${s.nome || ''} ${s.cognome || ''}`.toLowerCase();
@@ -69,7 +81,6 @@ export default function GestioneStudenti() {
     return nomeCompleto.includes(query) || genitore.includes(query);
   });
 
-  // Aggiungi nuovo studente
   const handleCreaStudente = async (e) => {
     e.preventDefault();
     try {
@@ -90,59 +101,30 @@ export default function GestioneStudenti() {
         genitoreNome: '',
         genitoreTelefono: '',
         genitoreEmail: '',
-        studenteTelefono: '',
-        studenteEmail: '',
+        telefono: '',
+        email: '',
         totaleVersato: 0,
-        totaleConsumato: 0,
         categoriaTariffaria: 'elementari',
         isMinorenne: true,
         attivo: true
       });
       alert('✅ Studente registrato con successo!');
     } catch (err) {
-      console.error('Errore creazione studente:', err);
+      console.error('Errore creazione:', err);
       alert('Errore durante la registrazione.');
     }
   };
 
-  // Aggiorna dati studente dalla scheda
-  const handleSalvaModificheScheda = async (e) => {
-    e.preventDefault();
-    try {
-      const refDoc = doc(db, 'studenti', studenteSelezionato.id);
-      await updateDoc(refDoc, {
-        nome: studenteSelezionato.nome || '',
-        cognome: studenteSelezionato.cognome || '',
-        scuola: studenteSelezionato.scuola || '',
-        genitoreNome: studenteSelezionato.genitoreNome || '',
-        genitoreTelefono: studenteSelezionato.genitoreTelefono || '',
-        genitoreEmail: studenteSelezionato.genitoreEmail || '',
-        studenteTelefono: studenteSelezionato.studenteTelefono || '',
-        studenteEmail: studenteSelezionato.studenteEmail || '',
-        totaleVersato: Number(studenteSelezionato.totaleVersato) || 0,
-        totaleConsumato: Number(studenteSelezionato.totaleConsumato) || 0
-      });
-      setShowModalScheda(false);
-      alert('✅ Dati studente aggiornati con successo!');
-    } catch (err) {
-      console.error('Errore aggiornamento:', err);
-      alert('Errore durante il salvataggio.');
-    }
-  };
-
-  // Elimina studente
   const handleEliminaStudente = async (id, nome) => {
     if (window.confirm(`Sei sicuro di voler eliminare definitivamente il profilo di ${nome}?`)) {
       try {
         await deleteDoc(doc(db, 'studenti', id));
       } catch (err) {
         console.error('Errore eliminazione:', err);
-        alert('Impossibile eliminare il profilo.');
       }
     }
   };
 
-  // Iniziali per Avatar
   const getIniziali = (nome = '', cognome = '') => {
     return `${nome.charAt(0)}${cognome.charAt(0)}`.toUpperCase() || 'ST';
   };
@@ -157,7 +139,7 @@ export default function GestioneStudenti() {
             👨‍🎓 Gestione Allievi & GDPR
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Anagrafica studenti, stato del consenso privacy, saldi plafond e contatti.
+            Anagrafica completa, situazione contabile, consensi privacy e recapiti.
           </p>
         </div>
         <button
@@ -180,7 +162,7 @@ export default function GestioneStudenti() {
         />
       </div>
 
-      {/* GRIGLIA CARD STUDENTI */}
+      {/* GRIGLIA ALLIEVI */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {studentiFiltrati.map((std) => {
           const versato = Number(std.totaleVersato || 0);
@@ -192,7 +174,7 @@ export default function GestioneStudenti() {
               key={std.id} 
               className="bg-white rounded-3xl p-5 shadow-sm border border-slate-200 flex flex-col justify-between hover:shadow-md transition-shadow relative overflow-hidden"
             >
-              {/* Badge di stato alto */}
+              {/* Intestazione Card */}
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-2xl bg-slate-900 text-white flex items-center justify-center font-black text-sm">
@@ -203,7 +185,7 @@ export default function GestioneStudenti() {
                       {std.nome} {std.cognome}
                     </h3>
                     <span className="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold uppercase mt-0.5">
-                      {std.scuola || 'Scuola'}
+                      {std.scuola || std.categoriaTariffaria || 'Primaria'}
                     </span>
                   </div>
                 </div>
@@ -212,7 +194,7 @@ export default function GestioneStudenti() {
                 </span>
               </div>
 
-              {/* Box Plafond e Saldo */}
+              {/* Saldo Plafond */}
               <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 my-3 text-center">
                 <div>
                   <p className="text-[9px] uppercase font-bold text-slate-400">Plafond</p>
@@ -230,7 +212,7 @@ export default function GestioneStudenti() {
                 </div>
               </div>
 
-              {/* Contatti Genitore e Studente */}
+              {/* Recapiti: Genitore e Studente (mappati sui campi reali di Firestore) */}
               <div className="space-y-2 text-xs text-slate-600 border-t border-slate-100 pt-3">
                 <div className="p-2.5 bg-amber-50/60 border border-amber-100 rounded-xl space-y-1">
                   <p className="text-[11px] font-bold text-amber-900 flex items-center gap-1.5 truncate">
@@ -254,16 +236,16 @@ export default function GestioneStudenti() {
                     <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                     Contatto Studente:
                   </p>
-                  <p className="text-[11px] text-slate-500 pl-5 truncate">
-                    📞 {std.studenteTelefono || '-'}
+                  <p className="text-[11px] text-slate-600 pl-5 truncate">
+                    📞 {std.telefono || '-'}
                   </p>
-                  <p className="text-[11px] text-slate-500 pl-5 truncate">
-                    ✉️️ {std.studenteEmail || '-'}
+                  <p className="text-[11px] text-slate-600 pl-5 truncate">
+                    ✉ {std.email || '-'}
                   </p>
                 </div>
               </div>
 
-              {/* STATO GDPR CON TASTO SCARICA PDF */}
+              {/* Stato GDPR con link Scarica PDF */}
               <div className="mt-3 pt-3 border-t border-slate-100 space-y-1.5">
                 <div className="flex items-center justify-between text-xs flex-wrap gap-2">
                   {std.gdprConfermato ? (
@@ -296,7 +278,7 @@ export default function GestioneStudenti() {
                 </div>
               </div>
 
-              {/* BOTTONI AZIONI */}
+              {/* Bottoni Azioni: Apre la Scheda Unificata */}
               <div className="grid grid-cols-4 gap-2 mt-4 pt-3 border-t border-slate-100">
                 {std.genitoreTelefono ? (
                   <a
@@ -333,10 +315,7 @@ export default function GestioneStudenti() {
                 </button>
 
                 <button
-                  onClick={() => {
-                    setStudenteSelezionato(std);
-                    setShowModalScheda(true);
-                  }}
+                  onClick={() => setStudenteSelezionato(std)}
                   className="flex items-center justify-center p-2 bg-slate-900 text-white hover:bg-slate-800 rounded-xl transition text-[11px] font-black gap-1"
                   title="Apri Scheda Completa"
                 >
@@ -388,7 +367,7 @@ export default function GestioneStudenti() {
                 <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">Grado Scolastico</label>
                 <input
                   type="text"
-                  placeholder="Es. Primaria, Medie, Superiore..."
+                  placeholder="Es. Elementari, Medie, Superiori..."
                   className="w-full p-3 border border-slate-200 rounded-xl text-xs bg-slate-50"
                   value={nuovoStudente.scuola}
                   onChange={(e) => setNuovoStudente({ ...nuovoStudente, scuola: e.target.value })}
@@ -455,152 +434,14 @@ export default function GestioneStudenti() {
         </div>
       )}
 
-      {/* MODALE SCHEDA DETTAGLIATA ("APRI SCHEDA") */}
-      {showModalScheda && studenteSelezionato && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 overflow-y-auto max-h-[90vh]">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-xl font-black text-slate-800">
-                Scheda Allievo: {studenteSelezionato.nome} {studenteSelezionato.cognome}
-              </h2>
-              <button onClick={() => setShowModalScheda(false)}>
-                <X className="w-5 h-5 text-slate-400 hover:text-slate-600" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSalvaModificheScheda} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">Nome</label>
-                  <input
-                    type="text"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50"
-                    value={studenteSelezionato.nome || ''}
-                    onChange={(e) => setStudenteSelezionato({ ...studenteSelezionato, nome: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">Cognome</label>
-                  <input
-                    type="text"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50"
-                    value={studenteSelezionato.cognome || ''}
-                    onChange={(e) => setStudenteSelezionato({ ...studenteSelezionato, cognome: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">Scuola Frequentata</label>
-                <input
-                  type="text"
-                  className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50"
-                  value={studenteSelezionato.scuola || ''}
-                  onChange={(e) => setStudenteSelezionato({ ...studenteSelezionato, scuola: e.target.value })}
-                />
-              </div>
-
-              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-2xl space-y-2">
-                <p className="text-[10px] font-black text-amber-900 uppercase">Dati Esercente Responsabilità (Genitore)</p>
-                <div>
-                  <label className="block text-[10px] font-bold text-amber-800 mb-0.5">Nome Genitore</label>
-                  <input
-                    type="text"
-                    className="w-full p-2 border border-amber-200 rounded-xl text-xs bg-white"
-                    value={studenteSelezionato.genitoreNome || ''}
-                    onChange={(e) => setStudenteSelezionato({ ...studenteSelezionato, genitoreNome: e.target.value })}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[10px] font-bold text-amber-800 mb-0.5">Cellulare Genitore</label>
-                    <input
-                      type="tel"
-                      className="w-full p-2 border border-amber-200 rounded-xl text-xs bg-white"
-                      value={studenteSelezionato.genitoreTelefono || ''}
-                      onChange={(e) => setStudenteSelezionato({ ...studenteSelezionato, genitoreTelefono: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-amber-800 mb-0.5">Email Genitore</label>
-                    <input
-                      type="email"
-                      className="w-full p-2 border border-amber-200 rounded-xl text-xs bg-white"
-                      value={studenteSelezionato.genitoreEmail || ''}
-                      onChange={(e) => setStudenteSelezionato({ ...studenteSelezionato, genitoreEmail: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">Totale Versato (€)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 font-bold"
-                    value={studenteSelezionato.totaleVersato || 0}
-                    onChange={(e) => setStudenteSelezionato({ ...studenteSelezionato, totaleVersato: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black uppercase text-slate-600 mb-1">Totale Consumato (€)</label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 font-bold"
-                    value={studenteSelezionato.totaleConsumato || 0}
-                    onChange={(e) => setStudenteSelezionato({ ...studenteSelezionato, totaleConsumato: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              {/* BOX DOCUMENTALE GDPR & DOWNLOAD PDF */}
-              <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                    <FileText className="w-4 h-4 text-blue-600" />
-                    Modulo Privacy & GDPR
-                  </p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {studenteSelezionato.gdprConfermato 
-                      ? `Firmato da: ${studenteSelezionato.gdprEmailFirmatario || 'Genitore'}`
-                      : 'Nessun consenso registrato per questo allievo'}
-                  </p>
-                </div>
-                {studenteSelezionato.gdprPdfUrl ? (
-                  <a
-                    href={studenteSelezionato.gdprPdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow transition flex items-center gap-1"
-                  >
-                    Apri PDF
-                  </a>
-                ) : (
-                  <span className="text-[11px] text-amber-600 font-bold">Non disponibile</span>
-                )}
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowModalScheda(false)}
-                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"
-                >
-                  Annulla
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow-lg transition"
-                >
-                  Salva Modifiche
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {/* SCHEDA UNIFICATA COMPLETA (DETTAGLIO STUDENTE) */}
+      {studenteSelezionato && (
+        <DettaglioStudente
+          studente={studenteSelezionato}
+          lezioni={lezioni}
+          insegnanti={insegnanti}
+          onClose={() => setStudenteSelezionato(null)}
+        />
       )}
 
     </div>
