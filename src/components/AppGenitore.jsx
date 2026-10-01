@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from '../services/firebase';
-import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, where, serverTimestamp, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { Calendar, Plus, UserPlus, Clock, BookOpen, CheckCircle, XCircle, ChevronLeft, Paperclip, Settings, Bell, BellOff, Volume2, Vibrate, Mail, X } from 'lucide-react';
 
@@ -32,16 +32,30 @@ export default function AppGenitore({ utente, onLogout }) {
   });
   const notifiedLezioni = useRef(new Set());
 
-  // 1. Recupera i figli associati al genitore
+  // 1. Recupera i figli associati al genitore e imposta in automatico "appAttivata: true"
   useEffect(() => {
     if (!utente?.email) return;
     const unsub = onSnapshot(query(collection(db, 'studenti'), where('genitoreEmail', '==', utente.email)), (snapshot) => {
-      const figli = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const figli = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setIMieiFigli(figli);
       
       if (figli.length > 0 && !nuovaRichiesta.studenteId) {
         setNuovaRichiesta(prev => ({ ...prev, studenteId: figli[0].id }));
       }
+
+      // Attivazione automatica dell'App per i profili dei figli collegati
+      figli.forEach(async (figlio) => {
+        if (!figlio.appAttivata) {
+          try {
+            await updateDoc(doc(db, 'studenti', figlio.id), {
+              appAttivata: true,
+              ultimoAccessoApp: serverTimestamp()
+            });
+          } catch (err) {
+            console.error("Errore nell'aggiornamento dello stato app per:", figlio.nome, err);
+          }
+        }
+      });
     });
     return () => unsub();
   }, [utente]);
@@ -70,13 +84,13 @@ export default function AppGenitore({ utente, onLogout }) {
   useEffect(() => {
     if (!utente?.uid) return;
     const unsub = onSnapshot(query(collection(db, 'richieste_genitori'), where('genitoreId', '==', utente.uid)), (snapshot) => {
-      let dati = snapshot.docs.map(doc => {
-        const dataCreazione = doc.data().dataCreazione?.toDate?.();
+      let dati = snapshot.docs.map(d => {
+        const dataCreazione = d.data().dataCreazione?.toDate?.();
         const dataFormattata = dataCreazione 
           ? dataCreazione.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) 
           : 'Oggi';
           
-        return { id: doc.id, ...doc.data(), dataFormattata };
+        return { id: d.id, ...d.data(), dataFormattata };
       });
       dati.sort((a, b) => (b.dataCreazione?.toMillis?.() || 0) - (a.dataCreazione?.toMillis?.() || 0));
       setRichieste(dati);
@@ -91,7 +105,7 @@ export default function AppGenitore({ utente, onLogout }) {
       return;
     }
     const unsub = onSnapshot(query(collection(db, 'lezioni'), where('stato', '==', 'attiva')), (snapshot) => {
-      const tutteLezioni = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const tutteLezioni = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       const idsFigli = iMieiFigli.map(f => f.id);
       const lezioniDeiFigli = tutteLezioni.filter(lez => (lez.studentiIds || []).some(id => idsFigli.includes(id)));
       
@@ -142,7 +156,7 @@ export default function AppGenitore({ utente, onLogout }) {
     return () => clearInterval(interval);
   }, [impostazioniForm, lezioniProgrammate]);
 
-  // SALVATAGGIO IMPOSTAZIONI BLINDATO PER SAFARI E IPHONE
+  // SALVATAGGIO IMPOSTAZIONI COMPATIBILE CON SAFARI E IPHONE
   const salvaImpostazioni = async () => {
     try {
       if (!utente?.uid) {
@@ -150,7 +164,6 @@ export default function AppGenitore({ utente, onLogout }) {
         return;
       }
 
-      // Salvataggio sicuro su Firestore
       await setDoc(doc(db, 'impostazioni_genitori', utente.uid), {
         email: utente.email || '',
         notificheAbilitate: Boolean(impostazioniForm.notificheAbilitate),
@@ -162,7 +175,6 @@ export default function AppGenitore({ utente, onLogout }) {
 
       setShowSettingsModal(false);
       
-      // Gestione sicura dei permessi di notifica (compatibile con Safari mobile)
       if (impostazioniForm.notificheAbilitate && typeof window !== 'undefined' && 'Notification' in window) {
         if (Notification.permission === 'default') {
           Notification.requestPermission().catch(err => console.log("Permesso notifiche negato da Safari:", err));
@@ -195,9 +207,13 @@ export default function AppGenitore({ utente, onLogout }) {
       }
 
       await addDoc(collection(db, 'richieste_genitori'), {
-        genitoreId: utente.uid, emailGenitore: utente.email, studenteId: figlio.id,
-        studente: `${figlio.nome} ${figlio.cognome}`, materia: nuovaRichiesta.materia,
-        ore: Number(nuovaRichiesta.ore), note: nuovaRichiesta.note, 
+        genitoreId: utente.uid, 
+        emailGenitore: utente.email, 
+        studenteId: figlio.id,
+        studente: `${figlio.nome} ${figlio.cognome}`, 
+        materia: nuovaRichiesta.materia,
+        ore: Number(nuovaRichiesta.ore), 
+        note: nuovaRichiesta.note, 
         dataPreferita: nuovaRichiesta.dataPreferita, 
         orarioPreferito: nuovaRichiesta.orarioPreferito,
         allegatoUrl: allegatoUrl, 
@@ -221,10 +237,22 @@ export default function AppGenitore({ utente, onLogout }) {
     setIsSubmittingFiglio(true);
     try {
       await addDoc(collection(db, 'studenti'), {
-        nome: nuovoFiglio.nome, cognome: nuovoFiglio.cognome, scuola: nuovoFiglio.scuola,
-        dataNascita: nuovoFiglio.dataNascita, telefono: nuovoFiglio.telefono, email: nuovoFiglio.emailStudente,
-        genitoreEmail: utente.email, attivo: true, totaleVersato: 0, totaleConsumato: 0, totalePattuito: 0, 
-        storicoRicariche: [], categoriaTariffaria: 'medie', isMinorenne: true
+        nome: nuovoFiglio.nome, 
+        cognome: nuovoFiglio.cognome, 
+        scuola: nuovoFiglio.scuola,
+        dataNascita: nuovoFiglio.dataNascita, 
+        telefono: nuovoFiglio.telefono, 
+        email: nuovoFiglio.emailStudente,
+        genitoreEmail: utente.email, 
+        attivo: true, 
+        appAttivata: true,
+        ultimoAccessoApp: serverTimestamp(),
+        totaleVersato: 0, 
+        totaleConsumato: 0, 
+        totalePattuito: 0, 
+        storicoRicariche: [], 
+        categoriaTariffaria: 'medie', 
+        isMinorenne: true
       });
       setNuovoFiglio({ nome: '', cognome: '', scuola: '', dataNascita: '', telefono: '', emailStudente: '' });
       setVistaAttiva('dashboard');
