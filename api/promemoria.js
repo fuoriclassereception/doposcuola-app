@@ -20,7 +20,6 @@ export default async function handler(req, res) {
   try {
     const isChiamataReception = req.method === 'POST' && req.body?.tipo === 'manuale_reception';
 
-    // 1. Configurazione del mittente con Gmail
     const transporter = nodemailer.createTransport({
       host: 'smtp.gmail.com',
       port: 465,
@@ -31,7 +30,7 @@ export default async function handler(req, res) {
       }
     });
 
-    // 2. Calcolo Data di oggi (formato YYYY-MM-DD fuso orario Roma)
+    // Calcolo Data di oggi fuso orario Roma
     const formatterData = new Intl.DateTimeFormat('it-IT', {
       timeZone: 'Europe/Rome',
       year: 'numeric', month: '2-digit', day: '2-digit'
@@ -40,7 +39,7 @@ export default async function handler(req, res) {
     const dataOggiDb = `${a}-${m}-${g}`;
     const dataVisiva = `${g}/${m}/${a}`;
 
-    // 3. Recupero lezioni attive della giornata odierna
+    // Lezioni di oggi
     const lezioniSnap = await getDocs(
       query(collection(db, 'lezioni'), where('data', '==', dataOggiDb), where('stato', '==', 'attiva'))
     );
@@ -49,85 +48,70 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, message: `Nessuna lezione in programma per oggi (${dataVisiva}).` });
     }
 
-    // 4. Recupero anagrafica impostazioni genitori e studenti
     const impostazioniSnap = await getDocs(collection(db, 'impostazioni_genitori'));
-    if (impostazioniSnap.empty) {
-      return res.status(200).json({ success: true, message: 'Nessun genitore configurato nel database.' });
-    }
-
     const studentiSnap = await getDocs(collection(db, 'studenti'));
+
     const studenti = studentiSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     const tutteLezioni = lezioniSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     let inviiEseguiti = 0;
 
+    // --- 1. GESTIONE INVIO A GENITORI ---
     for (const genitoreDoc of impostazioniSnap.docs) {
       const genitore = genitoreDoc.data();
-      const emailDestinatario = genitore.email?.trim().toLowerCase();
-      if (!emailDestinatario) continue;
+      const emailGenitore = genitore.email?.trim().toLowerCase();
+      if (!emailGenitore) continue;
 
-      // Se la chiamata è da Reception, verifica se il genitore accetta gli aggiornamenti
-      if (isChiamataReception && genitore.emailAggiornamentiAbilitata === false) {
-        continue;
-      }
+      if (isChiamataReception && genitore.emailAggiornamentiAbilitata === false) continue;
+      if (!isChiamataReception && genitore.emailMattutinaAbilitata === false) continue;
 
-      // Se la chiamata è automatica del mattino, verifica l'opzione mattutina
-      if (!isChiamataReception && genitore.emailMattutinaAbilitata === false) {
-        continue;
-      }
+      // Trova figli associati
+      const figli = studenti.filter(s => (s.genitoreEmail || '').trim().toLowerCase() === emailGenitore);
+      
+      // VINCOLO GDPR: Includi solo i figli che hanno firmato il GDPR
+      const figliConGdpr = figli.filter(s => Boolean(s.gdprConfermato));
+      const idsFigliConGdpr = figliConGdpr.map(f => f.id);
+      if (idsFigliConGdpr.length === 0) continue;
 
-      // Trova gli allievi di questo genitore
-      const figli = studenti.filter(s => (s.genitoreEmail || '').trim().toLowerCase() === emailDestinatario);
-      const idsFigli = figli.map(f => f.id);
-      if (idsFigli.length === 0) continue;
-
-      // Trova le lezioni di oggi per questi allievi
       const lezioniDelGenitore = tutteLezioni.filter(lez =>
-        (lez.studentiIds || []).some(id => idsFigli.includes(id))
+        (lez.studentiIds || []).some(id => idsFigliConGdpr.includes(id))
       );
       if (lezioniDelGenitore.length === 0) continue;
 
-      // FILTRO ANTI-DUPLICATO:
-      // Individua solo le lezioni di oggi per cui questo genitore NON ha ancora ricevuto la mail
+      // Anti-duplicato
       const chiaveInviata = `inviataA_${genitoreDoc.id}`;
       const lezioniDaNotificare = lezioniDelGenitore.filter(lez => !lez[chiaveInviata]);
-
-      // Se ha già ricevuto la mail per tutte le lezioni di oggi, salta senza riscrivere
-      if (lezioniDaNotificare.length === 0) {
-        continue;
-      }
+      if (lezioniDaNotificare.length === 0) continue;
 
       lezioniDaNotificare.sort((x, y) => (x.oraInizio || '').localeCompare(y.oraInizio || ''));
 
       let blocchiHtml = '';
       lezioniDaNotificare.forEach(lez => {
         const nomi = (lez.studentiIds || [])
-          .filter(id => idsFigli.includes(id))
+          .filter(id => idsFigliConGdpr.includes(id))
           .map(id => studenti.find(s => s.id === id)?.nome)
           .filter(Boolean)
           .join(', ') || 'Allievo';
 
+        const materiaDefinita = (lez.materia || '').trim() || 'Ripasso';
+
         blocchiHtml += `
           <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 14px; margin-bottom: 12px; border-radius: 8px;">
-            <p style="margin: 0; color: #0f172a; font-size: 16px; font-weight: bold;">${lez.materia || 'Lezione'}</p>
+            <p style="margin: 0; color: #0f172a; font-size: 16px; font-weight: bold;">${materiaDefinita}</p>
             <p style="margin: 4px 0 0 0; color: #475569; font-size: 13px;">👤 Studente: <b>${nomi}</b></p>
             <p style="margin: 4px 0 0 0; color: #d97706; font-size: 13px; font-weight: bold;">⏰ Dalle ${lez.oraInizio} alle ${lez.oraFine}</p>
           </div>
         `;
       });
 
-      const titoloMessaggio = isChiamataReception 
+      const titolo = isChiamataReception 
         ? `📚 Aggiornamento Lezioni FuoriClasse - ${dataVisiva}` 
-        : `☀️️ Promemoria Lezioni FuoriClasse - ${dataVisiva}`;
-
-      const testoIntro = isChiamataReception
-        ? `La nostra segreteria ti trasmette il riepilogo/aggiornamento per le lezioni fissate per oggi (<b>${dataVisiva}</b>):`
-        : `Ecco il riepilogo del mattino con le lezioni in programma per la giornata di oggi (<b>${dataVisiva}</b>):`;
+        : `☀️ Promemoria Lezioni FuoriClasse - ${dataVisiva}`;
 
       await transporter.sendMail({
         from: '"FuoriClasse Segreteria" <fuoriclasse.reception@gmail.com>',
-        to: emailDestinatario,
-        subject: titoloMessaggio,
+        to: emailGenitore,
+        subject: titolo,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
             <div style="background-color: #2563eb; padding: 20px; text-align: center;">
@@ -136,41 +120,90 @@ export default async function handler(req, res) {
             <div style="padding: 24px; background-color: #ffffff;">
               <h2 style="color: #0f172a; margin-top: 0; font-size: 18px;">Gentile Famiglia, 👋</h2>
               <p style="color: #475569; font-size: 14px; line-height: 1.5;">
-                ${testoIntro}
+                Ecco il riepilogo delle lezioni previste per oggi (<b>${dataVisiva}</b>):
               </p>
-              <div style="margin: 20px 0;">
-                ${blocchiHtml}
-              </div>
+              <div style="margin: 20px 0;">${blocchiHtml}</div>
               <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin-bottom: 0;">
-                Per qualsiasi necessità o chiarimento la nostra Reception è a tua completa disposizione.<br><br>
-                A presto,<br>
-                <b>La Reception di FuoriClasse</b>
+                A presto,<br><b>La Segreteria di FuoriClasse</b>
               </p>
             </div>
           </div>
         `
       });
 
-      // Segna sul database che per queste specifiche lezioni la mail è stata spedita a questo genitore
       for (const lez of lezioniDaNotificare) {
-        await updateDoc(doc(db, 'lezioni', lez.id), {
-          [chiaveInviata]: true
-        });
+        await updateDoc(doc(db, 'lezioni', lez.id), { [chiaveInviata]: true });
       }
-
       inviiEseguiti++;
     }
 
-    if (inviiEseguiti === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'Nessun nuovo promemoria da inviare: tutti i genitori abilitati sono già stati aggiornati per le lezioni di oggi!'
+    // --- 2. GESTIONE INVIO DIRETTO AGLI STUDENTI CON PROPRIA EMAIL ---
+    for (const std of studenti) {
+      const emailStudente = std.email?.trim().toLowerCase();
+      // Solo se lo studente ha una mail personale distinta da quella del genitore ed ha il GDPR firmato
+      if (!emailStudente || emailStudente === std.genitoreEmail?.trim().toLowerCase() || !std.gdprConfermato) {
+        continue;
+      }
+
+      // Se lo studente ha espressamente disattivato le email, salta
+      if (std.emailAbilitate === false) continue;
+
+      const lezioniDelloStudente = tutteLezioni.filter(lez =>
+        (lez.studentiIds || []).includes(std.id)
+      );
+      if (lezioniDelloStudente.length === 0) continue;
+
+      const chiaveInviataStd = `inviataA_std_${std.id}`;
+      const lezioniDaNotificareStd = lezioniDelloStudente.filter(lez => !lez[chiaveInviataStd]);
+      if (lezioniDaNotificareStd.length === 0) continue;
+
+      lezioniDaNotificareStd.sort((x, y) => (x.oraInizio || '').localeCompare(y.oraInizio || ''));
+
+      let blocchiHtml = '';
+      lezioniDaNotificareStd.forEach(lez => {
+        const materiaDefinita = (lez.materia || '').trim() || 'Ripasso';
+        blocchiHtml += `
+          <div style="background-color: #f8fafc; border-left: 4px solid #2563eb; padding: 14px; margin-bottom: 12px; border-radius: 8px;">
+            <p style="margin: 0; color: #0f172a; font-size: 16px; font-weight: bold;">${materiaDefinita}</p>
+            <p style="margin: 4px 0 0 0; color: #d97706; font-size: 13px; font-weight: bold;">⏰ Dalle ${lez.oraInizio} alle ${lez.oraFine}</p>
+          </div>
+        `;
       });
+
+      await transporter.sendMail({
+        from: '"FuoriClasse Didattica" <fuoriclasse.reception@gmail.com>',
+        to: emailStudente,
+        subject: `📚 Le tue lezioni di oggi a FuoriClasse - ${dataVisiva}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+            <div style="background-color: #0f172a; padding: 20px; text-align: center;">
+              <h1 style="color: #fbbf24; margin: 0; font-size: 22px;">📚 FuoriClasse</h1>
+            </div>
+            <div style="padding: 24px; background-color: #ffffff;">
+              <h2 style="color: #0f172a; margin-top: 0; font-size: 18px;">Ciao ${std.nome}! 👋</h2>
+              <p style="color: #475569; font-size: 14px; line-height: 1.5;">
+                Ecco il promemoria con il tuo orario di oggi (<b>${dataVisiva}</b>):
+              </p>
+              <div style="margin: 20px 0;">${blocchiHtml}</div>
+              <p style="color: #64748b; font-size: 13px; line-height: 1.5; margin-bottom: 0;">
+                Ti aspettiamo a lezione!
+              </p>
+            </div>
+          </div>
+        `
+      });
+
+      for (const lez of lezioniDaNotificareStd) {
+        await updateDoc(doc(db, 'lezioni', lez.id), { [chiaveInviataStd]: true });
+      }
+      inviiEseguiti++;
     }
 
     return res.status(200).json({
       success: true,
-      message: `Inviati con successo ${inviiEseguiti} promemoria per la data di oggi (${dataVisiva}).`
+      message: inviiEseguiti > 0 
+        ? `Inviate con successo ${inviiEseguiti} email di riepilogo (Genitori + Studenti con GDPR firmato).`
+        : 'Tutti i destinatari abilitati (con GDPR firmato) hanno già ricevuto gli aggiornamenti di oggi.'
     });
 
   } catch (error) {
