@@ -1,10 +1,29 @@
-import React, { useState } from 'react';
-import { Calendar, Users, GraduationCap, Wallet, Search, History, LogOut, Send, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Calendar, Users, GraduationCap, Wallet, Search, History, LogOut, Send, Loader2, Moon, Sun } from 'lucide-react';
 import ModaleLog from './ModaleLog';
 
 export default function Sidebar({ activeTab, setActiveTab, searchQuery, setSearchQuery, logs = [], onLogout }) {
   const [mostraLogModal, setMostraLogModal] = useState(false);
   const [sendingPromemoria, setSendingPromemoria] = useState(false);
+
+  // GESTIONE TEMA NOTTE
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return localStorage.getItem('tema_scuro') === 'true';
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('tema_scuro', 'true');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('tema_scuro', 'false');
+    }
+  }, [isDarkMode]);
+
+  const toggleTema = () => {
+    setIsDarkMode(prev => !prev);
+  };
 
   const handleInviaPromemoriaOggi = async () => {
     const conferma = window.confirm("Vuoi inviare il promemoria email per le lezioni di oggi ai genitori che hanno abilitato gli aggiornamenti?");
@@ -41,6 +60,26 @@ export default function Sidebar({ activeTab, setActiveTab, searchQuery, setSearc
           <span className="bg-amber-400 text-slate-900 p-1.5 rounded-lg mr-2 text-sm font-black">FC</span> 
           FuoriClasse
         </h1>
+
+        {/* TASTO SWITCH MODALITÀ NOTTE */}
+        <button
+          onClick={toggleTema}
+          type="button"
+          className="w-full flex items-center justify-between px-3 py-2 bg-slate-800/90 hover:bg-slate-700/90 text-slate-300 hover:text-white rounded-xl text-xs font-bold border border-slate-700/70 transition-all mb-2 shadow-sm"
+          title={isDarkMode ? "Passa a tema Giorno (Chiaro)" : "Passa a tema Notte (Scuro)"}
+        >
+          <div className="flex items-center space-x-2">
+            {isDarkMode ? (
+              <Sun className="w-4 h-4 text-amber-400 animate-spin-slow" />
+            ) : (
+              <Moon className="w-4 h-4 text-indigo-400" />
+            )}
+            <span>{isDarkMode ? 'Tema Notte Attivo' : 'Tema Notte'}</span>
+          </div>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${isDarkMode ? 'bg-amber-400/20 text-amber-300' : 'bg-slate-700 text-slate-400'}`}>
+            {isDarkMode ? 'ON' : 'OFF'}
+          </span>
+        </button>
 
         {/* Bottone Logout sotto il titolo */}
         {onLogout && (
