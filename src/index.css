@@ -1,3 +1,85 @@
 @import "tailwindcss/base";
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
+
+/* =========================================
+   TEMA NOTTE / DARK MODE (FUORICLASSE)
+   ========================================= */
+
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background-color: #0b1120 !important;
+  color: #f1f5f9 !important;
+}
+
+/* Sfondi delle card, modali, box bianchi */
+html.dark .bg-white {
+  background-color: #111827 !important;
+  color: #f8fafc !important;
+  border-color: #1f2937 !important;
+}
+
+/* Aree secondarie, tabelle, box grigio chiaro */
+html.dark .bg-slate-50,
+html.dark .bg-slate-100,
+html.dark .bg-gray-50,
+html.dark .bg-gray-100 {
+  background-color: #1f2937 !important;
+  color: #e2e8f0 !important;
+  border-color: #374151 !important;
+}
+
+/* Campi di testo, form, select, date */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #1f2937 !important;
+  color: #ffffff !important;
+  border-color: #374151 !important;
+}
+
+/* Testi scuri trasformati in chiari ad alto contrasto */
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-slate-700,
+html.dark .text-gray-900,
+html.dark .text-gray-800 {
+  color: #f8fafc !important;
+}
+
+html.dark .text-slate-600,
+html.dark .text-slate-500,
+html.dark .text-gray-600,
+html.dark .text-gray-500 {
+  color: #94a3b8 !important;
+}
+
+/* Bordi generali */
+html.dark .border-slate-200,
+html.dark .border-slate-100,
+html.dark .border-gray-200,
+html.dark .border-gray-100 {
+  border-color: #1f2937 !important;
+}
+
+/* Riquadri specifici per mantenere leggibilità (giallo/verde) */
+html.dark .bg-amber-50,
+html.dark .bg-amber-50\/60,
+html.dark .bg-amber-50\/70 {
+  background-color: #2a2010 !important;
+  border-color: #78350f !important;
+}
+
+html.dark .text-amber-900,
+html.dark .text-amber-800 {
+  color: #fde68a !important;
+}
+
+html.dark .bg-emerald-50,
+html.dark .bg-emerald-50\/70 {
+  background-color: #062817 !important;
+  border-color: #065f46 !important;
+}
