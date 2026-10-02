@@ -1,403 +1,318 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, User, BookOpen, CheckCircle, Users, MapPin, AlertTriangle, UserPlus } from 'lucide-react';
-import { db } from '../services/firebase';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { X, Calendar, Clock, User, BookOpen, Euro, Paperclip, AlertCircle, Users } from 'lucide-react';
+import ModalePin from './ModalePin';
 
-const MATERIE_RAPIDE = [
-  'Ripasso',
-  'Matematica',
-  'Italiano',
-  'Inglese',
-  'Fisica',
-  'Chimica',
-  'Scienze',
-  'Storia',
-  'Geografia',
-  'Latino'
-];
-
-export default function ModaleLezione({ isOpen, onClose, onSave, insegnanti = [], studenti = [], lezioni = [], initialData = null }) {
+export default function ModaleLezione({ 
+  isOpen, 
+  onClose, 
+  onSave, 
+  insegnanti = [], 
+  studenti = [], 
+  lezioni = [], 
+  initialData = null 
+}) {
   const [formData, setFormData] = useState({
-    data: '', oraInizio: '', oraFine: '', materia: 'Ripasso', note: '', isGruppo: false,
-    insegnanteId: '', coDocentiIds: [], studentiIds: []
+    data: new Date().toISOString().split('T')[0],
+    oraInizio: '15:00',
+    oraFine: '16:00',
+    insegnanteId: '',
+    studentiIds: [],
+    materia: '',
+    isGruppo: false,
+    prezzoPersonalizzato: '',
+    note: '',
+    allegatoUrl: '',
+    oldLezioneId: null
   });
-  
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [ricercaStudente, setRicercaStudente] = useState('');
-  const [ricercaDocente, setRicercaDocente] = useState('');
-  const [isCreandoOspite, setIsCreandoOspite] = useState(false);
+
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [studenteSearch, setStudenteSearch] = useState('');
 
   useEffect(() => {
-    if (isOpen) {
-      if (initialData) {
-        setFormData({
-          data: initialData.data || new Date().toISOString().split('T')[0],
-          oraInizio: initialData.oraInizio || '15:00',
-          oraFine: initialData.oraFine || '16:00',
-          materia: initialData.materia?.trim() || 'Ripasso',
-          note: initialData.note || '',
-          isGruppo: initialData.isGruppo || false,
-          insegnanteId: initialData.insegnanteId || '',
-          coDocentiIds: initialData.coDocentiIds || [],
-          studentiIds: initialData.studentiIds || [],
-          oldLezioneId: initialData.oldLezioneId || initialData.id || null
-        });
-      } else {
-        setFormData({
-          data: new Date().toISOString().split('T')[0], oraInizio: '15:00', oraFine: '16:00',
-          materia: 'Ripasso', note: '', isGruppo: false, insegnanteId: '', coDocentiIds: [], studentiIds: []
-        });
-      }
-      setRicercaStudente('');
-      setRicercaDocente('');
-      setIsCreandoOspite(false);
+    if (initialData) {
+      setFormData({
+        data: initialData.data || new Date().toISOString().split('T')[0],
+        oraInizio: initialData.oraInizio || '15:00',
+        oraFine: initialData.oraFine || '16:00',
+        insegnanteId: initialData.insegnanteId || '',
+        studentiIds: initialData.studentiIds || [],
+        materia: initialData.materia || '',
+        isGruppo: Boolean(initialData.isGruppo),
+        prezzoPersonalizzato: initialData.prezzoPersonalizzato !== undefined && initialData.prezzoPersonalizzato !== null ? initialData.prezzoPersonalizzato : '',
+        note: initialData.note || '',
+        allegatoUrl: initialData.allegatoUrl || '',
+        oldLezioneId: initialData.oldLezioneId || null
+      });
+    } else {
+      setFormData({
+        data: new Date().toISOString().split('T')[0],
+        oraInizio: '15:00',
+        oraFine: '16:00',
+        insegnanteId: '',
+        studentiIds: [],
+        materia: '',
+        isGruppo: false,
+        prezzoPersonalizzato: '',
+        note: '',
+        allegatoUrl: '',
+        oldLezioneId: null
+      });
     }
-  }, [isOpen, initialData]);
+  }, [initialData, isOpen]);
 
   if (!isOpen) return null;
 
-  const toggleStudente = (id) => {
-    setFormData(prev => ({
-      ...prev,
-      studentiIds: prev.studentiIds.includes(id) ? prev.studentiIds.filter(sId => sId !== id) : [...prev.studentiIds, id]
-    }));
-    setRicercaStudente('');
-  };
-
-  const toggleCoDocente = (id) => {
-    setFormData(prev => ({
-      ...prev,
-      coDocentiIds: prev.coDocentiIds.includes(id) ? prev.coDocentiIds.filter(dId => dId !== id) : [...prev.coDocentiIds, id]
-    }));
-    setRicercaDocente('');
-  };
-
-  const handleCreaStudenteOspite = async () => {
-    const nomeInserito = ricercaStudente.trim();
-    if (!nomeInserito) return;
-    setIsCreandoOspite(true);
-    try {
-      const parti = nomeInserito.split(' ');
-      const nome = parti[0] || nomeInserito;
-      const cognome = parti.slice(1).join(' ') || '(Ospite / Prova)';
-
-      const docRef = await addDoc(collection(db, 'studenti'), {
-        nome: nome,
-        cognome: cognome,
-        attivo: true,
-        isProvvisorio: true,
-        categoriaTariffaria: 'medie',
-        totaleVersato: 0,
-        totaleConsumato: 0,
-        totalePattuito: 0,
-        storicoRicariche: [],
-        createdAt: serverTimestamp()
-      });
-
-      setFormData(prev => ({
-        ...prev,
-        studentiIds: [...prev.studentiIds, docRef.id]
-      }));
-      setRicercaStudente('');
-    } catch (error) {
-      console.error("Errore creazione allievo ospite:", error);
-      alert("Errore durante la registrazione al volo dell'allievo.");
-    } finally {
-      setIsCreandoOspite(false);
-    }
-  };
-
-  // Controlli anti-collisione oraria per la Reception
-  const checkCollisioni = () => {
-    const conflitti = [];
-    if (!formData.data || !formData.oraInizio || !formData.oraFine) return conflitti;
-    if (formData.oraInizio >= formData.oraFine) return ["Orari non validi (l'orario di fine precede l'inizio)."];
-
-    const lezioniGiorno = lezioni.filter(l => l.data === formData.data && l.stato !== 'annullata' && l.id !== formData.oldLezioneId);
-    const profDaControllare = [...formData.coDocentiIds];
-    if (formData.insegnanteId) profDaControllare.push(formData.insegnanteId);
-
-    lezioniGiorno.forEach(lez => {
-      const overlap = formData.oraInizio < lez.oraFine && formData.oraFine > lez.oraInizio;
-      if (overlap) {
-        profDaControllare.forEach(pId => {
-          if (lez.insegnanteId === pId || (lez.coDocentiIds || []).includes(pId)) {
-            const profInfo = insegnanti.find(i => i.id === pId);
-            if (profInfo) conflitti.push(`⚠️ Il Prof. ${profInfo.cognome} è già impegnato in questa fascia.`);
-          }
-        });
-        formData.studentiIds.forEach(sId => {
-          if ((lez.studentiIds || []).includes(sId)) {
-            const stdInfo = studenti.find(s => s.id === sId);
-            if (stdInfo) conflitti.push(`⚠️ ${stdInfo.nome} ha già una lezione programmata in questo orario.`);
-          }
-        });
+  // Toggle selezione studente
+  const handleToggleStudente = (stdId) => {
+    setFormData(prev => {
+      const exists = prev.studentiIds.includes(stdId);
+      if (prev.isGruppo) {
+        return {
+          ...prev,
+          studentiIds: exists ? prev.studentiIds.filter(id => id !== stdId) : [...prev.studentiIds, stdId]
+        };
+      } else {
+        return {
+          ...prev,
+          studentiIds: exists ? [] : [stdId]
+        };
       }
     });
-    return [...new Set(conflitti)];
   };
 
-  const conflittiAttuali = checkCollisioni();
-  const formNonValido = formData.studentiIds.length === 0 || formData.oraInizio >= formData.oraFine;
-
-  const handleSubmit = async (e) => {
+  // Validazione form prima di aprire il PIN
+  const handlePreSave = (e) => {
     e.preventDefault();
-    if (formNonValido) return;
-    setIsSubmitting(true);
-    
-    // Normalizzazione materia di default
-    const finalData = { 
+    if (!formData.data || !formData.oraInizio || !formData.oraFine) {
+      return alert("Compila data e orari.");
+    }
+    if (formData.studentiIds.length === 0) {
+      return alert("Seleziona almeno uno studente per la lezione.");
+    }
+    if (!formData.isGruppo && !formData.insegnanteId) {
+      const conferma = window.confirm("Nessun docente selezionato: la lezione verrà posizionata nella colonna 'DA ASSEGNARE'. Vuoi procedere?");
+      if (!conferma) return;
+    }
+
+    // Apre il Modale PIN per confermare
+    setShowPinModal(true);
+  };
+
+  // Esecuzione salvataggio effettivo dopo PIN corretto (1234)
+  const handlePinSuccess = async () => {
+    setShowPinModal(false);
+    const payload = {
       ...formData,
-      materia: formData.materia?.trim() || 'Ripasso'
+      prezzoPersonalizzato: formData.prezzoPersonalizzato !== '' ? Number(formData.prezzoPersonalizzato) : null
     };
 
-    if (finalData.studentiIds.length > 1) {
-      finalData.isGruppo = true;
+    if (onSave) {
+      const success = await onSave(payload);
+      if (success) {
+        onClose();
+      }
     }
-    
-    await onSave(finalData);
-    setIsSubmitting(false);
   };
 
-  const insegnantiAttivi = insegnanti.filter(i => i.attivo !== false);
-  const studentiFiltrati = studenti.filter(s => s.attivo !== false && `${s.nome} ${s.cognome}`.toLowerCase().includes(ricercaStudente.toLowerCase()));
-  const docentiFiltrati = insegnantiAttivi.filter(d => d.id !== formData.insegnanteId && `${d.nome} ${d.cognome}`.toLowerCase().includes(ricercaDocente.toLowerCase()));
+  const studentiFiltrati = (studenti || []).filter(s => 
+    `${s.nome || ''} ${s.cognome || ''}`.toLowerCase().includes(studenteSearch.toLowerCase())
+  );
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto pt-10 pb-10">
-      <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden my-auto">
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 my-auto">
         
-        <div className="bg-slate-900 p-5 flex justify-between items-center sticky top-0 z-10">
-          <h2 className="text-lg font-black text-white flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-amber-400"/>
-            {formData.oldLezioneId ? 'Modifica Dettagli Lezione' : 'Inserisci Nuova Lezione'}
-          </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition"><X className="w-5 h-5"/></button>
+        {/* HEADER MODALE */}
+        <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-amber-400 text-slate-950 rounded-xl font-bold">
+              <Calendar className="w-5 h-5"/>
+            </div>
+            <div>
+              <h2 className="font-black text-lg text-slate-900">
+                {formData.oldLezioneId ? 'Rischedula Lezione' : 'Nuova Prenotazione'}
+              </h2>
+              <p className="text-xs text-slate-400">Inserimento protetto da PIN reception</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 rounded-full">
+            <X className="w-5 h-5"/>
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        {/* FORM */}
+        <form onSubmit={handlePreSave} className="space-y-4 text-xs font-bold">
+          
+          {/* TIPO: INDIVIDUALE vs GRUPPO */}
+          <div className="flex bg-slate-100 p-1 rounded-2xl gap-1">
+            <button
+              type="button"
+              onClick={() => setFormData(prev => ({ ...prev, isGruppo: false, studentiIds: prev.studentiIds.slice(0, 1) }))}
+              className={`flex-1 py-2 rounded-xl transition ${!formData.isGruppo ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}
+            >
+              Lezione Individuale
+            </button>
+            <button
+              type="button"
+              onClick={() => setFormData(prev => ({ ...prev, isGruppo: true }))}
+              className={`flex-1 py-2 rounded-xl transition ${formData.isGruppo ? 'bg-amber-400 shadow text-slate-950 font-black' : 'text-slate-500'}`}
+            >
+              Gruppo Studio
+            </button>
+          </div>
 
-          {/* ASSEGNAZIONE DOCENTI */}
-          <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 space-y-4">
-            
-            {/* Titolare */}
+          {/* DATA E ORARI */}
+          <div className="grid grid-cols-3 gap-2">
             <div>
-              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <MapPin className="w-3.5 h-3.5"/> Docente Titolare (Colonna Planning)
-              </label>
-              <select 
-                className="w-full p-2.5 border border-amber-300 rounded-lg text-sm font-black bg-white text-slate-900"
-                value={formData.insegnanteId} 
-                onChange={e => {
-                  setFormData(prev => ({ 
-                    ...prev, 
-                    insegnanteId: e.target.value,
-                    coDocentiIds: prev.coDocentiIds.filter(id => id !== e.target.value)
-                  }));
-                }}
+              <label className="block text-[10px] uppercase text-slate-500 mb-1">Data</label>
+              <input 
+                type="date" 
+                required
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                value={formData.data}
+                onChange={e => setFormData({ ...formData, data: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 mb-1">Inizio</label>
+              <input 
+                type="time" 
+                required
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                value={formData.oraInizio}
+                onChange={e => setFormData({ ...formData, oraInizio: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 mb-1">Fine</label>
+              <input 
+                type="time" 
+                required
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                value={formData.oraFine}
+                onChange={e => setFormData({ ...formData, oraFine: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {/* DOCENTE */}
+          {!formData.isGruppo && (
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 mb-1">Docente Assegnato</label>
+              <select
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900"
+                value={formData.insegnanteId}
+                onChange={e => setFormData({ ...formData, insegnanteId: e.target.value })}
               >
-                <option value="">Nessun Titolare (Colonna "Da Assegnare")</option>
-                {insegnantiAttivi.map(ins => (
-                  <option key={ins.id} value={ins.id}>{ins.nome} {ins.cognome} ({ins.materia})</option>
+                <option value="">-- Metti in Sala Attesa (Da Assegnare) --</option>
+                {insegnanti.map(ins => (
+                  <option key={ins.id} value={ins.id}>
+                    {ins.nome} {ins.cognome} ({ins.materia || 'Docente'})
+                  </option>
                 ))}
               </select>
             </div>
-
-            {/* Co-Docenti */}
-            <div className="pt-2 border-t border-amber-200">
-              <label className="block text-[11px] font-extrabold text-amber-800 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <Users className="w-3.5 h-3.5"/> Docenti in Compresenza (Co-Docenti)
-              </label>
-              
-              {formData.coDocentiIds.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-2">
-                  {formData.coDocentiIds.map(docId => {
-                    const prof = insegnantiAttivi.find(i => i.id === docId);
-                    if (!prof) return null;
-                    return (
-                      <span key={prof.id} className="bg-white text-slate-700 border border-slate-300 text-xs font-bold px-2 py-1 rounded-lg flex items-center gap-1 shadow-sm">
-                        {prof.cognome} <button type="button" onClick={() => toggleCoDocente(prof.id)}><X className="w-3 h-3 text-slate-400 hover:text-red-500"/></button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-              
-              <input 
-                type="text" 
-                placeholder="Cerca collega..." 
-                className="w-full p-2.5 bg-white border border-amber-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-500 outline-none" 
-                value={ricercaDocente} 
-                onChange={e => setRicercaDocente(e.target.value)} 
-              />
-              
-              {ricercaDocente.trim().length > 0 && (
-                <div className="mt-1 border border-amber-300 rounded-xl max-h-40 overflow-y-auto shadow-lg bg-white relative z-30">
-                  {docentiFiltrati.length === 0 ? (
-                    <div className="p-3 text-xs text-slate-400 text-center">Nessun docente trovato</div>
-                  ) : (
-                    docentiFiltrati.map(doc => (
-                      <div key={doc.id} onClick={() => toggleCoDocente(doc.id)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-amber-50 cursor-pointer">
-                        {doc.nome} {doc.cognome} ({doc.materia})
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            <label className="flex items-center gap-2 cursor-pointer pt-2 border-t border-amber-200 mt-2">
-              <input 
-                type="checkbox" 
-                className="w-4 h-4 text-amber-500 rounded focus:ring-amber-500" 
-                checked={formData.isGruppo} 
-                onChange={e => setFormData({...formData, isGruppo: e.target.checked})} 
-              />
-              <span className="text-xs font-bold text-amber-900">Forza visualizzazione in "Gruppo Studio"</span>
-            </label>
-          </div>
-
-          {/* ALLIEVI */}
-          <div>
-            <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">Allievi Presenti *</label>
-            {formData.studentiIds.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-50 rounded-xl border border-slate-200">
-                {formData.studentiIds.map(stdId => {
-                  const std = studenti.find(s => s.id === stdId);
-                  return (
-                    <span key={stdId} className="bg-slate-900 text-white text-xs font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-sm">
-                      {std ? `${std.nome} ${std.cognome}` : 'Allievo Ospite'}
-                      {std?.isProvvisorio && <span className="bg-amber-400 text-amber-950 text-[9px] px-1 rounded font-black">OSPITE</span>}
-                      <button type="button" onClick={() => toggleStudente(stdId)}><X className="w-3 h-3 text-slate-400 hover:text-white"/></button>
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-            <input 
-              type="text" 
-              placeholder="Cerca studente o scrivi per ospite al volo..." 
-              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-amber-400 outline-none" 
-              value={ricercaStudente} 
-              onChange={e => setRicercaStudente(e.target.value)} 
-            />
-            
-            {ricercaStudente.trim().length > 0 && (
-              <div className="mt-1 border border-slate-200 rounded-xl max-h-48 overflow-y-auto shadow-lg bg-white relative z-20">
-                {studentiFiltrati.length === 0 ? (
-                  <div 
-                    onClick={handleCreaStudenteOspite} 
-                    className="p-3 bg-amber-50 hover:bg-amber-100 text-amber-900 cursor-pointer flex items-center justify-between transition"
-                  >
-                    <div>
-                      <p className="text-xs font-black flex items-center gap-1.5">
-                        <UserPlus className="w-4 h-4 text-amber-600"/>
-                        {isCreandoOspite ? 'Creazione in corso...' : `Registra "${ricercaStudente}" come Allievo Ospite / Prova`}
-                      </p>
-                      <p className="text-[10px] text-amber-700 mt-0.5">Crea la scheda anagrafica al volo per salvare subito la lezione</p>
-                    </div>
-                    <span className="text-[10px] font-black uppercase bg-amber-200 text-amber-950 px-2 py-1 rounded shadow-sm">
-                      Crea al Volo
-                    </span>
-                  </div>
-                ) : (
-                  <>
-                    {studentiFiltrati.map(std => (
-                      <div key={std.id} onClick={() => toggleStudente(std.id)} className="p-3 border-b border-slate-100 text-sm font-bold text-slate-700 hover:bg-slate-50 cursor-pointer flex justify-between items-center">
-                        <span>{std.nome} {std.cognome}</span>
-                        {std.isProvvisorio && <span className="text-[9px] bg-amber-100 text-amber-800 font-black px-1.5 py-0.5 rounded">OSPITE</span>}
-                      </div>
-                    ))}
-                    <div 
-                      onClick={handleCreaStudenteOspite} 
-                      className="p-2.5 bg-slate-50 hover:bg-amber-50 text-slate-600 hover:text-amber-900 text-xs font-bold border-t border-slate-200 cursor-pointer flex items-center justify-between transition"
-                    >
-                      <span className="flex items-center gap-1">➕ Non è in lista? Aggiungi "{ricercaStudente}" come nuovo ospite</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* DATI LEZIONE (DATA, ORARI, MATERIA) */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Data *</label>
-              <input type="date" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.data} onChange={e => setFormData({...formData, data: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Dalle *</label>
-              <input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.oraInizio} onChange={e => setFormData({...formData, oraInizio: e.target.value})} />
-            </div>
-            <div>
-              <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Alle *</label>
-              <input type="time" required className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold" value={formData.oraFine} onChange={e => setFormData({...formData, oraFine: e.target.value})} />
-            </div>
-
-            {/* SELEZIONE E MODIFICA MATERIA */}
-            <div className="col-span-2 space-y-2 pt-1">
-              <div className="flex justify-between items-center">
-                <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider">
-                  Materia / Attività
-                </label>
-                <span className="text-[10px] text-slate-400 font-medium">Se non indicata apparirà "Ripasso"</span>
-              </div>
-
-              {/* Bottoni Rapidi Materie Principali */}
-              <div className="flex flex-wrap gap-1.5">
-                {MATERIE_RAPIDE.map(m => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setFormData({ ...formData, materia: m })}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
-                      formData.materia?.toLowerCase() === m.toLowerCase()
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-
-              {/* Input manuale se la materia è specifica o diversa */}
-              <input 
-                type="text" 
-                className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm font-bold text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none" 
-                value={formData.materia} 
-                onChange={e => setFormData({...formData, materia: e.target.value})} 
-                placeholder="Oppure scrivi qui la materia (es. Diritto, Spagnolo, Geometria...)" 
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-extrabold text-slate-500 uppercase tracking-wider mb-1">Note (opzionale)</label>
-            <textarea rows="2" className="w-full p-3 border border-slate-300 rounded-xl bg-slate-50 text-sm resize-none" value={formData.note} onChange={e => setFormData({...formData, note: e.target.value})} placeholder="Dettagli didattici o indicazioni per la segreteria..."></textarea>
-          </div>
-
-          {/* RADAR SOVRAPPOSIZIONI */}
-          {conflittiAttuali.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl space-y-1">
-              <p className="text-xs font-black text-amber-800 flex items-center gap-1">
-                <AlertTriangle className="w-4 h-4"/> Avviso di Sovrapposizione:
-              </p>
-              <ul className="text-[11px] font-bold text-amber-700 space-y-1 mt-1">
-                {conflittiAttuali.map((c, i) => <li key={i}>{c}</li>)}
-              </ul>
-            </div>
           )}
 
-          <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="px-5 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-xl text-sm transition">Annulla</button>
-            <button type="submit" disabled={isSubmitting || formNonValido || isCreandoOspite} className={`px-6 py-3 text-white font-black rounded-xl text-sm shadow-lg flex items-center gap-2 transition ${formNonValido ? 'bg-slate-300 cursor-not-allowed' : 'bg-slate-900 hover:bg-slate-800'}`}>
-              <CheckCircle className="w-4 h-4"/> {isSubmitting ? 'Salvataggio...' : 'Conferma e Salva'}
+          {/* MATERIA & PREZZO PERSONALIZZATO */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 mb-1">Materia</label>
+              <input 
+                type="text" 
+                placeholder="Es. Matematica, Latino..."
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                value={formData.materia}
+                onChange={e => setFormData({ ...formData, materia: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase text-slate-500 mb-1 flex items-center gap-1">
+                <Euro className="w-3 h-3 text-emerald-600"/> Prezzo Forfait (€)
+              </label>
+              <input 
+                type="number" 
+                step="0.5"
+                placeholder="Vuoto = tariffa base"
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+                value={formData.prezzoPersonalizzato}
+                onChange={e => setFormData({ ...formData, prezzoPersonalizzato: e.target.value })}
+              />
+            </div>
+          </div>
+
+          {/* SELEZIONE STUDENTI */}
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <label className="text-[10px] uppercase text-slate-500">
+                Seleziona Allievo ({formData.studentiIds.length} selezionati)
+              </label>
+              <input 
+                type="text" 
+                placeholder="Filtra studente..."
+                className="p-1 px-2 text-[10px] border border-slate-200 rounded-lg w-36 bg-slate-50"
+                value={studenteSearch}
+                onChange={e => setStudenteSearch(e.target.value)}
+              />
+            </div>
+            <div className="max-h-36 overflow-y-auto space-y-1 bg-slate-50 p-2 rounded-2xl border border-slate-200">
+              {studentiFiltrati.map(std => {
+                const isSelected = formData.studentiIds.includes(std.id);
+                return (
+                  <div 
+                    key={std.id}
+                    onClick={() => handleToggleStudente(std.id)}
+                    className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-amber-400 text-slate-950 font-black' : 'hover:bg-slate-200/60 text-slate-700'}`}
+                  >
+                    <span>{std.nome} {std.cognome}</span>
+                    <span className="text-[10px] opacity-70 uppercase">{std.scuola || 'Medie'}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* NOTE */}
+          <div>
+            <label className="block text-[10px] uppercase text-slate-500 mb-1">Note Opzionali</label>
+            <input 
+              type="text" 
+              placeholder="Es. Recupero verifica, compiti vacanze..."
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
+              value={formData.note}
+              onChange={e => setFormData({ ...formData, note: e.target.value })}
+            />
+          </div>
+
+          {/* PULSANTI */}
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <button 
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold"
+            >
+              Annulla
+            </button>
+            <button 
+              type="submit"
+              className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-black shadow-md flex items-center gap-1.5"
+            >
+              Procedi al PIN ➔
             </button>
           </div>
+
         </form>
+
       </div>
+
+      {/* VERIFICA PIN DI SICUREZZA CENTRALIZZATA (1234) */}
+      <ModalePin
+        isOpen={showPinModal}
+        descrizione={`Conferma ${formData.oldLezioneId ? 'Rischedulazione' : 'Nuova Prenotazione'}`}
+        onClose={() => setShowPinModal(false)}
+        onSuccess={handlePinSuccess}
+      />
+
     </div>
   );
 }
