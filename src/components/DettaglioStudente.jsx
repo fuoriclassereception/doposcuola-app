@@ -3,7 +3,7 @@ import {
   User, Mail, Phone, Calendar, CreditCard, Clock, CheckCircle, 
   AlertCircle, Edit2, X, PlusCircle, History, Save, 
   FileText, ShieldCheck, Tag, Euro, Trash2, ArrowDownRight, ArrowUpRight,
-  TrendingDown, TrendingUp, Check, AlertTriangle
+  TrendingDown, TrendingUp, Check, AlertTriangle, Smartphone, Key, Share2, Copy, Send
 } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
@@ -28,6 +28,7 @@ export default function DettaglioStudente({
   const [studente, setStudente] = useState(initialStudente);
   const [editStd, setEditStd] = useState(initialStudente || {});
   const [isSavingProfilo, setIsSavingProfilo] = useState(false);
+  const [copiato, setCopiato] = useState(false);
 
   useEffect(() => {
     if (!initialStudente?.id) return;
@@ -260,6 +261,40 @@ export default function DettaglioStudente({
     }
   };
 
+  // FUNZIONI INVIO LINK APP & PRIMO ACCESSO
+  const baseUrlApp = window.location.origin;
+  const emailDestinatario = editStd.genitoreEmail || editStd.email || '';
+  const telefonoDestinatario = (editStd.genitoreTelefono || editStd.telefono || '').replace(/\D/g, '');
+
+  const testoInvito = `Ciao ${editStd.genitoreNome || editStd.nome}! Ecco il link per accedere alla tua area personale di FuoriClasse:\n${baseUrlApp}\n\nAccedi inserendo la tua email: ${emailDestinatario}\nDa qui puoi controllare il calendario delle lezioni, il saldo del plafond e richiedere nuove lezioni!`;
+
+  const handleInviaWhatsApp = () => {
+    if (!telefonoDestinatario) return alert("Inserisci prima il numero di cellulare nelle informazioni di contatto.");
+    const url = `https://wa.me/39${telefonoDestinatario}?text=${encodeURIComponent(testoInvito)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleInviaEmail = () => {
+    if (!emailDestinatario) return alert("Inserisci prima l'indirizzo email nelle informazioni di contatto.");
+    const subject = encodeURIComponent("Accesso all'App FuoriClasse");
+    const body = encodeURIComponent(testoInvito);
+    window.open(`mailto:${emailDestinatario}?subject=${subject}&body=${body}`, '_blank');
+  };
+
+  const handleCopiaLink = () => {
+    navigator.clipboard.writeText(baseUrlApp);
+    setCopiato(true);
+    setTimeout(() => setCopiato(false), 2500);
+  };
+
+  const handleToggleAppAttivata = async () => {
+    try {
+      const nuovoStato = !(studente.appAttivata !== false);
+      await updateDoc(doc(db, 'studenti', studente.id), { appAttivata: nuovoStato });
+      if (aggiungiLog) aggiungiLog(`App ${nuovoStato ? 'attivata' : 'disattivata'} per ${studente.nome}`);
+    } catch (e) { console.error(e); }
+  };
+
   return (
     <div className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-sm flex justify-center items-start pt-6 pb-6 overflow-y-auto">
       <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl relative flex flex-col border border-slate-200 overflow-hidden min-h-[620px] my-auto">
@@ -276,6 +311,11 @@ export default function DettaglioStudente({
                 <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold uppercase tracking-wider ${studente.attivo !== false ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
                   {studente.attivo !== false ? 'Iscritto' : 'Inattivo'}
                 </span>
+                {studente.appAttivata !== false && (
+                  <span className="text-[10px] bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full font-bold">
+                    App Attiva
+                  </span>
+                )}
               </h2>
               <div className="flex flex-wrap items-center gap-2 mt-2 text-slate-400 text-xs font-medium">
                 <span className="capitalize">{studente.scuola || studente.categoriaTariffaria || 'Medie'}</span>
@@ -300,7 +340,7 @@ export default function DettaglioStudente({
             <Calendar className="w-4 h-4"/> Lezioni Programmate ({lezioniFuture.length})
           </button>
           <button onClick={() => setActiveTab('profilo')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'profilo' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
-            <User className="w-4 h-4"/> Profilo, Accordi & GDPR
+            <User className="w-4 h-4"/> Profilo, App & GDPR
           </button>
         </div>
 
@@ -435,7 +475,7 @@ export default function DettaglioStudente({
                 </form>
               )}
 
-              {/* LISTA MOVIMENTI LIBRO MASTRO */}
+              {/* LISTA MOVIMENTI */}
               <div className="space-y-2">
                 {estrattoConto.movimenti.length === 0 ? (
                   <div className="p-8 text-center border border-dashed border-slate-200 rounded-2xl bg-slate-50 text-xs text-slate-400">
@@ -465,7 +505,6 @@ export default function DettaglioStudente({
                           </div>
                         </div>
 
-                        {/* SALDO PROGRESSIVO RISULTANTE */}
                         <div className="flex items-center gap-4">
                           <div className="text-right">
                             <span className="text-[10px] uppercase font-bold text-slate-400 block">Saldo</span>
@@ -578,110 +617,179 @@ export default function DettaglioStudente({
             </div>
           )}
 
-          {/* TAB 3: PROFILO, CONVENZIONI E TARIFFE */}
+          {/* TAB 3: PROFILO, APP, CONVENZIONI E GDPR */}
           {activeTab === 'profilo' && (
-            <form onSubmit={salvaProfilo} className="space-y-6">
-              
-              {/* ACCORDO ECONOMICO PERSONALIZZATO */}
-              <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-3">
-                <div className="flex items-center gap-2">
-                  <Tag className="w-4 h-4 text-amber-700"/>
-                  <h4 className="text-xs font-black text-amber-950 uppercase">Accordo Economico / Tariffa Riservata Studente</h4>
-                </div>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={Boolean(editStd.haTariffaRiservata)} 
-                      onChange={(e) => setEditStd({...editStd, haTariffaRiservata: e.target.checked})}
-                      className="rounded text-amber-500 w-4 h-4"
-                    />
-                    Applica Tariffa Convenzionata Fissa
-                  </label>
+            <div className="space-y-6">
 
-                  {editStd.haTariffaRiservata && (
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="number" 
-                        step="0.5" 
-                        value={editStd.tariffaRiservataValore || ''} 
-                        onChange={(e) => setEditStd({...editStd, tariffaRiservataValore: Number(e.target.value)})}
-                        placeholder="Es. 20" 
-                        className="p-1.5 text-xs font-bold border border-amber-300 rounded-lg w-24 bg-white"
-                      />
-                      <span className="text-xs font-bold text-amber-900">€/ora</span>
+              {/* SEZIONE SPECIALE: ACCESSO APP FAMIGLIA & INVITO RAPIDO */}
+              <div className="bg-sky-50 border border-sky-200 p-5 rounded-3xl space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-sky-200/60 pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-sky-600 text-white flex items-center justify-center font-bold shadow-md">
+                      <Smartphone className="w-5 h-5"/>
                     </div>
+                    <div>
+                      <h4 className="font-black text-slate-900 text-sm flex items-center gap-2">
+                        Area Personale & App Genitore
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${studente.appAttivata !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                          {studente.appAttivata !== false ? 'Attiva' : 'Disattivata'}
+                        </span>
+                      </h4>
+                      <p className="text-[11px] text-sky-800 mt-0.5">
+                        Consente a genitore e allievo di visualizzare calendario, saldo plafond e inviare richieste.
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleAppAttivata}
+                    className="px-3.5 py-1.5 bg-white border border-sky-300 text-sky-900 rounded-xl text-xs font-bold hover:bg-sky-100 transition self-start sm:self-center"
+                  >
+                    {studente.appAttivata !== false ? 'Disattiva Accesso' : 'Abilita Accesso'}
+                  </button>
+                </div>
+
+                {/* PULSANTI INVIO CREDENZIALI & PRIMO ACCESSO */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={handleInviaWhatsApp}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition"
+                  >
+                    <Send className="w-3.5 h-3.5"/> Invia Invito App via WhatsApp
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleInviaEmail}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black flex items-center gap-2 shadow-sm transition"
+                  >
+                    <Mail className="w-3.5 h-3.5"/> Invia Email di Benvenuto
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopiaLink}
+                    className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition"
+                  >
+                    <Copy className="w-3.5 h-3.5 text-slate-500"/>
+                    {copiato ? 'Link Copiato negli Appunti!' : 'Copia Link App'}
+                  </button>
+                </div>
+
+                <div className="bg-white/80 p-3 rounded-2xl border border-sky-200 text-[11px] text-slate-600 flex items-center gap-2">
+                  <Key className="w-4 h-4 text-sky-600 shrink-0"/>
+                  <span>
+                    Email di accesso impostata: <b className="text-slate-900">{emailDestinatario || 'Nessuna email registrata (inseriscila sotto)'}</b>
+                  </span>
+                </div>
+              </div>
+              
+              <form onSubmit={salvaProfilo} className="space-y-6">
+
+                {/* ACCORDO ECONOMICO PERSONALIZZATO */}
+                <div className="p-4 bg-amber-50/60 border border-amber-200 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-amber-700"/>
+                    <h4 className="text-xs font-black text-amber-950 uppercase">Accordo Economico / Tariffa Riservata Studente</h4>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <label className="flex items-center gap-2 text-xs font-bold text-slate-800 cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={Boolean(editStd.haTariffaRiservata)} 
+                        onChange={(e) => setEditStd({...editStd, haTariffaRiservata: e.target.checked})}
+                        className="rounded text-amber-500 w-4 h-4"
+                      />
+                      Applica Tariffa Convenzionata Fissa
+                    </label>
+
+                    {editStd.haTariffaRiservata && (
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="number" 
+                          step="0.5" 
+                          value={editStd.tariffaRiservataValore || ''} 
+                          onChange={(e) => setEditStd({...editStd, tariffaRiservataValore: Number(e.target.value)})}
+                          placeholder="Es. 20" 
+                          className="p-1.5 text-xs font-bold border border-amber-300 rounded-lg w-24 bg-white"
+                        />
+                        <span className="text-xs font-bold text-amber-900">€/ora</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* STATO CONSENSO GDPR */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${studente.gdprConfermato ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                      <ShieldCheck className="w-5 h-5"/>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-slate-900 uppercase">Stato Consenso GDPR & Privacy</h4>
+                      <p className="text-[11px] text-slate-500">
+                        {studente.gdprConfermato 
+                          ? `Firmato regolarmente da: ${studente.gdprEmailFirmatario || studente.genitoreEmail || 'Genitore'}` 
+                          : 'In attesa di firma da parte del genitore'}
+                      </p>
+                    </div>
+                  </div>
+                  {studente.gdprPdfUrl ? (
+                    <a 
+                      href={studente.gdprPdfUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow transition"
+                    >
+                      <FileText className="w-4 h-4"/> Scarica PDF Firmato
+                    </a>
+                  ) : (
+                    <span className="text-[11px] font-bold text-amber-600 self-start sm:self-center">PDF non archiviato</span>
                   )}
                 </div>
-              </div>
 
-              {/* STATO CONSENSO GDPR */}
-              <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${studente.gdprConfermato ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                    <ShieldCheck className="w-5 h-5"/>
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-black text-slate-900 uppercase">Stato Consenso GDPR & Privacy</h4>
-                    <p className="text-[11px] text-slate-500">
-                      {studente.gdprConfermato 
-                        ? `Firmato regolarmente da: ${studente.gdprEmailFirmatario || studente.genitoreEmail || 'Genitore'}` 
-                        : 'In attesa di firma da parte del genitore'}
-                    </p>
+                {/* ANAGRAFICA */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                  <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-2"><User className="w-4 h-4"/> Anagrafica Studente</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Nome</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.nome || ''} onChange={e => setEditStd({...editStd, nome: e.target.value})} required/></div>
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Cognome</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.cognome || ''} onChange={e => setEditStd({...editStd, cognome: e.target.value})} required/></div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Grado Scolastico / Listino</label>
+                      <select className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.categoriaTariffaria || editStd.scuola || 'medie'} onChange={e => setEditStd({...editStd, categoriaTariffaria: e.target.value, scuola: e.target.value})}>
+                        <option value="elementari">Elementari / Primaria (18 €/h)</option>
+                        <option value="medie">Medie / Secondaria I grado (22 €/h)</option>
+                        <option value="superiori">Superiori / Secondaria II grado (26 €/h)</option>
+                        <option value="universita">Università (30 €/h)</option>
+                      </select>
+                    </div>
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Data di Nascita</label><input type="date" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.dataNascita || ''} onChange={e => setEditStd({...editStd, dataNascita: e.target.value})}/></div>
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Telefono Studente</label><input type="tel" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.telefono || ''} onChange={e => setEditStd({...editStd, telefono: e.target.value})}/></div>
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Email Studente</label><input type="email" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.email || ''} onChange={e => setEditStd({...editStd, email: e.target.value})}/></div>
                   </div>
                 </div>
-                {studente.gdprPdfUrl ? (
-                  <a 
-                    href={studente.gdprPdfUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black shadow transition"
-                  >
-                    <FileText className="w-4 h-4"/> Scarica PDF Firmato
-                  </a>
-                ) : (
-                  <span className="text-[11px] font-bold text-amber-600 self-start sm:self-center">PDF non archiviato</span>
-                )}
-              </div>
 
-              {/* ANAGRAFICA */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                <h3 className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-2"><User className="w-4 h-4"/> Anagrafica Studente</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Nome</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.nome || ''} onChange={e => setEditStd({...editStd, nome: e.target.value})} required/></div>
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Cognome</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.cognome || ''} onChange={e => setEditStd({...editStd, cognome: e.target.value})} required/></div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Grado Scolastico / Listino</label>
-                    <select className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.categoriaTariffaria || editStd.scuola || 'medie'} onChange={e => setEditStd({...editStd, categoriaTariffaria: e.target.value, scuola: e.target.value})}>
-                      <option value="elementari">Elementari / Primaria (18 €/h)</option>
-                      <option value="medie">Medie / Secondaria I grado (22 €/h)</option>
-                      <option value="superiori">Superiori / Secondaria II grado (26 €/h)</option>
-                      <option value="universita">Università (30 €/h)</option>
-                    </select>
+                {/* GENITORE */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
+                  <h3 className="text-xs font-black text-blue-600 uppercase tracking-wider flex items-center gap-2 mb-2"><User className="w-4 h-4"/> Intestatario Pagamenti (Genitore)</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Nome Genitore</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.genitoreNome || ''} onChange={e => setEditStd({...editStd, genitoreNome: e.target.value})}/></div>
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Codice Fiscale Genitore</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm uppercase bg-white" value={editStd.codiceFiscale || ''} onChange={e => setEditStd({...editStd, codiceFiscale: e.target.value})}/></div>
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Cellulare Genitore</label><input type="tel" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.genitoreTelefono || ''} onChange={e => setEditStd({...editStd, genitoreTelefono: e.target.value})}/></div>
+                    <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Email App & Ricevute</label><input type="email" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm text-blue-700 bg-white" value={editStd.genitoreEmail || ''} onChange={e => setEditStd({...editStd, genitoreEmail: e.target.value})}/></div>
                   </div>
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Data di Nascita</label><input type="date" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.dataNascita || ''} onChange={e => setEditStd({...editStd, dataNascita: e.target.value})}/></div>
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Telefono Studente</label><input type="tel" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.telefono || ''} onChange={e => setEditStd({...editStd, telefono: e.target.value})}/></div>
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Email Studente</label><input type="email" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.email || ''} onChange={e => setEditStd({...editStd, email: e.target.value})}/></div>
                 </div>
-              </div>
 
-              {/* GENITORE */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-4">
-                <h3 className="text-xs font-black text-blue-600 uppercase tracking-wider flex items-center gap-2 mb-2"><User className="w-4 h-4"/> Intestatario Pagamenti (Genitore)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Nome Genitore</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm bg-white" value={editStd.genitoreNome || ''} onChange={e => setEditStd({...editStd, genitoreNome: e.target.value})}/></div>
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Codice Fiscale Genitore</label><input type="text" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm uppercase bg-white" value={editStd.codiceFiscale || ''} onChange={e => setEditStd({...editStd, codiceFiscale: e.target.value})}/></div>
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Cellulare Genitore</label><input type="tel" className="w-full p-2.5 rounded-xl border border-gray-300 font-medium text-sm bg-white" value={editStd.genitoreTelefono || ''} onChange={e => setEditStd({...editStd, genitoreTelefono: e.target.value})}/></div>
-                  <div><label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Email App & Ricevute</label><input type="email" className="w-full p-2.5 rounded-xl border border-gray-300 font-bold text-sm text-blue-700 bg-white" value={editStd.genitoreEmail || ''} onChange={e => setEditStd({...editStd, genitoreEmail: e.target.value})}/></div>
+                <div className="flex justify-end pt-4 border-t border-gray-100">
+                  <button type="submit" disabled={isSavingProfilo} className="px-6 py-3 bg-slate-900 text-white font-black text-sm rounded-xl hover:bg-slate-800 transition shadow flex items-center gap-2">
+                    <Save className="w-4 h-4"/> Salva Modifiche Profilo
+                  </button>
                 </div>
-              </div>
+              </form>
 
-              <div className="flex justify-end pt-4 border-t border-gray-100">
-                <button type="submit" disabled={isSavingProfilo} className="px-6 py-3 bg-slate-900 text-white font-black text-sm rounded-xl hover:bg-slate-800 transition shadow flex items-center gap-2">
-                  <Save className="w-4 h-4"/> Salva Modifiche Profilo
-                </button>
-              </div>
-            </form>
+            </div>
           )}
 
         </div>
