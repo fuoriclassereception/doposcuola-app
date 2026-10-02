@@ -70,7 +70,6 @@ export default function App() {
           if (userDoc.exists()) {
             setRuolo(userDoc.data().ruolo);
           } else {
-            // CONTROLLO AUTOMATICO DOCENTI
             const qIns = query(collection(db, 'insegnanti'), where('email', '==', currentUser.email));
             const snapIns = await getDocs(qIns);
             if (!snapIns.empty) {
@@ -307,49 +306,13 @@ export default function App() {
   const handleConfermaPresenzaConScalo = async (lezione, durataOre, stato = 'svolta', motivo = '', tipo = 'gratuito') => {
     try {
       await updateDoc(doc(db, 'lezioni', lezione.id), { stato, motivoAnnullamento: motivo, tipoAnnullamento: tipo, oreScalate: durataOre });
-      if (durataOre > 0 && (stato === 'svolta' || tipo === 'addebito')) {
-        for (const sId of (lezione.studentiIds || [])) {
-          const std = studenti.find(s => s?.id === sId);
-          if (std) {
-            let tariffaDaApplicare = lezione.tariffaOrariaApplicata !== undefined ? Number(lezione.tariffaOrariaApplicata) : null;
-            if (tariffaDaApplicare === null) {
-              if (lezione.isGruppo) tariffaDaApplicare = 12.00;
-              else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) tariffaDaApplicare = Number(std.tariffaRiservataValore);
-              else if (std.categoriaTariffaria === 'elementari') tariffaDaApplicare = 18.00;
-              else if (std.categoriaTariffaria === 'superiori') tariffaDaApplicare = 26.00;
-              else tariffaDaApplicare = 22.00;
-            }
-            const costoLezione = Number((durataOre * tariffaDaApplicare).toFixed(2));
-            const nuovoConsumato = Number(((std.totaleConsumato || 0) + costoLezione).toFixed(2));
-            await updateDoc(doc(db, 'studenti', sId), { totaleConsumato: nuovoConsumato });
-          }
-        }
-      }
       aggiungiLog(`Cassa: Presenza confermata per lezione ${lezione.id}`);
     } catch (err) { console.error("Errore cassa:", err); }
   };
 
-  const handleStornoPresenzaConRipristino = async (lezione, durataOre) => {
+  const handleStornoPresenzaConRipristino = async (lezione) => {
     try {
-      const oreDaRestituire = lezione.oreScalate !== undefined ? Number(lezione.oreScalate) : durataOre;
       await updateDoc(doc(db, 'lezioni', lezione.id), { stato: 'attiva', motivoAnnullamento: '', tipoAnnullamento: '', oreScalate: 0 });
-      
-      if (oreDaRestituire > 0) {
-        for (const sId of (lezione.studentiIds || [])) {
-          const std = studenti.find(s => s?.id === sId);
-          if (std) {
-            let tariffaStudente = 22.00;
-            if (lezione.isGruppo) tariffaStudente = 12.00;
-            else if (std.haTariffaRiservata && Number(std.tariffaRiservataValore) > 0) tariffaStudente = Number(std.tariffaRiservataValore);
-            else if (std.categoriaTariffaria === 'elementari') tariffaStudente = 18.00;
-            else if (std.categoriaTariffaria === 'superiori') tariffaStudente = 26.00;
-
-            const costoDaStornare = Number((oreDaRestituire * tariffaStudente).toFixed(2));
-            const nuovoConsumato = Math.max(0, Number(((std.totaleConsumato || 0) - costoDaStornare).toFixed(2)));
-            await updateDoc(doc(db, 'studenti', sId), { totaleConsumato: nuovoConsumato });
-          }
-        }
-      }
       aggiungiLog(`Storno: Ripristinata lezione ${lezione.id}`);
     } catch (err) { console.error("Errore storno:", err); }
   };
@@ -383,7 +346,7 @@ export default function App() {
         if (rimasti.length === 0) await deleteDoc(doc(db, 'lezioni', lezioneGruppoId));
         else await updateDoc(doc(db, 'lezioni', lezioneGruppoId), { studentiIds: rimasti });
       }
-      await setDoc(doc(collection(db, 'lezioni')), {
+      await setDoc(doc(collection(db, 'lezioni')), { 
         data: data || new Date().toISOString().split('T')[0], insegnanteId: nuovoInsegnanteId, 
         isGruppo: false, studentiIds: [studenteId], materia: 'Lezione Individuale', oraInizio, oraFine, stato: 'attiva'
       });
@@ -438,6 +401,7 @@ export default function App() {
         {activeTab === 'studenti' && (
           <GestioneStudenti 
             studenti={studentiSicuri} 
+            lezioni={lezioniSicure}
             searchQuery={searchQuery} 
             onOpenModal={handleOpenStudenteModal} 
             onSelectStudent={handleSelectStudentForDetail} 
@@ -457,13 +421,22 @@ export default function App() {
 
       <ModaleInsegnante isOpen={showInsegnanteModal} onClose={() => setShowInsegnanteModal(false)} onSave={handleSaveInsegnante} formData={insegnanteForm} setFormData={setInsegnanteForm} isEditing={Boolean(editingInsegnante)} />
       <ModaleStudente isOpen={showStudenteModal} onClose={() => setShowStudenteModal(false)} onSave={handleSaveStudente} formData={studenteForm} setFormData={setStudenteForm} isEditing={Boolean(editingStudente)} />
-      <ModaleLezione isOpen={showLezioneModal} onClose={() => { setShowLezioneModal(false); setInitialLezioneData(null); }} onSave={handleSaveLezione} insegnanti={insegnantiSicuri} studenti={studentiSicuri} lezioni={lezioniSicure} initialData={initialLezioneData} />
+      
+      <ModaleLezione 
+        isOpen={showLezioneModal} 
+        onClose={() => { setShowLezioneModal(false); setInitialLezioneData(null); }} 
+        onSave={handleSaveLezione} 
+        insegnanti={insegnantiSicuri} 
+        studenti={studentiSicuri} 
+        lezioni={lezioniSicure} 
+        initialData={initialLezioneData} 
+      />
       
       {studenteSelezionatoDettaglio && (
         <DettaglioStudente
           studente={studenteSelezionatoDettaglio} 
           lezioni={lezioniSicure} 
-          insegnanti={insegnantiSicuri} /* LA RIGA AGGIUNTA È QUESTA */
+          insegnanti={insegnantiSicuri}
           onClose={() => setStudenteSelezionatoDettaglio(null)}
           onUpdateLezioneCompleta={handleUpdateLezioneCompleta} 
           onUpdateLezioneStatus={handleUpdateLezioneStatus}
