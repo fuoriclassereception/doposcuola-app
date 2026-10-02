@@ -1,6 +1,8 @@
-import React, { useMemo } from 'react';
-import { Plus, User, Search, Eye, Edit2, Trash2, Power, Phone, Mail, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Plus, User, Search, Eye, Edit2, Trash2, Power, Phone, Mail, FileText, CheckCircle2, AlertCircle, Send } from 'lucide-react';
 import { generaEstrattoConto } from '../utils/pricing';
+import { db } from '../services/firebase';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function GestioneStudenti({ 
   studenti = [], 
@@ -11,6 +13,8 @@ export default function GestioneStudenti({
   onToggleStato, 
   onDelete 
 }) {
+  const [sendingEmailId, setSendingEmailId] = useState(null);
+
   const studentiFiltrati = useMemo(() => {
     return (studenti || []).filter(std => {
       const q = (searchQuery || '').toLowerCase();
@@ -20,6 +24,52 @@ export default function GestioneStudenti({
       return nomeCompleto.includes(q) || scuola.includes(q) || genitore.includes(q);
     });
   }, [studenti, searchQuery]);
+
+  // Invio email automatica in background dalla card
+  const handleInviaEmailAutomatica = async (std) => {
+    const emailDest = std.genitoreEmail || std.email;
+    if (!emailDest) return alert("Questo studente non ha un indirizzo email registrato.");
+
+    const baseUrl = window.location.origin;
+    setSendingEmailId(std.id);
+
+    try {
+      await addDoc(collection(db, 'mail'), {
+        to: emailDest,
+        message: {
+          subject: "Accesso all'App FuoriClasse",
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 16px;">
+              <h2 style="color: #0f172a;">Benvenuto su <span style="color: #f59e0b;">FuoriClasse</span>!</h2>
+              <p>Gentile <b>${std.genitoreNome || std.nome}</b>,</p>
+              <p>puoi accedere alla tua area personale FuoriClasse con la tua email: <b>${emailDest}</b>.</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${baseUrl}" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 14px; display: inline-block;">
+                  Accedi all'App ➔
+                </a>
+              </div>
+            </div>
+          `
+        },
+        createdAt: serverTimestamp()
+      });
+
+      alert(`✅ Email inviata in background a ${emailDest}!`);
+    } catch (err) {
+      console.error(err);
+      alert("Errore invio email.");
+    } finally {
+      setSendingEmailId(null);
+    }
+  };
+
+  const handleInviaWhatsApp = (std) => {
+    const tel = (std.genitoreTelefono || std.telefono || '').replace(/\D/g, '');
+    if (!tel) return alert("Nessun numero di telefono inserito.");
+    const baseUrl = window.location.origin;
+    const msg = `Ciao ${std.genitoreNome || std.nome}! Ecco il link per accedere all'App FuoriClasse:\n${baseUrl}\nAccedi con la tua email per vedere orari e saldo plafond.`;
+    window.open(`https://wa.me/39${tel}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto select-none">
@@ -38,7 +88,7 @@ export default function GestioneStudenti({
         </button>
       </div>
 
-      {/* GRIGLIA CARD STUDENTI */}
+      {/* GRIGLIA CARD */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {studentiFiltrati.length === 0 ? (
           <div className="col-span-full py-16 text-center text-slate-400 font-bold bg-white rounded-3xl border border-dashed border-slate-200">
@@ -46,7 +96,6 @@ export default function GestioneStudenti({
           </div>
         ) : (
           studentiFiltrati.map(std => {
-            // Calcolo esatto allineato a DettaglioStudente e Cassa
             const estratto = generaEstrattoConto(std, lezioni);
             const saldo = estratto.saldo;
             const versato = estratto.totaleVersato;
@@ -57,7 +106,6 @@ export default function GestioneStudenti({
                 key={std.id} 
                 className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition flex flex-col justify-between space-y-4"
               >
-                {/* INTESTAZIONE CARD */}
                 <div>
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-3">
@@ -79,7 +127,7 @@ export default function GestioneStudenti({
                     </span>
                   </div>
 
-                  {/* BOXETTI CONTABILITA ALLINEATI IN TEMPO REALE */}
+                  {/* BOXETTI CONTABILITA */}
                   <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-100 text-center mb-3">
                     <div>
                       <span className="text-[9px] font-black uppercase text-slate-400 block">Plafond</span>
@@ -97,10 +145,10 @@ export default function GestioneStudenti({
                     </div>
                   </div>
 
-                  {/* CONTATTI GENITORE & STUDENTE */}
+                  {/* CONTATTI */}
                   <div className="space-y-1 text-xs">
                     {std.genitoreNome && (
-                      <div className="bg-amber-50/60 p-2 rounded-xl border border-amber-200/50">
+                      <div className="bg-amber-50/60 p-2.5 rounded-xl border border-amber-200/50">
                         <p className="text-[11px] font-extrabold text-amber-950 flex items-center gap-1.5">
                           <User className="w-3.5 h-3.5 text-amber-700"/> Genitore: {std.genitoreNome}
                         </p>
@@ -123,9 +171,28 @@ export default function GestioneStudenti({
                       </p>
                     )}
                   </div>
+
+                  {/* TASTI RAPIDI DI INVITO RAPIDO APP (WHATSAPP + EMAIL AUTOMATICA) */}
+                  <div className="flex gap-2 pt-2.5">
+                    <button
+                      type="button"
+                      onClick={() => handleInviaWhatsApp(std)}
+                      className="flex-1 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-extrabold rounded-xl text-[11px] flex items-center justify-center gap-1 transition border border-emerald-200"
+                    >
+                      <Send className="w-3 h-3"/> WA
+                    </button>
+                    <button
+                      type="button"
+                      disabled={sendingEmailId === std.id}
+                      onClick={() => handleInviaEmailAutomatica(std)}
+                      className="flex-1 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-extrabold rounded-xl text-[11px] flex items-center justify-center gap-1 transition border border-blue-200 disabled:opacity-50"
+                    >
+                      <Mail className="w-3 h-3"/> {sendingEmailId === std.id ? 'Invio...' : 'Email'}
+                    </button>
+                  </div>
                 </div>
 
-                {/* PULSANTI AZIONE */}
+                {/* PULSANTI AZIONE IN BASSO */}
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-1.5">
                   <div className="flex items-center gap-1">
                     <button
