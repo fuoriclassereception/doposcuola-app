@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, User, BookOpen, Euro, Paperclip, AlertCircle, Users } from 'lucide-react';
+import { X, Calendar, Clock, User, BookOpen, Euro, Paperclip, AlertCircle, Users, UserPlus } from 'lucide-react';
 import ModalePin from './ModalePin';
+import { db } from '../services/firebase';
+import { collection, addDoc } from 'firebase/firestore';
 
 export default function ModaleLezione({ 
   isOpen, 
@@ -27,6 +29,7 @@ export default function ModaleLezione({
 
   const [showPinModal, setShowPinModal] = useState(false);
   const [studenteSearch, setStudenteSearch] = useState('');
+  const [isCreandoOspite, setIsCreandoOspite] = useState(false);
 
   useEffect(() => {
     if (initialData) {
@@ -58,6 +61,7 @@ export default function ModaleLezione({
         oldLezioneId: null
       });
     }
+    setStudenteSearch('');
   }, [initialData, isOpen]);
 
   if (!isOpen) return null;
@@ -80,7 +84,44 @@ export default function ModaleLezione({
     });
   };
 
-  // Validazione form prima di aprire il PIN
+  // Creazione rapida studente ospite/al volo da Firestore
+  const handleCreaOspiteAlVolo = async () => {
+    const nomeDigitato = studenteSearch.trim();
+    if (!nomeDigitato) return;
+
+    setIsCreandoOspite(true);
+    try {
+      const parti = nomeDigitato.split(' ');
+      const nome = parti[0] || 'Ospite';
+      const cognome = parti.slice(1).join(' ') || '(Ospite)';
+
+      const docRef = await addDoc(collection(db, 'studenti'), {
+        nome,
+        cognome,
+        isOspite: true,
+        categoriaTariffaria: 'medie',
+        attivo: true,
+        totaleVersato: 0,
+        totaleConsumato: 0,
+        storicoRicariche: [],
+        dataCreazione: new Date().toISOString()
+      });
+
+      // Seleziona subito il nuovo ospite
+      setFormData(prev => ({
+        ...prev,
+        studentiIds: prev.isGruppo ? [...prev.studentiIds, docRef.id] : [docRef.id]
+      }));
+      setStudenteSearch('');
+    } catch (err) {
+      console.error("Errore creazione ospite:", err);
+      alert("Errore durante la creazione rapida dello studente ospite.");
+    } finally {
+      setIsCreandoOspite(false);
+    }
+  };
+
+  // Validazione form prima del PIN
   const handlePreSave = (e) => {
     e.preventDefault();
     if (!formData.data || !formData.oraInizio || !formData.oraFine) {
@@ -94,11 +135,10 @@ export default function ModaleLezione({
       if (!conferma) return;
     }
 
-    // Apre il Modale PIN per confermare
     setShowPinModal(true);
   };
 
-  // Esecuzione salvataggio effettivo dopo PIN corretto (1234)
+  // Esecuzione salvataggio dopo PIN corretto (1234)
   const handlePinSuccess = async () => {
     setShowPinModal(false);
     const payload = {
@@ -232,7 +272,7 @@ export default function ModaleLezione({
               </label>
               <input 
                 type="number" 
-                step="0.5"
+                step="0.5" 
                 placeholder="Vuoto = tariffa base"
                 className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl"
                 value={formData.prezzoPersonalizzato}
@@ -241,7 +281,7 @@ export default function ModaleLezione({
             </div>
           </div>
 
-          {/* SELEZIONE STUDENTI */}
+          {/* SELEZIONE STUDENTI + CREAZIONE OSPITE AL VOLO */}
           <div>
             <div className="flex justify-between items-center mb-1">
               <label className="text-[10px] uppercase text-slate-500">
@@ -249,26 +289,50 @@ export default function ModaleLezione({
               </label>
               <input 
                 type="text" 
-                placeholder="Filtra studente..."
-                className="p-1 px-2 text-[10px] border border-slate-200 rounded-lg w-36 bg-slate-50"
+                placeholder="Cerca o digita nome ospite..."
+                className="p-1 px-2.5 text-[11px] border border-slate-300 rounded-xl w-52 bg-slate-50 font-bold focus:bg-white focus:outline-none"
                 value={studenteSearch}
                 onChange={e => setStudenteSearch(e.target.value)}
               />
             </div>
-            <div className="max-h-36 overflow-y-auto space-y-1 bg-slate-50 p-2 rounded-2xl border border-slate-200">
-              {studentiFiltrati.map(std => {
-                const isSelected = formData.studentiIds.includes(std.id);
-                return (
-                  <div 
-                    key={std.id}
-                    onClick={() => handleToggleStudente(std.id)}
-                    className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-amber-400 text-slate-950 font-black' : 'hover:bg-slate-200/60 text-slate-700'}`}
-                  >
-                    <span>{std.nome} {std.cognome}</span>
-                    <span className="text-[10px] opacity-70 uppercase">{std.scuola || 'Medie'}</span>
-                  </div>
-                );
-              })}
+
+            <div className="max-h-40 overflow-y-auto space-y-1 bg-slate-50 p-2 rounded-2xl border border-slate-200">
+              
+              {/* TASTO CREA OSPITE SE NON TROVATO O SE DIGITI QUALCOSA */}
+              {studenteSearch.trim().length > 0 && (
+                <button
+                  type="button"
+                  disabled={isCreandoOspite}
+                  onClick={handleCreaOspiteAlVolo}
+                  className="w-full p-2.5 bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 font-black rounded-xl flex items-center justify-center gap-2 transition text-xs shadow-xs mb-1"
+                >
+                  <UserPlus className="w-4 h-4 text-amber-800"/>
+                  <span>+ Registra ed usa subito come Ospite: "<b>{studenteSearch.trim()}</b>"</span>
+                </button>
+              )}
+
+              {studentiFiltrati.length === 0 && studenteSearch.trim().length === 0 ? (
+                <div className="p-3 text-center text-slate-400 font-normal">
+                  Nessuno studente presente.
+                </div>
+              ) : (
+                studentiFiltrati.map(std => {
+                  const isSelected = formData.studentiIds.includes(std.id);
+                  return (
+                    <div 
+                      key={std.id}
+                      onClick={() => handleToggleStudente(std.id)}
+                      className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-amber-400 text-slate-950 font-black' : 'hover:bg-slate-200/60 text-slate-700'}`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        {std.isOspite && <span className="text-[9px] bg-slate-900 text-amber-300 px-1.5 py-0.2 rounded font-black uppercase">Ospite</span>}
+                        {std.nome} {std.cognome}
+                      </span>
+                      <span className="text-[10px] opacity-70 uppercase">{std.scuola || std.categoriaTariffaria || 'Medie'}</span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
