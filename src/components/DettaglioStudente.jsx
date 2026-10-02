@@ -16,7 +16,7 @@ import {
 } from '../utils/pricing';
 
 export default function DettaglioStudente({ 
-  studente: initialStudente, 
+  studente: initialStudente,
   lezioni = [], 
   insegnanti = [], 
   onClose, 
@@ -274,11 +274,49 @@ export default function DettaglioStudente({
     window.open(url, '_blank');
   };
 
-  const handleInviaEmail = () => {
+  const [isSendingMail, setIsSendingMail] = useState(false);
+
+  const handleInviaEmail = async () => {
     if (!emailDestinatario) return alert("Inserisci prima l'indirizzo email nelle informazioni di contatto.");
-    const subject = encodeURIComponent("Accesso all'App FuoriClasse");
-    const body = encodeURIComponent(testoInvito);
-    window.open(`mailto:${emailDestinatario}?subject=${subject}&body=${body}`, '_blank');
+    
+    setIsSendingMail(true);
+    try {
+      await addDoc(collection(db, 'mail'), {
+        to: emailDestinatario,
+        message: {
+          subject: "Benvenuto su FuoriClasse - Accesso alla tua Area Personale",
+          text: testoInvito,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 16px;">
+              <h2 style="color: #0f172a;">Benvenuto su <span style="color: #f59e0b;">FuoriClasse</span>!</h2>
+              <p>Gentile <b>${editStd.genitoreNome || editStd.nome}</b>,</p>
+              <p>è stata attivata la tua area personale per seguire il percorso didattico di <b>${editStd.nome}</b>.</p>
+              <div style="background-color: #f8fafc; padding: 15px; border-radius: 12px; margin: 20px 0;">
+                <p style="margin: 0; font-size: 14px; color: #475569;">Email di accesso: <b>${emailDestinatario}</b></p>
+              </div>
+              <p>Clicca sul pulsante qui sotto per accedere direttamente all'app:</p>
+              <div style="text-align: center; margin: 30px 0;">
+                <a href="${baseUrlApp}" style="background-color: #0f172a; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 10px; font-weight: bold; font-size: 14px; display: inline-block;">
+                  Accedi all'App FuoriClasse ➔
+                </a>
+              </div>
+              <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">
+                Dall'app puoi verificare le lezioni in programma, il saldo del tuo borsellino/plafond e inviare richieste per nuove lezioni.
+              </p>
+            </div>
+          `
+        },
+        createdAt: serverTimestamp()
+      });
+
+      if (aggiungiLog) aggiungiLog(`Inviata email di benvenuto automatica a: ${emailDestinatario}`);
+      alert(`✅ Email di benvenuto inviata con successo in background a ${emailDestinatario}!`);
+    } catch (err) {
+      console.error("Errore invio email Firebase:", err);
+      alert("Errore durante l'invio della mail automatica.");
+    } finally {
+      setIsSendingMail(false);
+    }
   };
 
   const handleCopiaLink = () => {
