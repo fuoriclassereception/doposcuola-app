@@ -17,12 +17,11 @@ export default function DettaglioStudente({
 }) {
   const [activeTab, setActiveTab] = useState('contabilita');
 
-  // STATO STUDENTE IN TEMPO REALE (NIENTE PIÙ F5)
+  // STATO STUDENTE IN TEMPO REALE
   const [studente, setStudente] = useState(initialStudente);
   const [editStd, setEditStd] = useState(initialStudente || {});
   const [isSavingProfilo, setIsSavingProfilo] = useState(false);
 
-  // Listener live sul documento dello studente
   useEffect(() => {
     if (!initialStudente?.id) return;
     const unsub = onSnapshot(doc(db, 'studenti', initialStudente.id), (docSnap) => {
@@ -35,7 +34,7 @@ export default function DettaglioStudente({
     return () => unsub();
   }, [initialStudente?.id]);
 
-  // Gestione modifica lezione
+  // Gestione modifica singola lezione
   const [editingLezioneId, setEditingLezioneId] = useState(null);
   const [editFormData, setEditFormData] = useState({ 
     oraInizio: '', 
@@ -44,9 +43,12 @@ export default function DettaglioStudente({
     prezzoPersonalizzato: ''
   });
 
-  // Configurazione Annullamento e ModalePin
-  const [annullaConfig, setAnnullaConfig] = useState({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
-  const [pinConfig, setPinConfig] = useState({ isOpen: false, description: '', actionCallback: null });
+  // GESTIONE ANNULLAMENTO E PIN
+  const [showAnnullaPopup, setShowAnnullaPopup] = useState(false);
+  const [lezioneTarget, setLezioneTarget] = useState(null);
+  const [tipoAnnullamento, setTipoAnnullamento] = useState('gratuito');
+  const [noteAnnullamento, setNoteAnnullamento] = useState('');
+  const [showPinModal, setShowPinModal] = useState(false);
 
   // Form Versamento / Ricarica Plafond
   const [showRicarica, setShowRicarica] = useState(false);
@@ -61,7 +63,6 @@ export default function DettaglioStudente({
 
   if (!studente) return null;
 
-  // Calcolo ore delle lezioni
   const calcolaOre = (oraInizio, oraFine) => {
     if (!oraInizio || !oraFine) return 1;
     const [hInizio, mInizio] = oraInizio.split(':').map(Number);
@@ -101,7 +102,7 @@ export default function DettaglioStudente({
     return prof ? `${prof.nome} ${prof.cognome}` : 'Da assegnare';
   };
 
-  // Salva Anagrafica Studente
+  // Salva Profilo Studente
   const salvaProfilo = async (e) => {
     e.preventDefault();
     setIsSavingProfilo(true);
@@ -121,7 +122,7 @@ export default function DettaglioStudente({
     }
   };
 
-  // Apertura form modifica lezione
+  // Modifica orari lezione
   const handleStartEdit = (lez) => {
     setEditingLezioneId(lez.id);
     setEditFormData({ 
@@ -132,7 +133,6 @@ export default function DettaglioStudente({
     });
   };
 
-  // Salvataggio modifica lezione
   const handleSaveEdit = async () => {
     try {
       await updateDoc(doc(db, 'lezioni', editingLezioneId), {
@@ -149,39 +149,47 @@ export default function DettaglioStudente({
     }
   };
 
-  // APERTURA MODALE PIN CENTRALIZZATA
-  const apriRichiestaPinAnnullamento = () => {
-    const { lezioneId, tipo, note } = annullaConfig;
-    if (!lezioneId) return;
-
-    // Chiude prima il modale di conferma
-    setAnnullaConfig({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' });
-
-    // Configura e apre ModalePin
-    setPinConfig({
-      isOpen: true,
-      description: `Annullamento ${tipo === 'penale' ? 'CON PENALE' : 'GRATUITO'}`,
-      actionCallback: async () => {
-        try {
-          await updateDoc(doc(db, 'lezioni', lezioneId), {
-            stato: 'annullata',
-            tipoAnnullamento: tipo,
-            penaleApplicata: tipo === 'penale',
-            noteAnnullamento: note || '',
-            dataAnnullamento: serverTimestamp()
-          });
-
-          if (aggiungiLog) aggiungiLog(`Lezione annullata (${tipo}) per ${studente.nome}`);
-          alert(`✅ Lezione annullata con successo (${tipo === 'penale' ? 'con penale 100%' : 'gratuita'}).`);
-        } catch (err) {
-          console.error("Errore annullamento:", err);
-          alert("Errore durante la cancellazione su Firebase.");
-        }
-      }
-    });
+  // 1. Clic su "Annulla" dalla lista lezioni
+  const handleAvviaAnnullamento = (lezione) => {
+    setLezioneTarget(lezione);
+    setTipoAnnullamento('gratuito');
+    setNoteAnnullamento('');
+    setShowAnnullaPopup(true);
   };
 
-  // GESTIONE VERSAMENTO (AGGIUNGI / MODIFICA)
+  // 2. Clic su "Procedi all'Annullamento" -> Chiude popup e apre subito ModalePin
+  const handleConfermaTipoAnnullamento = () => {
+    setShowAnnullaPopup(false);
+    setShowPinModal(true);
+  };
+
+  // 3. Callback eseguita da ModalePin quando il PIN (1234) è CORRETTO
+  const handlePinSuccess = async () => {
+    setShowPinModal(false);
+    if (!lezioneTarget) return;
+
+    try {
+      await updateDoc(doc(db, 'lezioni', lezioneTarget.id), {
+        stato: 'annullata',
+        tipoAnnullamento: tipoAnnullamento,
+        penaleApplicata: tipoAnnullamento === 'penale',
+        noteAnnullamento: noteAnnullamento || '',
+        dataAnnullamento: serverTimestamp()
+      });
+
+      if (aggiungiLog) {
+        aggiungiLog(`Lezione annullata (${tipoAnnullamento}) per ${studente.nome}`);
+      }
+      alert(`✅ Lezione annullata con successo (${tipoAnnullamento === 'penale' ? 'con penale 100%' : 'gratuita'}).`);
+    } catch (err) {
+      console.error("Errore Firebase:", err);
+      alert("Errore durante l'aggiornamento su Firebase.");
+    } finally {
+      setLezioneTarget(null);
+    }
+  };
+
+  // GESTIONE VERSAMENTO
   const handleSalvaMovimento = async (e) => {
     e.preventDefault();
     const importoNum = Number(movimentoForm.importo);
@@ -233,7 +241,6 @@ export default function DettaglioStudente({
     }
   };
 
-  // ELIMINAZIONE VERSAMENTO
   const handleEliminaMovimento = async (index) => {
     const mov = storicoRicariche[index];
     if (!window.confirm(`Vuoi cancellare il versamento di € ${Number(mov.importo ?? mov.pagato).toFixed(2)} del ${mov.data}?`)) return;
@@ -302,20 +309,19 @@ export default function DettaglioStudente({
             <CreditCard className="w-4 h-4 text-emerald-600"/> Contabilità & Estratto Conto
           </button>
           <button onClick={() => setActiveTab('lezioni')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'lezioni' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
-            <Calendar className="w-4 h-4"/> Lezioni Future ({lezioniFuture.length})
+            <Calendar className="w-4 h-4"/> Lezioni Programmate ({lezioniFuture.length})
           </button>
           <button onClick={() => setActiveTab('profilo')} className={`px-5 py-4 text-sm font-black flex items-center gap-2 border-b-2 transition-colors ${activeTab === 'profilo' ? 'border-amber-500 text-slate-900' : 'border-transparent text-gray-400 hover:text-gray-600'}`}>
             <User className="w-4 h-4"/> Profilo, Recapiti & GDPR
           </button>
         </div>
 
-        {/* TAB BODY */}
+        {/* CONTENUTO TAB */}
         <div className="p-6 overflow-y-auto flex-1 bg-white">
           
           {/* TAB 1: CONTABILITÀ */}
           {activeTab === 'contabilita' && (
             <div className="space-y-6">
-              
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className={`p-5 rounded-2xl border ${saldoCalcolato < 0 ? 'bg-red-50 border-red-200' : 'bg-emerald-50 border-emerald-200'}`}>
                   <p className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1">Saldo Attuale (Credito)</p>
@@ -517,7 +523,7 @@ export default function DettaglioStudente({
             </div>
           )}
 
-          {/* TAB 2: LEZIONI FUTURE */}
+          {/* TAB 2: LEZIONI PROGRAMMATE */}
           {activeTab === 'lezioni' && (
             <div className="space-y-4">
               {lezioniFuture.length === 0 ? (
@@ -581,7 +587,7 @@ export default function DettaglioStudente({
                         ) : (
                           <>
                             <button onClick={() => handleStartEdit(lez)} className="px-3 py-2 bg-white border border-slate-200 text-slate-700 hover:text-amber-600 hover:border-amber-200 text-xs font-bold rounded-xl flex items-center gap-1.5"><Edit2 className="w-3.5 h-3.5"/> Modifica</button>
-                            <button onClick={() => setAnnullaConfig({ isOpen: true, lezioneId: lez.id, tipo: 'gratuito', note: '' })} className="px-3 py-2 bg-rose-50 border border-rose-100 text-rose-600 hover:bg-rose-100 text-xs font-bold rounded-xl transition-colors">Annulla</button>
+                            <button onClick={() => handleAvviaAnnullamento(lez)} className="px-3 py-2 bg-rose-50 border border-rose-100 text-rose-600 hover:bg-rose-100 text-xs font-bold rounded-xl transition-colors">Annulla</button>
                           </>
                         )}
                       </div>
@@ -656,8 +662,8 @@ export default function DettaglioStudente({
         </div>
       </div>
 
-      {/* POPUP SCELTA TIPO ANNULLAMENTO (z-50) */}
-      {annullaConfig.isOpen && (
+      {/* POPUP SCELTA TIPO ANNULLAMENTO */}
+      {showAnnullaPopup && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <h3 className="font-black text-lg text-slate-900 flex items-center gap-2">
@@ -666,19 +672,39 @@ export default function DettaglioStudente({
             <div className="space-y-3 text-sm">
               <div>
                 <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Tipo di Annullamento</label>
-                <select className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900" value={annullaConfig.tipo} onChange={(e) => setAnnullaConfig({...annullaConfig, tipo: e.target.value})}>
+                <select 
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-slate-900" 
+                  value={tipoAnnullamento} 
+                  onChange={(e) => setTipoAnnullamento(e.target.value)}
+                >
                   <option value="gratuito">Annullamento Gratuito</option>
                   <option value="penale">Addebita Penale (100%)</option>
                 </select>
               </div>
               <div>
                 <label className="block text-[11px] font-extrabold text-gray-500 uppercase mb-1">Motivazione</label>
-                <input type="text" placeholder="Es. Malattia, imprevisto..." className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium" value={annullaConfig.note} onChange={(e) => setAnnullaConfig({...annullaConfig, note: e.target.value})}/>
+                <input 
+                  type="text" 
+                  placeholder="Es. Malattia, imprevisto..." 
+                  className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium" 
+                  value={noteAnnullamento} 
+                  onChange={(e) => setNoteAnnullamento(e.target.value)}
+                />
               </div>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
-              <button onClick={() => setAnnullaConfig({ isOpen: false, lezioneId: null, tipo: 'gratuito', note: '' })} className="px-4 py-2 bg-gray-100 font-bold rounded-xl text-xs">Indietro</button>
-              <button onClick={apriRichiestaPinAnnullamento} className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs">Procedi con il PIN ➔</button>
+              <button 
+                onClick={() => { setShowAnnullaPopup(false); setLezioneTarget(null); }} 
+                className="px-4 py-2 bg-gray-100 font-bold rounded-xl text-xs"
+              >
+                Indietro
+              </button>
+              <button 
+                onClick={handleConfermaTipoAnnullamento} 
+                className="px-4 py-2 bg-rose-600 text-white font-bold rounded-xl text-xs"
+              >
+                Procedi con il PIN ➔
+              </button>
             </div>
           </div>
         </div>
@@ -686,13 +712,10 @@ export default function DettaglioStudente({
 
       {/* MODALEPIN CENTRALIZZATA (z-[100]) */}
       <ModalePin
-        isOpen={pinConfig.isOpen}
-        descrizione={pinConfig.description}
-        onClose={() => setPinConfig({ isOpen: false, description: '', actionCallback: null })}
-        onSuccess={() => {
-          if (pinConfig.actionCallback) pinConfig.actionCallback();
-          setPinConfig({ isOpen: false, description: '', actionCallback: null });
-        }}
+        isOpen={showPinModal}
+        descrizione={`Annullamento ${tipoAnnullamento === 'penale' ? 'CON PENALE' : 'GRATUITO'}`}
+        onClose={() => { setShowPinModal(false); setLezioneTarget(null); }}
+        onSuccess={handlePinSuccess}
       />
 
     </div>
