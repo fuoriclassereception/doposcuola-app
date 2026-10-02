@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, User, BookOpen, Euro, Paperclip, AlertCircle, Users, UserPlus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Calendar, Clock, User, BookOpen, Euro, Paperclip, AlertCircle, Users, UserPlus, Search } from 'lucide-react';
 import ModalePin from './ModalePin';
 import { db } from '../services/firebase';
 import { collection, addDoc } from 'firebase/firestore';
@@ -29,7 +29,9 @@ export default function ModaleLezione({
 
   const [showPinModal, setShowPinModal] = useState(false);
   const [studenteSearch, setStudenteSearch] = useState('');
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isCreandoOspite, setIsCreandoOspite] = useState(false);
+  const searchContainerRef = useRef(null);
 
   useEffect(() => {
     if (initialData) {
@@ -62,29 +64,48 @@ export default function ModaleLezione({
       });
     }
     setStudenteSearch('');
+    setIsDropdownOpen(false);
   }, [initialData, isOpen]);
+
+  // Chiude dropdown se si clicca fuori
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   if (!isOpen) return null;
 
-  // Toggle selezione studente
-  const handleToggleStudente = (stdId) => {
+  const handleSelectStudent = (stdId) => {
     setFormData(prev => {
-      const exists = prev.studentiIds.includes(stdId);
       if (prev.isGruppo) {
+        const already = prev.studentiIds.includes(stdId);
         return {
           ...prev,
-          studentiIds: exists ? prev.studentiIds.filter(id => id !== stdId) : [...prev.studentiIds, stdId]
+          studentiIds: already ? prev.studentiIds : [...prev.studentiIds, stdId]
         };
       } else {
         return {
           ...prev,
-          studentiIds: exists ? [] : [stdId]
+          studentiIds: [stdId]
         };
       }
     });
+    setStudenteSearch('');
+    setIsDropdownOpen(false);
   };
 
-  // Creazione rapida studente ospite/al volo da Firestore
+  const handleRemoveStudent = (stdId) => {
+    setFormData(prev => ({
+      ...prev,
+      studentiIds: prev.studentiIds.filter(id => id !== stdId)
+    }));
+  };
+
   const handleCreaOspiteAlVolo = async () => {
     const nomeDigitato = studenteSearch.trim();
     if (!nomeDigitato) return;
@@ -107,21 +128,15 @@ export default function ModaleLezione({
         dataCreazione: new Date().toISOString()
       });
 
-      // Seleziona subito il nuovo ospite
-      setFormData(prev => ({
-        ...prev,
-        studentiIds: prev.isGruppo ? [...prev.studentiIds, docRef.id] : [docRef.id]
-      }));
-      setStudenteSearch('');
+      handleSelectStudent(docRef.id);
     } catch (err) {
       console.error("Errore creazione ospite:", err);
-      alert("Errore durante la creazione rapida dello studente ospite.");
+      alert("Errore durante la creazione dello studente ospite.");
     } finally {
       setIsCreandoOspite(false);
     }
   };
 
-  // Validazione form prima del PIN
   const handlePreSave = (e) => {
     e.preventDefault();
     if (!formData.data || !formData.oraInizio || !formData.oraFine) {
@@ -138,7 +153,6 @@ export default function ModaleLezione({
     setShowPinModal(true);
   };
 
-  // Esecuzione salvataggio dopo PIN corretto (1234)
   const handlePinSuccess = async () => {
     setShowPinModal(false);
     const payload = {
@@ -154,15 +168,17 @@ export default function ModaleLezione({
     }
   };
 
-  const studentiFiltrati = (studenti || []).filter(s => 
-    `${s.nome || ''} ${s.cognome || ''}`.toLowerCase().includes(studenteSearch.toLowerCase())
-  );
+  // Filtra SOLO quando si scrive qualcosa
+  const queryPulita = studenteSearch.trim().toLowerCase();
+  const studentiTrovati = queryPulita.length > 0
+    ? (studenti || []).filter(s => `${s.nome || ''} ${s.cognome || ''}`.toLowerCase().includes(queryPulita))
+    : [];
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 my-auto">
         
-        {/* HEADER MODALE */}
+        {/* HEADER */}
         <div className="flex justify-between items-center border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-amber-400 text-slate-950 rounded-xl font-bold">
@@ -281,59 +297,93 @@ export default function ModaleLezione({
             </div>
           </div>
 
-          {/* SELEZIONE STUDENTI + CREAZIONE OSPITE AL VOLO */}
-          <div>
-            <div className="flex justify-between items-center mb-1">
-              <label className="text-[10px] uppercase text-slate-500">
-                Seleziona Allievo ({formData.studentiIds.length} selezionati)
-              </label>
+          {/* BARRA DI RICERCA STUDENTE (ZERO LISTA FISSA - SOLO DROPDOWN A COMPARSA) */}
+          <div className="relative" ref={searchContainerRef}>
+            <label className="block text-[10px] uppercase text-slate-500 mb-1">
+              {formData.isGruppo ? 'Aggiungi Allievi al Gruppo' : 'Seleziona Allievo'}
+            </label>
+
+            {/* CHIPS DEGLI STUDENTI GIA SELEZIONATI */}
+            {formData.studentiIds.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {formData.studentiIds.map(sId => {
+                  const s = (studenti || []).find(std => std.id === sId);
+                  return (
+                    <span 
+                      key={sId} 
+                      className="bg-amber-400 text-slate-950 px-2.5 py-1 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-xs"
+                    >
+                      👤 {s ? `${s.nome} ${s.cognome}` : 'Studente'}
+                      <button 
+                        type="button" 
+                        onClick={() => handleRemoveStudent(sId)}
+                        className="p-0.5 hover:bg-amber-500 rounded-full"
+                      >
+                        <X className="w-3 h-3"/>
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* INPUT DI RICERCA */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3"/>
               <input 
                 type="text" 
-                placeholder="Cerca o digita nome ospite..."
-                className="p-1 px-2.5 text-[11px] border border-slate-300 rounded-xl w-52 bg-slate-50 font-bold focus:bg-white focus:outline-none"
+                placeholder="Inizia a digitare il nome dell'allievo o ospite..."
+                className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-400"
                 value={studenteSearch}
-                onChange={e => setStudenteSearch(e.target.value)}
+                onChange={e => {
+                  setStudenteSearch(e.target.value);
+                  setIsDropdownOpen(true);
+                }}
+                onFocus={() => {
+                  if (studenteSearch.trim().length > 0) setIsDropdownOpen(true);
+                }}
               />
             </div>
 
-            <div className="max-h-40 overflow-y-auto space-y-1 bg-slate-50 p-2 rounded-2xl border border-slate-200">
-              
-              {/* TASTO CREA OSPITE SE NON TROVATO O SE DIGITI QUALCOSA */}
-              {studenteSearch.trim().length > 0 && (
+            {/* TENDINA RISULTATI DINAMICA (COMPARE SOLO SE DIGITI) */}
+            {isDropdownOpen && queryPulita.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 max-h-52 overflow-y-auto p-1.5 space-y-1">
+                
+                {/* Tasto crea ospite al volo */}
                 <button
                   type="button"
                   disabled={isCreandoOspite}
                   onClick={handleCreaOspiteAlVolo}
-                  className="w-full p-2.5 bg-amber-100 hover:bg-amber-200 border border-amber-300 text-amber-950 font-black rounded-xl flex items-center justify-center gap-2 transition text-xs shadow-xs mb-1"
+                  className="w-full p-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-950 font-black rounded-xl flex items-center gap-2 text-left transition text-xs"
                 >
-                  <UserPlus className="w-4 h-4 text-amber-800"/>
-                  <span>+ Registra ed usa subito come Ospite: "<b>{studenteSearch.trim()}</b>"</span>
+                  <UserPlus className="w-4 h-4 text-amber-700 shrink-0"/>
+                  <span className="truncate">+ Registra ed usa come Ospite: "<b>{studenteSearch.trim()}</b>"</span>
                 </button>
-              )}
 
-              {studentiFiltrati.length === 0 && studenteSearch.trim().length === 0 ? (
-                <div className="p-3 text-center text-slate-400 font-normal">
-                  Nessuno studente presente.
-                </div>
-              ) : (
-                studentiFiltrati.map(std => {
+                {studentiTrovati.map(std => {
                   const isSelected = formData.studentiIds.includes(std.id);
                   return (
                     <div 
                       key={std.id}
-                      onClick={() => handleToggleStudente(std.id)}
-                      className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-amber-400 text-slate-950 font-black' : 'hover:bg-slate-200/60 text-slate-700'}`}
+                      onClick={() => handleSelectStudent(std.id)}
+                      className={`p-2 rounded-xl flex items-center justify-between cursor-pointer transition text-xs ${isSelected ? 'bg-amber-100 text-amber-950 font-black' : 'hover:bg-slate-100 text-slate-700'}`}
                     >
                       <span className="flex items-center gap-1.5">
-                        {std.isOspite && <span className="text-[9px] bg-slate-900 text-amber-300 px-1.5 py-0.2 rounded font-black uppercase">Ospite</span>}
+                        {std.isOspite && <span className="text-[9px] bg-slate-900 text-amber-300 px-1 py-0.2 rounded font-black uppercase">Ospite</span>}
                         {std.nome} {std.cognome}
                       </span>
-                      <span className="text-[10px] opacity-70 uppercase">{std.scuola || std.categoriaTariffaria || 'Medie'}</span>
+                      <span className="text-[10px] text-slate-400 uppercase">{std.scuola || std.categoriaTariffaria || 'Medie'}</span>
                     </div>
                   );
-                })
-              )}
-            </div>
+                })}
+
+                {studentiTrovati.length === 0 && (
+                  <p className="p-2 text-center text-slate-400 text-xs font-normal">
+                    Nessun iscritto trovato con questo nome.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* NOTE */}
